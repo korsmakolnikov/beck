@@ -3,6 +3,8 @@ name = "beck"
 version = "0.1.0"
 description = "The deterministic orchestrator of the architecture-first workflow."
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "jsonschema>=4.23",
     "lizard>=1.26.0",

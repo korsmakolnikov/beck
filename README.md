@@ -4,17 +4,16 @@ Status: **implemented, not yet tried on a real project**. Every phase runs
 end to end in the tests, with scripted agents on real repositories and real
 test runs; the Claude Code driver was tried on one real turn. These notes
 record what was discussed and approved; the code is in `src/beck/`, the
-tests in `tests/` (`make check`). beck was born in
-[minime](https://github.com/korsmakolnikov/minime), whose workflow it
-replaces, and moved to this repository of its own: it depends on nothing of
-minime.
+tests in `tests/` (`make check`). beck replaces the workflow of
+[minime](https://github.com/korsmakolnikov/minime) and depends on nothing
+of it.
 
 beck is an application that replaces the `kent` agent of minime and
 redesigns its architecture-first workflow around it. The workflow as agents
 costs too many tokens (in minime's measures: unclebob 70.8 %, joshua
-10.7 %, kent 6.4 %), is slow, and needs the user at every unit. minime's
-workflow stays, in maintenance, until beck is stable; then beck rewrites
-itself, and the workflow is deprecated.
+10.7 %, kent 6.4 %), is slow, and needs the user at every unit. Once beck
+is stable, beck rewrites beck: a released version builds the next, as a
+compiler bootstraps itself.
 
 ## Development
 
