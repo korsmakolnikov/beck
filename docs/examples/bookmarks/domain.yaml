@@ -1,0 +1,88 @@
+domain: 1
+system: bookmarks
+
+entities:
+  - name: Bookmark
+    kind: entity
+    description: A web page a user saved, to be tagged and archived.
+    fields:
+      - {name: id, type: integer, required: true}
+      - {name: user_id, type: integer, required: true}
+      - {name: status, type: "one of open, archived"}
+    invariants:
+      - id: archived-bookmark-has-a-tag
+        rule: An archived bookmark carries at least one tag.
+  - name: Tag
+    kind: entity
+    description: A label a user attaches to their bookmarks.
+    fields:
+      - {name: id, type: integer, required: true}
+      - {name: user_id, type: integer, required: true}
+      - {name: name, type: TagName, required: true}
+  - name: TagName
+    kind: value_object
+    description: The name of a tag, unique within its user.
+    fields:
+      - {name: value, type: string}
+    invariants:
+      - id: tag-name-is-1-to-40-characters
+        rule: A tag name holds from 1 to 40 characters.
+
+events:
+  - name: BookmarkTagged
+    description: A bookmark received one or more tags.
+    fields:
+      - {name: bookmark_id, type: integer}
+  - name: BookmarkArchived
+    description: A bookmark was archived.
+    fields:
+      - {name: bookmark_id, type: integer}
+
+relations:
+  - from: Bookmark
+    to: Tag
+    kind: many_to_many
+    description: A bookmark is tagged with any number of tags.
+    rules:
+      - id: tag-belongs-to-the-same-user
+        rule: A bookmark is tagged only with tags of its user.
+
+constraints:
+  - id: tagging-is-atomic
+    about: [Bookmark, Tag]
+    rule: Either every tag of a request is applied or none is.
+
+operations:
+  - id: tag-bookmark
+    description: A user tags one of their bookmarks.
+    uses: [Bookmark, Tag, TagName]
+    pre:
+      - The bookmark exists.
+    post:
+      - id: tagged-bookmark-carries-the-requested-tags
+        rule: The bookmark carries exactly the requested tags.
+    errors:
+      - id: tag-missing-bookmark
+        when: The bookmark does not exist.
+        outcome: Nothing changes and the user learns the bookmark is missing.
+    emits: [BookmarkTagged]
+  - id: archive-bookmark
+    description: A user archives one of their tagged bookmarks.
+    uses: [Bookmark]
+    post:
+      - id: archived-bookmark-is-archived
+        rule: The bookmark's status is archived.
+    errors:
+      - id: archive-untagged-bookmark
+        when: The bookmark carries no tag.
+        outcome: Nothing changes and the user learns a bookmark needs a tag to be archived.
+    emits: [BookmarkArchived]
+
+properties:
+  - id: tagging-twice-equals-tagging-once
+    operations: [tag-bookmark]
+    kind: idempotence
+    forall:
+      - {name: bookmark, generator: an existing bookmark}
+      - {name: tags, generator: a non-empty list of valid tags of its user}
+    holds: Tagging twice with the same tags leaves the same state as tagging once.

@@ -1,0 +1,37 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://beck.local/agents/reader.schema.yaml
+title: the reader's commands
+description: >-
+  The reader, on a small model (Haiku), is the fallback of the deterministic
+  parsers: it summarises a test run or a check whose output beck could not
+  read, so that unclebob and martin never read a console.
+
+$defs:
+  SummariseOutput-in:
+    type: object
+    required: [log, tool]
+    additionalProperties: false
+    properties:
+      log: {$ref: "common.schema.yaml#/$defs/path"}
+      tool:
+        description: What wrote the log (the test runner, a check's name).
+        $ref: "common.schema.yaml#/$defs/text"
+      tests:
+        description: The tests the run was asked for, when it was a test run.
+        type: array
+        items: {type: string, minLength: 1}
+  SummariseOutput-out:
+    properties:
+      outcome: {const: done}
+      result:
+        type: object
+        required: [ok, summary]
+        additionalProperties: false
+        properties:
+          ok: {type: boolean}
+          summary:
+            description: "Like beck's own summaries: one entry per failure, file:line and the first lines of the message."
+            type: string
+            minLength: 1
+            maxLength: 2000
+    required: [result]

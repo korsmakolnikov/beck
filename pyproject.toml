@@ -1,0 +1,60 @@
+[project]
+name = "beck"
+version = "0.1.0"
+description = "The deterministic orchestrator of the architecture-first workflow."
+requires-python = ">=3.12"
+dependencies = [
+    "jsonschema>=4.23",
+    "lizard>=1.26.0",
+    "pyyaml>=6.0",
+    "referencing>=0.37.0",
+    "textual>=8.2.8",
+    "tree-sitter>=0.26.1",
+    "tree-sitter-c>=0.24.2",
+    "tree-sitter-elixir>=0.3.5",
+    "tree-sitter-python>=0.25.0",
+]
+
+[project.scripts]
+beck = "beck.cli:main"
+
+[dependency-groups]
+dev = [
+    "lizard>=1.26.0",
+    "mypy>=2.4.1",
+    "pytest>=8.3",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.5",
+    "types-pyyaml>=6.0.12.20261113",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 130
+target-version = "py312"
+extend-exclude = ["src/beck/scaffold/templates", "src/beck/fitness/templates"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+# the tests import the fixtures of other test modules: pytest injects them by name
+"tests/*" = ["F811"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["beck"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src"]
+exclude = ["src/beck/scaffold/templates/", "src/beck/fitness/templates/"]
+
+[[tool.mypy.overrides]]
+module = ["lizard", "tree_sitter_c", "tree_sitter_elixir", "tree_sitter_python", "jsonschema", "jsonschema.*"]
+ignore_missing_imports = true

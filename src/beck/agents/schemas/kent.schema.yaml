@@ -1,0 +1,379 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://beck.local/agents/kent.schema.yaml
+title: kent's commands
+description: >-
+  kent is the DSL author: it frames the iteration, writes the domain, the
+  architecture and the interfaces, and proposes what needs the user. Each
+  state of the model is a fresh session. Only kent asks the user
+  (outcome: question); beck relays the question and the answer.
+
+$defs:
+  answers:
+    type: array
+    items:
+      type: object
+      required: [question, answer]
+      additionalProperties: false
+      properties:
+        question: {$ref: "common.schema.yaml#/$defs/text"}
+        answer: {$ref: "common.schema.yaml#/$defs/text"}
+
+  validation:
+    description: The errors of the deterministic check that refused the previous write.
+    type: array
+    items: {$ref: "common.schema.yaml#/$defs/text"}
+
+  writes-a-file:
+    description: kent writes the file named in the input; beck validates it.
+    properties:
+      outcome: {enum: [done, question]}
+    not: {required: [result]}
+
+  AskFollowUps-in:
+    type: object
+    required: [answers]
+    additionalProperties: false
+    properties:
+      answers: {$ref: "#/$defs/answers"}
+  AskFollowUps-out:
+    properties:
+      outcome: {const: done}
+      result:
+        type: object
+        required: [questions]
+        additionalProperties: false
+        properties:
+          questions:
+            description: The follow-up questions; none when the interview is complete.
+            type: array
+            items: {$ref: "common.schema.yaml#/$defs/question"}
+    required: [result]
+
+  ProposeBranchName-in:
+    type: object
+    required: [format, answers]
+    additionalProperties: false
+    properties:
+      format: {$ref: "common.schema.yaml#/$defs/text"}
+      answers: {$ref: "#/$defs/answers"}
+  ProposeBranchName-out:
+    properties:
+      outcome: {enum: [done, question]}
+      result:
+        type: object
+        required: [name]
+        additionalProperties: false
+        properties:
+          name: {type: string, pattern: "^[A-Za-z0-9._/-]+$"}
+    if: {properties: {outcome: {const: done}}}
+    then: {required: [result]}
+
+  BringEnvironmentUp-in:
+    type: object
+    required: [docs, failure]
+    additionalProperties: false
+    properties:
+      docs: {$ref: "common.schema.yaml#/$defs/paths"}
+      failure: {$ref: "common.schema.yaml#/$defs/text"}
+  BringEnvironmentUp-out:
+    properties:
+      outcome: {enum: [done, question]}
+      result:
+        type: object
+        required: [up, steps]
+        additionalProperties: false
+        properties:
+          up: {type: boolean}
+          steps:
+            description: The commands kent ran, in order, so that beck can run them itself next time.
+            type: array
+            items: {$ref: "common.schema.yaml#/$defs/text"}
+    if: {properties: {outcome: {const: done}}}
+    then: {required: [result]}
+
+  DelimitCodeArea-in:
+    type: object
+    required: [answers]
+    additionalProperties: false
+    properties:
+      answers: {$ref: "#/$defs/answers"}
+  DelimitCodeArea-out:
+    properties:
+      outcome: {enum: [done, question]}
+      result:
+        type: object
+        required: [paths]
+        additionalProperties: false
+        properties:
+          paths: {$ref: "common.schema.yaml#/$defs/paths"}
+    if: {properties: {outcome: {const: done}}}
+    then: {required: [result]}
+
+  WriteShoppingList-in:
+    type: object
+    required: [file, answers]
+    additionalProperties: false
+    properties:
+      file: {$ref: "common.schema.yaml#/$defs/path"}
+      answers: {$ref: "#/$defs/answers"}
+      area: {$ref: "common.schema.yaml#/$defs/paths"}
+      revision: {$ref: "common.schema.yaml#/$defs/text"}
+  WriteShoppingList-out: {$ref: "#/$defs/writes-a-file"}
+
+  ProposeDslSync-in:
+    type: object
+    required: [drift]
+    additionalProperties: false
+    properties:
+      drift:
+        description: The files whose change altered the behaviour of code realizing spec ids.
+        type: array
+        items:
+          type: object
+          required: [file, ids]
+          additionalProperties: false
+          properties:
+            file: {$ref: "common.schema.yaml#/$defs/path"}
+            ids: {type: array, items: {$ref: "common.schema.yaml#/$defs/id"}}
+  ProposeDslSync-out:
+    properties:
+      outcome: {enum: [done, question]}
+      result:
+        type: object
+        required: [summary]
+        additionalProperties: false
+        properties:
+          summary: {$ref: "common.schema.yaml#/$defs/text"}
+    if: {properties: {outcome: {const: done}}}
+    then: {required: [result]}
+
+  WriteDomain-in:
+    type: object
+    required: [file, shopping_list]
+    additionalProperties: false
+    properties:
+      file: {$ref: "common.schema.yaml#/$defs/path"}
+      shopping_list: {$ref: "common.schema.yaml#/$defs/path"}
+      errors: {$ref: "#/$defs/validation"}
+      revision: {$ref: "common.schema.yaml#/$defs/text"}
+  WriteDomain-out: {$ref: "#/$defs/writes-a-file"}
+
+  WriteArchitecture-in:
+    type: object
+    required: [file, domain, shopping_list]
+    additionalProperties: false
+    properties:
+      file: {$ref: "common.schema.yaml#/$defs/path"}
+      domain: {$ref: "common.schema.yaml#/$defs/path"}
+      shopping_list: {$ref: "common.schema.yaml#/$defs/path"}
+      errors: {$ref: "#/$defs/validation"}
+      revision: {$ref: "common.schema.yaml#/$defs/text"}
+  WriteArchitecture-out: {$ref: "#/$defs/writes-a-file"}
+
+  WriteInterfaces-in:
+    type: object
+    required: [architecture, domain]
+    additionalProperties: false
+    properties:
+      architecture: {$ref: "common.schema.yaml#/$defs/path"}
+      domain: {$ref: "common.schema.yaml#/$defs/path"}
+      errors: {$ref: "#/$defs/validation"}
+  WriteInterfaces-out:
+    properties:
+      outcome: {enum: [done, question]}
+      result:
+        type: object
+        required: [files]
+        additionalProperties: false
+        properties:
+          files: {$ref: "common.schema.yaml#/$defs/paths"}
+    if: {properties: {outcome: {const: done}}}
+    then: {required: [result]}
+
+  WriteFitnessFunctions-in:
+    type: object
+    required: [file, rules]
+    additionalProperties: false
+    properties:
+      file: {$ref: "common.schema.yaml#/$defs/path"}
+      rules:
+        type: array
+        minItems: 1
+        items:
+          type: object
+          required: [id, rule]
+          additionalProperties: false
+          properties:
+            id: {$ref: "common.schema.yaml#/$defs/id"}
+            rule: {$ref: "common.schema.yaml#/$defs/text"}
+  WriteFitnessFunctions-out:
+    properties:
+      outcome: {const: done}
+    not: {required: [result]}
+
+  AnchorIds-in:
+    type: object
+    required: [ids]
+    additionalProperties: false
+    properties:
+      ids: {type: array, minItems: 1, items: {$ref: "common.schema.yaml#/$defs/id"}}
+  AnchorIds-out:
+    properties:
+      outcome: {const: done}
+    not: {required: [result]}
+
+  VerifyIndex-in:
+    type: object
+    required: [files]
+    additionalProperties: false
+    properties:
+      files: {$ref: "common.schema.yaml#/$defs/paths"}
+  VerifyIndex-out:
+    properties:
+      outcome: {const: done}
+      result:
+        type: object
+        required: [discrepancies]
+        additionalProperties: false
+        properties:
+          discrepancies:
+            type: array
+            items:
+              type: object
+              required: [file, id, what]
+              additionalProperties: false
+              properties:
+                file: {$ref: "common.schema.yaml#/$defs/path"}
+                id: {$ref: "common.schema.yaml#/$defs/id"}
+                what: {$ref: "common.schema.yaml#/$defs/text"}
+    required: [result]
+
+  ProposeResolution-in:
+    type: object
+    required: [kind, details]
+    additionalProperties: false
+    properties:
+      kind: {enum: [blocked_cycle, interface, architecture, worsened_measure]}
+      details: {type: object}
+      instructions:
+        description: The user's instructions, after a rejected proposal.
+        $ref: "common.schema.yaml#/$defs/text"
+  ProposeResolution-out:
+    properties:
+      outcome: {enum: [done, question]}
+      result:
+        type: object
+        required: [summary, changes, units]
+        additionalProperties: false
+        properties:
+          summary: {$ref: "common.schema.yaml#/$defs/text"}
+          changes:
+            description: The changes to the DSLs and to the interfaces, as the user will review them.
+            $ref: "common.schema.yaml#/$defs/text"
+          units:
+            description: The units the resolution reopens.
+            type: array
+            items: {type: string, minLength: 1}
+    if: {properties: {outcome: {const: done}}}
+    then: {required: [result]}
+
+  PlanCorrections-in:
+    type: object
+    required: [request]
+    additionalProperties: false
+    properties:
+      request: {$ref: "common.schema.yaml#/$defs/text"}
+  PlanCorrections-out:
+    properties:
+      outcome: {enum: [done, question]}
+      result:
+        type: object
+        required: [plan]
+        additionalProperties: false
+        properties:
+          plan:
+            type: array
+            minItems: 1
+            items:
+              type: object
+              required: [unit, agent, description]
+              additionalProperties: false
+              properties:
+                unit: {type: string, minLength: 1}
+                agent: {enum: [unclebob, martin]}
+                clauses: {type: array, items: {$ref: "common.schema.yaml#/$defs/id"}}
+                description: {$ref: "common.schema.yaml#/$defs/text"}
+    if: {properties: {outcome: {const: done}}}
+    then: {required: [result]}
+
+  RouteDecision-in:
+    description: >-
+      beck asked the user about a situation its rules cannot settle, and the
+      user answered in words: pick the one action of the menu the answer
+      means, with its arguments.
+    type: object
+    required: [situation, question, answer, actions]
+    additionalProperties: false
+    properties:
+      situation: {type: string, minLength: 1}
+      question: {$ref: "common.schema.yaml#/$defs/text"}
+      answer: {$ref: "common.schema.yaml#/$defs/text"}
+      actions:
+        type: array
+        minItems: 1
+        items:
+          type: object
+          required: [id, does, args]
+          additionalProperties: false
+          properties:
+            id: {type: string, pattern: "^[a-z]+(-[a-z]+)*$"}
+            does: {$ref: "common.schema.yaml#/$defs/text"}
+            args:
+              description: The arguments the action needs, each with what it is.
+              type: object
+              additionalProperties: {type: string}
+  RouteDecision-out:
+    properties:
+      outcome: {enum: [done, question]}
+      result:
+        type: object
+        required: [action, args, why]
+        additionalProperties: false
+        properties:
+          action: {type: string, minLength: 1}
+          args: {type: object, additionalProperties: {type: string}}
+          why: {$ref: "common.schema.yaml#/$defs/text"}
+    if: {properties: {outcome: {const: done}}}
+    then: {required: [result]}
+
+  WireCoverage-in:
+    description: >-
+      The project's suite runs, but beck cannot measure its coverage. Find the
+      tool the project already has, or add the language's usual one as a
+      development dependency in the manifest; then wire it in the toolchain
+      (its `coverage` mapping: the format, and the args or the command that
+      write the report). beck installs the dependencies, runs the suite with
+      the coverage and commits the change.
+    type: object
+    required: [language, manifest, toolchain, formats]
+    additionalProperties: false
+    properties:
+      language: {enum: [python, elixir]}
+      manifest: {$ref: "common.schema.yaml#/$defs/path"}
+      toolchain: {$ref: "common.schema.yaml#/$defs/path"}
+      formats:
+        description: The report formats beck reads.
+        type: array
+        items: {type: string}
+  WireCoverage-out:
+    properties:
+      outcome: {enum: [done, question]}
+      result:
+        type: object
+        required: [tool, summary]
+        additionalProperties: false
+        properties:
+          tool: {type: string, minLength: 1}
+          summary: {$ref: "common.schema.yaml#/$defs/text"}
+    if: {properties: {outcome: {const: done}}}
+    then: {required: [result]}

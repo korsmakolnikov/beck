@@ -1,0 +1,69 @@
+architecture: 1
+system: {id: bookmarks, name: Bookmarks, physical: bookmarks}
+description: Bookmarks saved by users, tagged and archived.
+requires: [AdlFitness ExUnit helper]
+
+elements:
+  - kind: domain
+    id: tagging
+    name: Tagging
+    physical: tagging
+    elements:
+      - kind: component
+        id: bookmark-tagger
+        name: Bookmark Tagger
+        physical: bookmark_tagger
+        boundary: interface
+        depends_on: [tag-store]
+        realizes: [tag-bookmark, tag-belongs-to-the-same-user]
+      - kind: component
+        id: tag-store
+        name: Tag Store
+        physical: tag_store
+        boundary: interface
+        supervised: true
+        depends_on: [storage]
+        realizes: [tag-name-is-1-to-40-characters]
+  - kind: domain
+    id: archive
+    name: Archive
+    physical: archive
+    elements:
+      - kind: component
+        id: archiver
+        name: Archiver
+        physical: archiver
+        boundary: concrete
+        depends_on: [tag-store]
+        realizes: [archive-bookmark, archived-bookmark-has-a-tag]
+  - kind: library
+    id: storage
+    name: Storage
+    physical: storage
+  - kind: library
+    id: json-codec
+    name: JSON codec
+    physical: json_codec
+    package: jason
+    version: "~> 1.4"
+
+constants:
+  - {id: max-tags, name: MAX_TAGS, value: 20}
+
+assertions:
+  - id: tagging-has-no-dependency-on-archive
+    no_dependency: {from: tagging, to: archive}
+  - id: classes-only-in-components
+    contained_in: {what: classes, within: [component, subdomain]}
+  - id: tagging-components-reach-storage-only-through-tag-store
+    foreach:
+      over: component
+      within: tagging
+      as: c
+      except: [tag-store]
+      assert: {no_dependency: {from: $c, to: storage}}
+  - id: tagging-is-auditable
+    rule: Every write of a tagging component is recorded in the audit log.
+
+integration:
+  realizes: [tagging-is-atomic]

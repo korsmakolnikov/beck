@@ -1,0 +1,190 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://beck.local/schemas/architecture.schema.yaml
+title: beck architecture
+description: >-
+  The architecture of a system (.beck/architecture.yaml): the tree of
+  elements, which component realizes which domain id, the dependencies, and
+  the assertions the fitness functions enforce. The shape only; the
+  references are checked by beck validate architecture (see docs/dsl.md).
+type: object
+required: [architecture, system, elements]
+additionalProperties: false
+properties:
+  architecture:
+    const: 1
+  system:
+    type: object
+    required: [id, name, physical]
+    additionalProperties: false
+    properties:
+      id: {$ref: "#/$defs/id"}
+      name: {type: string, minLength: 1}
+      physical: {$ref: "#/$defs/physical"}
+  description: {type: string, minLength: 1}
+  requires:
+    description: Tooling the fitness functions need.
+    type: array
+    items: {type: string, minLength: 1}
+  elements:
+    type: array
+    minItems: 1
+    items: {$ref: "#/$defs/element"}
+  constants:
+    type: array
+    items:
+      type: object
+      required: [id, name, value]
+      additionalProperties: false
+      properties:
+        id: {$ref: "#/$defs/id"}
+        name: {type: string, pattern: "^[A-Z][A-Z0-9_]*$"}
+        value: {type: [string, number, boolean]}
+  assertions:
+    type: array
+    items: {$ref: "#/$defs/assertion"}
+  integration:
+    description: The clauses that span components, realized by the integration unit.
+    type: object
+    required: [realizes]
+    additionalProperties: false
+    properties:
+      realizes: {$ref: "#/$defs/ids"}
+
+$defs:
+  id:
+    type: string
+    pattern: "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+  physical:
+    type: string
+    pattern: "^[a-z][a-z0-9_]*$"
+  ids:
+    type: array
+    uniqueItems: true
+    items: {$ref: "#/$defs/id"}
+  ref:
+    description: An element id, or $<name> inside a foreach.
+    type: string
+    pattern: "^([a-z][a-z0-9]*(-[a-z0-9]+)*|\\$[a-z][a-z0-9_]*)$"
+  kind:
+    enum: [domain, subdomain, component, library, service]
+
+  element:
+    type: object
+    required: [kind, id, name, physical]
+    properties:
+      kind: {$ref: "#/$defs/kind"}
+      id: {$ref: "#/$defs/id"}
+      name: {type: string, minLength: 1}
+      physical: {$ref: "#/$defs/physical"}
+      description: {type: string, minLength: 1}
+      elements:
+        type: array
+        minItems: 1
+        items: {$ref: "#/$defs/element"}
+      boundary: {enum: [interface, concrete]}
+      supervised:
+        description: A component that runs as a supervised process; the model writes the supervision tree.
+        type: boolean
+      package:
+        description: An external library's package, which the model writes into the dependency manifest.
+        type: string
+        minLength: 1
+      version:
+        description: The external library's version requirement, in the manifest's syntax.
+        type: string
+        minLength: 1
+      depends_on: {$ref: "#/$defs/ids"}
+      realizes: {$ref: "#/$defs/ids"}
+    additionalProperties: false
+    allOf:
+      - if: {properties: {kind: {const: component}}}
+        then:
+          required: [boundary]
+          not: {required: [elements]}
+        else:
+          not:
+            anyOf:
+              - required: [boundary]
+              - required: [supervised]
+              - required: [depends_on]
+              - required: [realizes]
+      - if: {properties: {kind: {const: library}}}
+        then:
+          not: {required: [elements]}
+          dependentRequired: {version: [package]}
+        else:
+          not:
+            anyOf:
+              - required: [package]
+              - required: [version]
+
+  assertion:
+    type: object
+    required: [id]
+    properties:
+      id: {$ref: "#/$defs/id"}
+      description: {type: string, minLength: 1}
+    oneOf:
+      - {required: [no_dependency]}
+      - {required: [only_depends_on]}
+      - {required: [contained_in]}
+      - {required: [foreach]}
+      - {required: [rule]}
+    $ref: "#/$defs/assertionForms"
+    unevaluatedProperties: false
+
+  assertionBody:
+    description: An assertion without id, as nested in a foreach.
+    type: object
+    oneOf:
+      - {required: [no_dependency]}
+      - {required: [only_depends_on]}
+      - {required: [contained_in]}
+      - {required: [foreach]}
+    $ref: "#/$defs/assertionForms"
+    unevaluatedProperties: false
+
+  assertionForms:
+    properties:
+      no_dependency:
+        type: object
+        required: [from, to]
+        additionalProperties: false
+        properties:
+          from: {$ref: "#/$defs/ref"}
+          to: {$ref: "#/$defs/ref"}
+      only_depends_on:
+        type: object
+        required: [from, to]
+        additionalProperties: false
+        properties:
+          from: {$ref: "#/$defs/ref"}
+          to:
+            type: array
+            uniqueItems: true
+            items: {$ref: "#/$defs/ref"}
+      contained_in:
+        type: object
+        required: [what, within]
+        additionalProperties: false
+        properties:
+          what: {const: classes}
+          within:
+            type: array
+            minItems: 1
+            uniqueItems: true
+            items: {$ref: "#/$defs/kind"}
+      foreach:
+        type: object
+        required: [over, as, assert]
+        additionalProperties: false
+        properties:
+          over: {$ref: "#/$defs/kind"}
+          within: {$ref: "#/$defs/id"}
+          as: {type: string, pattern: "^[a-z][a-z0-9_]*$"}
+          except: {$ref: "#/$defs/ids"}
+          assert: {$ref: "#/$defs/assertionBody"}
+      rule:
+        description: A free assertion; its fitness function is written by kent.
+        type: string
+        minLength: 1

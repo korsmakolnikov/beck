@@ -1,0 +1,165 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://beck.local/agents/martin.schema.yaml
+title: martin's commands
+description: >-
+  One session per unit, from ReviewUnit to the unit's landing. beck runs the
+  unit's tests and the full suite when the policies ask for them; martin
+  runs `beck test` and `beck check` for its own steps, writes files, never
+  commits: beck commits its changes as fixups of the unit's commit.
+
+$defs:
+  unit:
+    type: object
+    required: [id, namespace, files]
+    additionalProperties: false
+    properties:
+      id: {type: string, minLength: 1}
+      namespace: {type: array, items: {type: string}}
+      files: {$ref: "common.schema.yaml#/$defs/paths"}
+
+  finding:
+    type: object
+    required: [id, kind, file, description, proposal]
+    additionalProperties: false
+    properties:
+      id:
+        description: F<n> for martin's own findings, C<n> for the user's corrections.
+        type: string
+        pattern: "^[FC][0-9]+$"
+      kind: {enum: [solid, complexity, idiom, readability, style, tests]}
+      file: {$ref: "common.schema.yaml#/$defs/path"}
+      line: {type: integer, minimum: 1}
+      description: {$ref: "common.schema.yaml#/$defs/text"}
+      proposal: {$ref: "common.schema.yaml#/$defs/text"}
+
+  done-or-change:
+    properties:
+      outcome: {enum: [done, change_requested]}
+    not: {required: [result]}
+
+  ReviewUnit-in:
+    type: object
+    required: [unit, measures, clauses]
+    additionalProperties: false
+    properties:
+      unit: {$ref: "#/$defs/unit"}
+      measures: {type: object}
+      clauses:
+        description: Every clause the unit realizes, with its sentence and the tests that cite it.
+        type: array
+        items:
+          type: object
+          required: [id, text, tests]
+          additionalProperties: false
+          properties:
+            id: {$ref: "common.schema.yaml#/$defs/id"}
+            text: {$ref: "common.schema.yaml#/$defs/text"}
+            tests: {type: array, items: {type: string, minLength: 1}}
+      uncovered:
+        description: >-
+          Lines no test runs that beck could not get covered: dead code is a
+          finding (delete it); code the unit needs is a finding naming the
+          clause that should test it.
+        type: object
+        additionalProperties:
+          type: array
+          items: {type: integer, minimum: 1}
+      flaky:
+        description: Tests of the unit beck found flaky; each is a weak test of yours to strengthen.
+        type: array
+        items:
+          type: object
+          required: [test, evidence]
+          additionalProperties: false
+          properties:
+            test: {type: string, minLength: 1}
+            evidence: {$ref: "common.schema.yaml#/$defs/text"}
+  ReviewUnit-out:
+    properties:
+      outcome: {enum: [done, change_requested]}
+      result:
+        type: object
+        required: [findings, weak_tests]
+        additionalProperties: false
+        properties:
+          findings: {type: array, items: {$ref: "#/$defs/finding"}}
+          weak_tests:
+            description: Tests that do not verify the clause they cite.
+            type: array
+            items: {$ref: "#/$defs/weak-test"}
+    if: {properties: {outcome: {const: done}}}
+    then: {required: [result]}
+
+  weak-test:
+    type: object
+    required: [test, clause, why]
+    additionalProperties: false
+    properties:
+      test: {type: string, minLength: 1}
+      clause: {$ref: "common.schema.yaml#/$defs/id"}
+      why: {$ref: "common.schema.yaml#/$defs/text"}
+
+  RefactorUnit-in:
+    description: >-
+      The findings to address in this turn, or the weak tests to strengthen.
+      A weak test is fixed by martin under the three laws of TDD: the test
+      first; if it turns red, then the code; smart_audit checks the order.
+    type: object
+    required: [run, check]
+    minProperties: 3
+    additionalProperties: false
+    properties:
+      findings:
+        type: array
+        minItems: 1
+        items: {$ref: "#/$defs/finding"}
+      weak_tests:
+        type: array
+        minItems: 1
+        items: {$ref: "#/$defs/weak-test"}
+      run: {type: string, minLength: 1}
+      check: {type: string, minLength: 1}
+  RefactorUnit-out:
+    properties:
+      outcome: {enum: [done, change_requested]}
+      result:
+        type: object
+        required: [phase, addressed]
+        additionalProperties: false
+        properties:
+          phase:
+            description: tests or code for a refactor (the other side unchanged); strengthen for weak tests.
+            enum: [tests, code, strengthen]
+          addressed:
+            description: The finding ids, or the tests strengthened.
+            type: array
+            minItems: 1
+            items: {type: string, minLength: 1}
+    if: {properties: {outcome: {const: done}}}
+    then: {required: [result]}
+
+  ResolveConflict-in:
+    type: object
+    required: [files, landed, run]
+    additionalProperties: false
+    properties:
+      files: {$ref: "common.schema.yaml#/$defs/paths"}
+      landed:
+        description: The units already on the feature branch that touched the same files.
+        type: array
+        items: {type: string, minLength: 1}
+      run: {type: string, minLength: 1}
+  ResolveConflict-out: {$ref: "#/$defs/done-or-change"}
+
+  FixStaticFindings-in:
+    type: object
+    required: [findings, check]
+    additionalProperties: false
+    properties:
+      findings:
+        description: The findings of a ChecksRun, one line each (file:line:col code message).
+        type: array
+        minItems: 1
+        items: {type: string, minLength: 1}
+      check: {type: string, minLength: 1}
+  FixStaticFindings-out: {$ref: "#/$defs/done-or-change"}

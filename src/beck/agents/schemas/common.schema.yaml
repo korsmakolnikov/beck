@@ -1,0 +1,106 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://beck.local/agents/common.schema.yaml
+title: beck agent protocol, the envelope
+description: >-
+  Every turn of an agent receives an input envelope and answers with an
+  output envelope; the command's own schema (<agent>.schema.yaml) constrains
+  the context of the input, and the outcome and result of the output.
+
+$defs:
+  id:
+    type: string
+    pattern: "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+  uuid:
+    type: string
+    pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+  text:
+    type: string
+    minLength: 1
+  path:
+    description: A path relative to the project's root.
+    type: string
+    pattern: "^[^/]"
+    minLength: 1
+  paths:
+    type: array
+    items: {$ref: "#/$defs/path"}
+
+  input:
+    type: object
+    required: [protocol, agent, command, cause, context]
+    additionalProperties: false
+    properties:
+      protocol: {const: 1}
+      agent: {enum: [kent, unclebob, martin, reader, argyris]}
+      command: {type: string, pattern: "^[A-Z][A-Za-z]+$"}
+      cause:
+        description: The event the turn answers; every event the turn causes carries it.
+        type: object
+        required: [event_id, correlation_id]
+        additionalProperties: false
+        properties:
+          event_id: {$ref: "#/$defs/uuid"}
+          correlation_id: {$ref: "#/$defs/uuid"}
+      context: {type: object}
+      answer:
+        description: >-
+          The user's answer to the question of the previous turn, wrapped by
+          beck; the turn goes on with the same command, so the context is
+          not sent again (it is {}).
+        type: object
+        required: [question, text]
+        additionalProperties: false
+        properties:
+          question: {$ref: "#/$defs/question"}
+          text: {$ref: "#/$defs/text"}
+      retry:
+        description: Present when the previous attempt was rejected.
+        type: object
+        required: [attempt, reason]
+        additionalProperties: false
+        properties:
+          attempt: {type: integer, minimum: 2}
+          reason: {$ref: "#/$defs/text"}
+
+  output:
+    type: object
+    required: [protocol, command, outcome]
+    additionalProperties: false
+    properties:
+      protocol: {const: 1}
+      command: {type: string, pattern: "^[A-Z][A-Za-z]+$"}
+      outcome: {enum: [done, question, change_requested]}
+      result: {type: object}
+      question: {$ref: "#/$defs/question"}
+      change: {$ref: "#/$defs/change"}
+    allOf:
+      - if: {properties: {outcome: {const: question}}}
+        then: {required: [question], not: {anyOf: [{required: [change]}]}}
+      - if: {properties: {outcome: {const: change_requested}}}
+        then: {required: [change], not: {anyOf: [{required: [question]}]}}
+      - if: {properties: {outcome: {const: done}}}
+        then: {not: {anyOf: [{required: [question]}, {required: [change]}]}}
+
+  question:
+    description: A question for the user, relayed by beck; only kent asks.
+    type: object
+    required: [text, why]
+    additionalProperties: false
+    properties:
+      text: {$ref: "#/$defs/text"}
+      why: {$ref: "#/$defs/text"}
+      options:
+        type: array
+        minItems: 2
+        items: {$ref: "#/$defs/text"}
+
+  change:
+    description: A change of the interfaces or of the architecture the agent cannot make.
+    type: object
+    required: [kind, target, problem, proposal]
+    additionalProperties: false
+    properties:
+      kind: {enum: [interface, architecture]}
+      target: {$ref: "#/$defs/id"}
+      problem: {$ref: "#/$defs/text"}
+      proposal: {$ref: "#/$defs/text"}

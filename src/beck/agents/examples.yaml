@@ -1,0 +1,318 @@
+# One input context and one output per command (docs/protocol.md).
+# tests/test_protocol.py checks that every command has one and that both are valid.
+kent:
+  AskFollowUps:
+    in:
+      answers:
+      - question: What does the iteration deliver?
+        answer: Tagging of bookmarks.
+    out:
+      outcome: done
+      result:
+        questions:
+        - text: Can a user share a tag?
+          why: It changes the ownership rule.
+  ProposeBranchName:
+    in:
+      format: <task>-<slug>
+      answers:
+      - question: Task code?
+        answer: BM-12
+    out:
+      outcome: done
+      result:
+        name: BM-12-tagging
+  BringEnvironmentUp:
+    in:
+      docs:
+      - README.md
+      - Makefile
+      failure: The database container is not running.
+    out:
+      outcome: done
+      result:
+        up: true
+        steps:
+        - docker compose up -d db
+  DelimitCodeArea:
+    in:
+      answers:
+      - question: What changes?
+        answer: The tagging of bookmarks.
+    out:
+      outcome: done
+      result:
+        paths:
+        - lib/bookmarks/tagging
+  WriteShoppingList:
+    in:
+      file: .beck/shopping_lists/BM-12-tagging.md
+      answers: []
+      area:
+      - lib/bookmarks/tagging
+    out:
+      outcome: question
+      question:
+        text: Are archived bookmarks taggable?
+        why: The invariant depends on it.
+        options:
+        - 'yes'
+        - 'no'
+  ProposeDslSync:
+    in:
+      drift:
+      - file: lib/bookmarks/tagging/tag_store.ex
+        ids:
+        - tag-name-is-1-to-40-characters
+    out:
+      outcome: done
+      result:
+        summary: The tag name now allows 64 characters; the invariant should say so.
+  WriteDomain:
+    in:
+      file: .beck/domain.yaml
+      shopping_list: .beck/shopping_lists/BM-12-tagging.md
+      errors:
+      - 'operations[0].uses[1]: no entity named ''Tags'''
+    out:
+      outcome: done
+  WriteArchitecture:
+    in:
+      file: .beck/architecture.yaml
+      domain: .beck/domain.yaml
+      shopping_list: .beck/shopping_lists/BM-12-tagging.md
+    out:
+      outcome: done
+  WriteInterfaces:
+    in:
+      architecture: .beck/architecture.yaml
+      domain: .beck/domain.yaml
+    out:
+      outcome: done
+      result:
+        files:
+        - lib/bookmarks/tagging/bookmark_tagger.ex
+  WriteFitnessFunctions:
+    in:
+      file: test/fitness/architecture_rules_test.exs
+      rules:
+      - id: tagging-is-auditable
+        rule: Every write of a tagging component is recorded in the audit log.
+    out:
+      outcome: done
+  AnchorIds:
+    in:
+      ids:
+      - archive-bookmark
+    out:
+      outcome: done
+  VerifyIndex:
+    in:
+      files:
+      - lib/bookmarks/tagging/tag_store.ex
+    out:
+      outcome: done
+      result:
+        discrepancies: []
+  ProposeResolution:
+    in:
+      kind: interface
+      details:
+        target: tag-store
+        problem: add/1 cannot report a duplicate name.
+    out:
+      outcome: done
+      result:
+        summary: add/1 returns an error on a duplicate.
+        changes: 'tag-store: add/1 :: :ok | {:error, :duplicate}'
+        units:
+        - tag-store
+        - bookmark-tagger
+  PlanCorrections:
+    in:
+      request: Rename add to put in the tag store.
+    out:
+      outcome: done
+      result:
+        plan:
+        - unit: tag-store
+          agent: martin
+          description: Rename add/1 to put/1 and its callers.
+  WireCoverage:
+    in:
+      language: elixir
+      manifest: mix.exs
+      toolchain: .beck/toolchain.yml
+      formats: [coverage.py, excoveralls, lcov]
+    out:
+      outcome: done
+      result:
+        tool: excoveralls
+        summary: "Added {:excoveralls, only: :test} and test_coverage: [tool: ExCoveralls]; the toolchain runs mix coveralls.json."
+  RouteDecision:
+    in:
+      situation: suite-outside-units
+      question: "The full suite fails outside the units' tests: test/legacy_test.exs:8 (MatchError)"
+      answer: That test is from the tag store, reopen it on the tagging clause.
+      actions:
+      - id: reopen-unit
+        does: Reopen a unit on one of its clauses, so that unclebob fixes it.
+        args:
+          unit: the unit's id
+          clause: the clause's id
+      - id: run-again
+        does: Run the full suite again.
+        args: {}
+    out:
+      outcome: done
+      result:
+        action: reopen-unit
+        args:
+          unit: tag-store
+          clause: tag-bookmark
+        why: The user names the tag store and its tagging clause.
+unclebob:
+  WriteRedTest:
+    in:
+      clause: tag-missing-bookmark
+      run: beck test <the test> --unit bookmark-tagger --clause tag-missing-bookmark
+      group:
+        unit:
+          id: bookmark-tagger
+        group: operation:tag-bookmark
+        clauses: []
+        entities: []
+        dependencies: []
+        files:
+          source: []
+          tests: []
+    out:
+      outcome: done
+      result:
+        test: test/bookmark_tagger_test.exs:12
+  WriteGreenCode:
+    in:
+      clause: tag-missing-bookmark
+      test: test/bookmark_tagger_test.exs:12
+      run: beck test test/bookmark_tagger_test.exs:12 --unit bookmark-tagger --clause tag-missing-bookmark
+      failure: NOT_OK (1 of 1 not passed)
+    out:
+      outcome: change_requested
+      change:
+        kind: interface
+        target: tag-bookmark
+        problem: The return type has no error for a missing bookmark.
+        proposal: Return {:error, :missing}.
+  CoverLines:
+    in:
+      clauses:
+      - id: tag-missing-bookmark
+        text: Tagging a bookmark that does not exist fails with missing.
+        tests:
+        - test/bookmark_tagger_test.exs:12
+        lines:
+          lib/bookmarks/tagging/bookmark_tagger.ex: [31, 32]
+      run: beck test <the tests> --unit bookmark-tagger
+    out:
+      outcome: done
+      result:
+        tests:
+        - test: test/bookmark_tagger_test.exs:20
+          clause: tag-missing-bookmark
+martin:
+  ReviewUnit:
+    in:
+      unit:
+        id: tag-store
+        namespace:
+        - bookmarks
+        - tagging
+        - tag_store
+        files:
+        - lib/bookmarks/tagging/tag_store.ex
+      measures:
+        lines: 120
+      clauses:
+      - id: tag-name-is-1-to-40-characters
+        text: A tag name holds from 1 to 40 characters.
+        tests:
+        - test/tag_store_test.exs:4
+    out:
+      outcome: done
+      result:
+        findings:
+        - &id001
+          id: F1
+          kind: complexity
+          file: lib/bookmarks/tagging/tag_store.ex
+          line: 30
+          description: add/1 nests three cases.
+          proposal: Extract the validation.
+        weak_tests: []
+  RefactorUnit:
+    in:
+      findings:
+      - *id001
+      run: beck test --unit tag-store
+      check: beck check --unit tag-store
+    out:
+      outcome: done
+      result:
+        phase: code
+        addressed:
+        - F1
+  ResolveConflict:
+    in:
+      files:
+      - mix.exs
+      landed:
+      - bookmark-tagger
+      run: beck test --unit tag-store
+    out:
+      outcome: done
+  FixStaticFindings:
+    in:
+      findings:
+      - lib/bookmarks/tagging/tag_store.ex:3:1 Readability.ModuleDoc Modules should have a @moduledoc tag.
+      check: beck check lib/bookmarks/tagging/tag_store.ex
+    out:
+      outcome: done
+reader:
+  SummariseOutput:
+    in:
+      log: .beck/reports/1.log
+      tool: mix test
+      tests:
+      - test/tag_store_test.exs:4
+    out:
+      outcome: done
+      result:
+        ok: false
+        summary: "- test/tag_store_test.exs:4 at lib/bookmarks/tagging/tag_store.ex:31\n    ** (MatchError) no match\
+          \ of right hand side value: :error"
+argyris:
+  ReviewViolations:
+    in:
+      project: /home/user/code/bookmarks
+      violations:
+      - id: 3f2a9c1e-0b7d-4c55-9a51-2d4e8f6b1a07
+        iteration: 9b1c4e2a-7f3d-4a8e-b2c6-5d1e0f9a3b84
+        event_id: 0c8e5b7a-1d2f-4e3a-9b6c-7a8d9e0f1b2c
+        correlation_id: 5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d
+        kind: explored
+        agent: unclebob
+        detail:
+          command: MakeGreen
+          path: lib/bookmarks/web/router.ex
+        rules:
+        - src/beck/agents/prompts/unclebob.md
+    out:
+      outcome: done
+      result:
+        settled:
+        - id: 3f2a9c1e-0b7d-4c55-9a51-2d4e8f6b1a07
+          how: proposed
+          pr: https://github.com/owner/beck/pull/12
+          files:
+          - src/beck/agents/prompts/unclebob.md
+          reason: The scope rule now names the files outside the unit it must not read.
