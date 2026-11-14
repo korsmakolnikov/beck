@@ -1,5 +1,7 @@
 # beck
 
+[![CI](https://github.com/korsmakolnikov/beck/actions/workflows/ci.yml/badge.svg)](https://github.com/korsmakolnikov/beck/actions/workflows/ci.yml)
+
 Status: **implemented, not yet tried on a real project**. Every phase runs
 end to end in the tests, with scripted agents on real repositories and real
 test runs; the Claude Code driver was tried on one real turn. These notes
