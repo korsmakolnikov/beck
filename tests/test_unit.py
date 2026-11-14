@@ -208,6 +208,24 @@ def test_a_change_parks_the_unit_and_its_dependents_until_the_user_approves(repo
     assert red_turns[-1]["retry"]["reason"] == "resumed after a resolution: store.add returns the new total"
 
 
+def test_a_waiting_unit_parked_with_its_dependency_is_not_started(repo):
+    # the session of 2026-11-15: ParkUnits parked eight units at once, and the scheduler, reading the state as
+    # at each UnitParked, started the later ones (still waiting at that event), each of them up to three times
+    agents = Agents(repo, {("WriteRedTest", "store-adds"): [change("store"), None]})
+    reactor, store = setup(repo, agents, slots=1)
+    run(reactor)
+    assert unit_events(store, "cart") == ["UnitParked"]
+    assert [e.payload["args"]["unit"] for e in store.read(types_=("CommandIssued",))
+            if e.payload["command"] == "StartUnit"] == ["store"]
+    [approval] = pending_of_user(reactor)
+    reactor.answer(approval.id, [Result("ResolutionApproved", {}, actor="user")])
+    run(reactor)
+    assert unit_events(store, "store")[-1] == "UnitImplemented"   # cart waits for its slot: store has not landed
+    starts = [e.payload["args"]["unit"] for e in store.read(types_=("CommandIssued",))
+              if e.payload["command"] in ("StartUnit", "ResumeUnit")]
+    assert starts == ["store", "store"] and unit_events(store, "cart") == ["UnitParked"]
+
+
 def test_a_rejected_resolution_is_discarded_and_proposed_again(repo):
     agents = Agents(repo, {("WriteRedTest", "store-adds"): [change("store"), None]})
     reactor, store = setup(repo, agents)

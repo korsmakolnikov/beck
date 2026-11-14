@@ -124,6 +124,9 @@ def _current_group(ctx: Ctx, unit: str) -> str | None:
 
 @units.policy("UnitsPlanned", "UnitParked", "UnitImplemented", "UnitClosed", "ResolutionApplied")
 def schedule(event: Event, ctx: Ctx) -> list[Command]:
+    # the scheduler reads the present, not the state as at its event: one ParkUnits writes many UnitParked,
+    # and at the first of them the others are still waiting; the StartUnits it issued are after its event too
+    ctx = Ctx(**{**ctx.__dict__, "upto": None})
     planned = plan(ctx)
     states = {u: state(ctx, u) for u in planned}
     running = {u for u, s in states.items() if s in RUNNING}

@@ -9,7 +9,8 @@
 
 * A policy never reacts twice to the same event: the CommandIssued it wrote
   is the anchor (`store.issued`). A policy reads the state as it was at its
-  event (`Ctx.upto`), so a replay issues exactly what the first run did.
+  event (`Ctx.upto`), so a replay issues exactly what the first run did;
+  the scheduler alone reads the present (`unit.schedule`).
 * A command without its CommandDone is pending: `run_until_idle` executes
   it, also after a Ctrl-C (`beck attach`). Handlers must tolerate running
   again after a crash between their side effect and their events.
