@@ -755,6 +755,11 @@ together, then the points below.
 ## Open points
 
 * **TODO: a tool in the TUI to delete old event stores.**
+* **TODO, when it gets in the way: the TUI's prompt does not wrap.** A
+  long answer runs on one line past the panel's width (`src/beck/tui.py`
+  uses Textual's `Input`, a single line). The fix, then: an input that
+  wraps and grows with the text, like Claude Code's prompt (a `TextArea`,
+  Enter to send).
 * **TODO, a next iteration: a debug mode.** On an input (a bug report, a
   failing behaviour), beck writes a shopping list aimed at regression
   tests; the tests reproduce the bug; `git bisect`, driven by those tests,
