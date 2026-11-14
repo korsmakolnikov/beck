@@ -125,7 +125,9 @@ def test_the_python_fitness_functions_pass_and_fail(python_project, arch):
     tagger.write_text(tagger.read_text() + "from bookmarks.storage import db\n")
     code, out = run_pytest(python_project)
     assert code == 1
-    failed = sorted(line.split("[", 1)[1][:-1] for line in out.splitlines() if line.startswith("FAILED"))
+    # pytest keeps the whole failure message on the summary line under CI (the CI variable): keep the test id only
+    ids = [line.removeprefix("FAILED ").split(" - ", 1)[0] for line in out.splitlines() if line.startswith("FAILED")]
+    failed = sorted(i.split("[", 1)[1][:-1] for i in ids)
     assert failed == ["bookmark-tagger-declared-dependencies",
                       "tagging-components-reach-storage-only-through-tag-store[bookmark-tagger]"]
 
