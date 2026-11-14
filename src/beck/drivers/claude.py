@@ -100,6 +100,9 @@ class ClaudeCode:
     timeout: float = 3600
     docs: Path | None = None              # beck's documentation, added to the sessions (the DSLs' manifest)
 
+    def __post_init__(self) -> None:
+        self.project = self.project.resolve()  # the turns run in the units' worktrees: no path relative to the root
+
     def _agents_file(self) -> Path:
         path = self.project / ".beck" / "agents.json"
         agents = {a: definition(a, self.models.get(a)) for a in ("kent", "unclebob", "martin", "reader")}

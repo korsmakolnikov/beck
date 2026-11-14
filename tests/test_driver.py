@@ -4,10 +4,12 @@ import asyncio
 import json
 import stat
 import sys
+from pathlib import Path
 
 import pytest
 
 from beck.drivers.claude import ClaudeCode, allowed_tools, definition, parse_answer, session_id
+from beck.events.project import Project
 from beck.events.store import EventStore
 from beck.machine.core import TurnFailed
 
@@ -103,3 +105,21 @@ def test_the_agents_file_holds_the_prompts_with_the_commands_examples(driver, tm
 ])
 def test_the_answer_is_the_json_document(text, parsed):
     assert parse_answer(text) == parsed
+
+
+def test_a_relative_project_gives_an_agent_in_a_worktree_absolute_paths(driver, tmp_path, monkeypatch):
+    # `beck tui` run in the project makes the root ".": unclebob's turn, in a unit's worktree, did not find
+    # ./.beck/agents.json (the session of 2026-11-15, WriteRedTest failed three times)
+    monkeypatch.chdir(tmp_path)
+    relative = ClaudeCode(driver.store, Path("."), "iter-1", executable=driver.executable)
+    worktree = tmp_path / ".beck/worktrees/model"
+    worktree.mkdir(parents=True)
+    asyncio.run(relative.turn("reader", "s", ENVELOPE, {}, worktree))
+    argv = calls(tmp_path)[-1]["argv"]
+    agents = Path(argv[argv.index("--agents") + 1])
+    assert agents.is_absolute() and agents == tmp_path / ".beck/agents.json"
+
+
+def test_a_project_opened_from_a_relative_root_holds_it_absolute(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert Project(".").root == tmp_path
