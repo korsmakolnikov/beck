@@ -241,3 +241,19 @@ def test_the_classification(tmp_path):
     assert classify_project(tmp_path) == "undetermined"
     (tmp_path / "a.py").write_text("x")
     assert classify_project(tmp_path) == "brownfield"
+
+
+def test_the_language_is_asked_open_and_one_beck_cannot_lay_is_asked_again(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no-config"))
+    for var, value in (("GIT_AUTHOR_NAME", "beck"), ("GIT_AUTHOR_EMAIL", "beck@example.com"),
+                       ("GIT_COMMITTER_NAME", "beck"), ("GIT_COMMITTER_EMAIL", "beck@example.com")):
+        monkeypatch.setenv(var, value)
+    project = tmp_path / "app"
+    project.mkdir()
+    reactor, store, *_ = start(project, Agents(project))
+    asked = drive(reactor, {"AskInterview": ["A game.", "Nothing.", "It runs.", "Rust", " Python ", "app"]})
+    questions = [q for a, q in asked if a == "AskInterview"]
+    assert questions[3] == "Which language?"
+    assert questions[4].startswith("beck cannot lay a 'rust' project yet: it lays python, elixir.")
+    assert questions[5] == "The project's name?"
+    assert [e.payload["language"] for e in store.read(types_=("ProjectScaffolded",))] == ["python"]

@@ -39,6 +39,7 @@ from beck.index.store import INTEGRATION, connect, data
 from beck.machine.closing import workflow
 from beck.machine.core import Command, Ctx, Machine, Result, action, ask_routed
 from beck.machine.signatures import blocked, signature
+from beck.scaffold import LANGUAGES as LAID
 from beck.scaffold import ScaffoldError, scaffold
 from beck.testrun import run as run_tests
 from beck.toolchain import ToolchainError
@@ -53,7 +54,7 @@ STANDARD = [
     ("done", "How will you know it is done: what must work, and how will you check it?"),
 ]
 GREENFIELD = [
-    ("language", "Which language: python or c?"),
+    ("language", "Which language?"),
     ("name", "The project's name?"),
 ]
 
@@ -165,10 +166,21 @@ def _questions(ctx: Ctx) -> list[tuple[str, str]]:
     return standard + extra
 
 
+def _language(ctx: Ctx) -> str | None:
+    answer = _answer(ctx, "language")
+    return answer.strip().lower() if answer is not None else None
+
+
 def _next_question(ctx: Ctx) -> list[Command]:
     answered = {e.payload["key"] for e in ctx.events(types=("InterviewAnswered",))}
+    language = _language(ctx)
+    if language is not None and language not in LAID:   # the answer is free: one beck cannot lay is asked again
+        answered.discard("language")
     for key, question in _questions(ctx):
         if key not in answered:
+            if key == "language" and language is not None:
+                question = (f"beck cannot lay a {language!r} project yet: it lays {', '.join(LAID)}. "
+                            f"{question}")
             return [_ask_user("AskInterview", key=key, question=question)]
     if _last(ctx, "FollowUpsProposed") is None:
         return [_kent("AskFollowUps", {"answers": _answers(ctx)}, "interview")]
@@ -203,7 +215,7 @@ def _propose_branch(ctx: Ctx) -> Command:
 
 @session.handler("ScaffoldProject")
 def handle_scaffold(command: Event, ctx: Ctx) -> list[Result]:
-    language = (_answer(ctx, "language") or "python").strip().lower()
+    language = _language(ctx) or "python"
     name = (_answer(ctx, "name") or ctx.project.name).strip()
     if not (ctx.project / ".git").exists():   # a repository with an empty first commit, for the branch
         _git(ctx.project, "init", "-q")
@@ -433,7 +445,7 @@ def after_a_session_question(event: Event, ctx: Ctx) -> list[Command]:
         if chosen == "try-again":
             return [Command("ScaffoldProject", "beck", {}, S)]
         return [Command("GoOn", "beck", {"as": "ProjectScaffolded",
-                                         "payload": {"language": (_answer(ctx, "language") or "python").strip()}}, S)]
+                                         "payload": {"language": _language(ctx) or "python"}}, S)]
     if situation == "environment-down":
         if chosen == "try-again":
             return [Command("BringEnvironmentUp", "beck", {}, S)]
