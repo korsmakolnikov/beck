@@ -744,6 +744,10 @@ P: CorrectionsPlanned → the units' worktrees (A unclebob | martin: fixups, kep
 * `IndexDiscrepancyReported` (A) → `IndexRebuilt` (B).
 * `TokenBudgetExceeded` (B).
 * `SessionInterrupted` (B, Ctrl-C) / `SessionAttached` (B).
+* `BeckCrashed` (B: beck's own exception, in a policy, a handler, a
+  translator or a turn, with its traceback) → smart_audit, the outbox; the
+  session stops, the command stays pending, `beck attach` after the fix
+  runs it again.
 * `EnvironmentDown` (B), at any time.
 * `InterruptionDetected`, `ViolationLogged` (smart_audit, into the outbox).
 * `ViolationSettled` (argyris's answer, through `beck audit --settle`).
@@ -774,8 +778,8 @@ together, then the points below.
   the documentation from them.
 * **smart_audit, to extend**: its rules today are the forbidden tools and
   commands, unclebob reading outside its group, test runs that are not the
-  cycle's, martin's order on a weak test, malformed outputs, failed turns.
-  Not yet: how the parallelism stalls. argyris is woken by hand (`beck
+  cycle's, martin's order on a weak test, malformed outputs, failed turns,
+  beck's own crashes (`BeckCrashed`). Not yet: how the parallelism stalls. argyris is woken by hand (`beck
   audit --wake`); waking it at every new record needs a terminal for it.
   argyris's own session is not in the event store: smart_audit cannot
   audit it yet.

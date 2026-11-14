@@ -36,6 +36,8 @@ SCHEMAS: dict[str, dict[str, Any]] = {
     "AgentTurnEnded": _object({"agent": _STRING, "model": _STRING, "tokens": _TOKENS},
                               {"session": _STRING}),
     "AgentTurnFailed": _object({"agent": _STRING, "command": _STRING, "error": _STRING, "signature": _STRING}),
+    "BeckCrashed": _object({"where": {"enum": ["policy", "handler", "translator", "turn"]}, "name": _STRING,
+                            "error": _STRING, "traceback": _STRING, "signature": _STRING}),
     "ViolationLogged": _object({"kind": _STRING, "agent": _STRING, "outbox": _STRING}),
     "ViolationSettled": _object({"outbox": _STRING, "how": _STRING, "reason": _STRING},
                                 {"files": {"type": "array", "items": _STRING}, "pr": _STRING}),

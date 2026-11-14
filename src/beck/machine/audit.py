@@ -26,7 +26,7 @@ A = "audit"
 WRITES = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 
 
-@audit.policy("AgentTurnEnded", "SignalRejected", "AgentTurnFailed")
+@audit.policy("AgentTurnEnded", "SignalRejected", "AgentTurnFailed", "BeckCrashed")
 def audit_the_turn(event: Event, ctx: Ctx) -> list[Command]:
     return [Command("AuditTurn", "beck", {"event": event.id}, A)]
 
@@ -62,6 +62,9 @@ def violations(ctx: Ctx, event: Event) -> list[tuple[str, dict[str, Any]]]:
     """The violations of one turn, as (kind, detail)."""
     if event.type == "SignalRejected":
         return [("malformed-output", {"command": event.payload.get("command"), "errors": event.payload["errors"][:5]})]
+    if event.type == "BeckCrashed":   # beck's own bug: argyris reads the traceback
+        return [("beck-crashed", {"agent": "beck", **{k: event.payload[k] for k in ("where", "name", "error",
+                                                                                   "traceback")}})]
     if event.type == "AgentTurnFailed":
         return [("turn-failed", {"command": event.payload["command"], "error": event.payload["error"][:500]})]
     turn = ctx.store.get(event.causation_id or "")          # the agent's CommandIssued
@@ -105,7 +108,7 @@ def handle_audit(command: Event, ctx: Ctx) -> list[Result]:
     results = []
     try:
         for kind, detail in found:
-            agent = event.payload.get("agent", "?")
+            agent = detail.get("agent") or event.payload.get("agent", "?")
             record = project.post(ctx.iteration, event, kind, {"agent": agent, **detail})
             results.append(Result("ViolationLogged", {"kind": kind, "agent": agent, "outbox": record.id}))
     finally:

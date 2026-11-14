@@ -65,6 +65,10 @@ class BeckApp(App[int]):
     async def run_machine(self) -> None:
         while True:
             await self.reactor.run_until_idle()
+            if self.reactor.crashes:
+                self.result = 1
+                self.query_one("#main", Static).update(crashed(self.reactor))
+                return
             end = next(iter(self.store.read(types_=("IterationClosed", "ConfigInvalid"))), None)
             if end is not None:
                 self.result = 0 if end.type == "IterationClosed" else 1
@@ -102,6 +106,14 @@ class BeckApp(App[int]):
         self.query_one("#units", Static).update("[b]units[/b]\n" + ("\n".join(views.graph(self.store)) or "none yet"))
         self.query_one("#tokens", Static).update(
             "[b]tokens per turn[/b]\n" + ("\n".join(views.histogram(views.tokens(self.store), 18)) or "none yet"))
+
+
+def crashed(reactor: Reactor) -> str:
+    """What the user reads when beck itself raised: where, and how to resume after the fix."""
+    lines = [f"[b red]beck crashed[/b red] in the {c.payload['where']} {c.payload['name']}: {c.payload['error']}"
+             for c in reactor.crashes]
+    return "\n".join([*lines, f"The traceback is in `beck events` and in the outbox (`beck audit`). Fix it, "
+                                f"then `beck tui {reactor.ctx.iteration[:8]}` resumes. Ctrl-C to quit."])
 
 
 def run(project_root: Path, iteration: str | None, agents: Agents | None = None) -> int:

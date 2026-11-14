@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -249,16 +250,38 @@ def after_turn_failed(event: Event, ctx: Ctx) -> list[Command]:
                                           "because_of": event.id}, f"unit:{unit}")]
 
 
+def crash(where: str, name: str, error: BaseException) -> Result:
+    """beck's own exception, as an event: smart_audit sends it to argyris, the user resumes after the fix."""
+    text = f"{type(error).__name__}: {error}"[:2000]
+    trace = "".join(traceback.format_exception(error))[-4000:]
+    return Result("BeckCrashed", {"where": where, "name": name, "error": text, "traceback": trace,
+                                  "signature": signature([where, name, text])})
+
+
+class _Crashed(Exception):
+    """A turn whose translator raised: the turn's results, its tokens kept, and the crash, without CommandDone."""
+
+    def __init__(self, results: list[Result]):
+        super().__init__()
+        self.results = results
+
+
 class Reactor:
+    """Runs the machine. beck's own exceptions never end the session: each is recorded as BeckCrashed and
+    is not tried again in this run; the command stays pending (the policy unanchored), so `beck attach`,
+    after the fix, runs it again."""
+
     def __init__(self, ctx: Ctx, machine: Machine, agents: Agents, slots: int = 4):
         self.ctx, self.machine, self.agents, self.slots = ctx, conversation.merge(machine), agents, slots
         self._cursor = 0
         self._running: dict[str, asyncio.Task[list[Result]]] = {}
+        self.crashes: list[Event] = []          # this run's BeckCrashed
+        self._crashed: set[str] = set()         # the commands that crashed in this run
 
     # --- policies ---
 
     def react(self) -> bool:
-        """Runs the policies on the events after the cursor; True when it issued something."""
+        """Runs the policies on the events after the cursor; True when it issued something (or recorded a crash)."""
         issued = False
         store = self.ctx.store
         for event in list(store.read(after=self._cursor)):
@@ -267,7 +290,14 @@ class Reactor:
                 if store.issued(event.id, name):
                     continue
                 with log.about(event):
-                    commands = policy(event, Ctx(**{**self.ctx.__dict__, "upto": event.seq}))
+                    try:
+                        commands = policy(event, Ctx(**{**self.ctx.__dict__, "upto": event.seq}))
+                    except Exception as error:
+                        logger.exception("policy %s crashed on %s", name, event.type)
+                        r = crash("policy", name, error)
+                        self.crashes.append(store.append(r.type, r.payload, stream=event.stream, cause=event))
+                        issued = True           # an event to react to: smart_audit posts it
+                        continue
                     for c in commands:
                         store.append("CommandIssued", {"command": c.name, "target": c.target, "args": c.args},
                                      stream=c.stream, cause=event, policy=name)
@@ -327,7 +357,22 @@ class Reactor:
         if checked.output["outcome"] == "question":
             return [*tools, ended, Result("QuestionAsked", {"agent": agent, "command": name,
                                                     "question": checked.output["question"]}, actor=agent)]
-        return [*tools, ended, *self.machine.translators[name](command, checked.output, self.ctx)]
+        try:
+            translated = self.machine.translators[name](command, checked.output, self.ctx)
+        except Exception as error:
+            logger.exception("translator %s crashed", name)
+            raise _Crashed([*tools, ended, crash("translator", name, error)]) from error
+        return [*tools, ended, *translated]
+
+    def _record_crash(self, command: Event, results: list[Result]) -> None:
+        store = self.ctx.store
+        with store.transaction():
+            for r in results:
+                e = store.append(r.type, r.payload, stream=r.stream or command.stream, actor=r.actor, cause=command,
+                                 tokens=r.tokens)
+                if e.type == "BeckCrashed":
+                    self.crashes.append(e)
+        self._crashed.add(command.id)
 
     def answer(self, command_id: str, results: list[Result]) -> None:
         """The user's answer to a pending command of theirs (a question, an approval)."""
@@ -342,8 +387,16 @@ class Reactor:
             progressed = self.react()
             for command in self.pending():
                 target = command.payload["target"]
+                if command.id in self._crashed:
+                    continue
                 if target == "beck":
-                    self._finish(command, self._execute(command))
+                    try:
+                        results = self._execute(command)
+                    except Exception as error:
+                        logger.exception("handler %s crashed", command.payload["command"])
+                        self._record_crash(command, [crash("handler", command.payload["command"], error)])
+                    else:
+                        self._finish(command, results)
                     progressed = True
                 elif target != "user" and command.id not in self._running and len(self._running) < self.slots:
                     self._running[command.id] = asyncio.create_task(self._turn(command))
@@ -355,5 +408,14 @@ class Reactor:
             for cid, task in list(self._running.items()):
                 if task in done:
                     del self._running[cid]
-                    self._finish(self.ctx.store.get(cid), task.result())
+                    command = self.ctx.store.get(cid)
+                    try:
+                        results = task.result()
+                    except _Crashed as crashed:
+                        self._record_crash(command, crashed.results)
+                    except Exception as error:
+                        logger.exception("turn %s crashed", command.payload["command"])
+                        self._record_crash(command, [crash("turn", command.payload["command"], error)])
+                    else:
+                        self._finish(command, results)
 

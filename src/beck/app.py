@@ -63,6 +63,11 @@ async def drive(reactor: Reactor, interactive: bool, read: TextIO, out: TextIO) 
     store = reactor.ctx.store
     while True:
         await reactor.run_until_idle()
+        if reactor.crashes:
+            for c in reactor.crashes:
+                out.write(f"beck crashed in the {c.payload['where']} {c.payload['name']}: {c.payload['error']}\n")
+            out.write(f"beck: fix it, then `beck attach {reactor.ctx.iteration[:8]}` resumes (`beck audit`)\n")
+            return 1
         end = finished(store)
         if end is not None:
             out.write(f"beck: {end.type}" + (f": {end.payload.get('errors')}" if end.payload.get("errors") else "")
