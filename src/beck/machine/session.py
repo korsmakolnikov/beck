@@ -555,8 +555,8 @@ def shopping(event: Event, ctx: Ctx) -> list[Command]:
 
 @session.translator("WriteShoppingList")
 def shopping_list_written(command: Event, output: dict[str, Any], ctx: Ctx) -> list[Result]:
-    return [Result("ShoppingListWritten", {"file": command.payload["args"]["context"].get("file")
-                                           or shopping_list(ctx)}, actor="kent")]
+    # a turn resumed with the user's answer carries no context: the file is the iteration's, either way
+    return [Result("ShoppingListWritten", {"file": shopping_list(ctx)}, actor="kent")]
 
 
 @session.policy("ShoppingListWritten")

@@ -80,8 +80,9 @@ def done(command, **result):
 
 
 class Agents:
-    def __init__(self, project, domain=(DOMAIN,)):
+    def __init__(self, project, domain=(DOMAIN,), shopping_questions=()):
         self.project, self.domains, self.calls = project, list(domain), []
+        self.shopping_questions, self.shopping_file = list(shopping_questions), None
 
     async def turn(self, agent, session, envelope, env, cwd):
         self.calls.append((agent, envelope))
@@ -110,7 +111,11 @@ class Agents:
         return done("DelimitCodeArea", paths=["src/calc"])
 
     def WriteShoppingList(self, e, cwd):
-        (cwd / e["context"]["file"]).write_text("# calc-add\n\n- add two numbers\n")
+        self.shopping_file = e["context"].get("file") or self.shopping_file  # a real session remembers it
+        if self.shopping_questions:  # a question first: the turn resumes with the answer, without its context
+            return {"protocol": 1, "command": "WriteShoppingList", "outcome": "question",
+                    "question": {"text": self.shopping_questions.pop(0), "why": "The list depends on it."}}
+        (cwd / self.shopping_file).write_text("# calc-add\n\n- add two numbers\n")
         return done("WriteShoppingList")
 
     def WriteDomain(self, e, cwd):
@@ -203,6 +208,18 @@ def test_a_whole_iteration_from_the_interview_to_the_close(project):
     started = list(store.read(types_=("SessionStarted",)))[0]
     assert all(e.correlation_id == started.id for e in store.read() if e.causation_id)
     assert not [c for c in reactor.pending()]
+
+
+def test_a_shopping_list_written_after_the_questions_of_kent_is_approved(project):
+    # the user's session of 2026-11-14 (events 75-91): two questions, then the list; beck died on the answer
+    agents = Agents(project, shopping_questions=["Which library for the TUI: curses, blessed, rich?",
+                                                 "By \"the 2\" do you mean blessed?"])
+    reactor, store, *_ = start(project, agents)
+    asked = drive(reactor, dict(ANSWERS, Ask=["Ok the 2", "yes blessed"]))
+    assert [a for a, _ in asked][3:7] == ["ConfirmBranchName", "Ask", "Ask", "ApproveShoppingList"]
+    [written] = store.read(types_=("ShoppingListWritten",))
+    assert written.payload["file"] == ".beck/shopping_lists/calc-add.md"
+    assert list(store.read(types_=("IterationClosed",)))
 
 
 def test_an_invalid_domain_goes_back_to_kent_with_the_errors(project):
