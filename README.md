@@ -762,6 +762,16 @@ together, then the points below.
 ## Open points
 
 * **TODO: a tool in the TUI to delete old event stores.**
+* **TODO, the user's call (method): a clause a previous green already
+  met.** A green that does more than its clause makes the next clause's red
+  pass at once; beck refuses it (`the test passes already`) and has no way
+  to record the clause as covered, so kent can only merge or drop the
+  clause in the domain. Seen three times in the pong session of
+  2026-11-15. What counts as proof then (a mutation run, the user's word)
+  is a choice of method.
+* **TODO: the TUI keeps an answer sent while nothing waits.** Enter with no
+  decision pending leaves the text in the input, and the next answer is
+  appended to it.
 * **TODO, when it gets in the way: the TUI's prompt does not wrap.** A
   long answer runs on one line past the panel's width (`src/beck/tui.py`
   uses Textual's `Input`, a single line). The fix, then: an input that

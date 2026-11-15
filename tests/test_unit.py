@@ -125,12 +125,13 @@ def plan(exclusive=False, waits=False):
     return planned
 
 
-def setup(repo, agents, slots=2, exclusive=False, waits=False):
+def setup(repo, agents, slots=2, exclusive=False, waits=False, replan=None):
     project = Project(repo)
     it, store, _ = project.start_iteration()
     workspace = Workspace(store, repo, lambda unit, tree: [f"src/shop/{unit}"],
                           lambda unit, group: {"unit": {"id": unit}, "group": group, "clauses": [], "entities": [],
-                                               "dependencies": [], "files": {"source": [], "tests": []}})
+                                               "dependencies": [], "files": {"source": [], "tests": []}},
+                          replan_of=replan or (lambda: None))
     ctx = Ctx(store, repo, it.id, workspace, units_in_parallel=slots)
     store.append("UnitsPlanned", plan(exclusive, waits))
     return Reactor(ctx, implementation, agents), store
@@ -238,6 +239,47 @@ def test_a_waiting_unit_parked_with_its_dependency_is_not_started(repo):
     starts = [e.payload["args"]["unit"] for e in store.read(types_=("CommandIssued",))
               if e.payload["command"] in ("StartUnit", "ResumeUnit")]
     assert starts == ["store", "store"] and unit_events(store, "cart") == ["UnitParked"]
+
+
+def without(clause):
+    """The plan after a resolution that took `clause` out of the domain."""
+    planned = plan()
+    for u in planned["units"]:
+        u["groups"] = [g for g in ({**g, "clauses": [c for c in g["clauses"] if c != clause]} for g in u["groups"])
+                       if g["clauses"]]
+        u["realizes"] = [c for c in u["realizes"] if c != clause]
+    return planned
+
+
+def approve(reactor):
+    [approval] = pending_of_user(reactor)
+    reactor.answer(approval.id, [Result("ResolutionApproved", {}, actor="user")])
+    run(reactor)
+
+
+def test_a_resolution_that_drops_a_clause_plans_the_units_again(repo):
+    # the session of 2026-11-15: kent took a clause out of the domain, but the unit's plan still held it
+    agents = Agents(repo, {("WriteRedTest", "store-adds"): [change("store"), None]})
+    reactor, store = setup(repo, agents, replan=lambda: without("cart-empties"))
+    run(reactor)
+    approve(reactor)
+    assert len(list(store.read(types_=("UnitsPlanned",)))) == 2
+    replanned = list(store.read(types_=("UnitsPlanned",)))[-1]
+    assert not [e for e in store.read(types_=("CycleOpened", "CycleReopened"))
+                if e.seq > replanned.seq and e.payload["clause"] == "cart-empties"]
+    assert unit_events(store, "cart")[-1] == "UnitImplemented"
+
+
+def test_the_open_cycle_of_a_dropped_clause_is_dropped_on_resume(repo):
+    agents = Agents(repo, {("WriteRedTest", "store-adds"): [change("store"), None]})
+    reactor, store = setup(repo, agents, replan=lambda: without("store-adds"))
+    run(reactor)
+    approve(reactor)
+    [dropped] = store.read(types_=("CycleDropped",))
+    assert dropped.payload["unit"] == "store" and dropped.payload["clause"] == "store-adds"
+    assert unit_events(store, "store")[-1] == "UnitImplemented"
+    red_turns = [e for a, e in agents.calls if e["command"] == "WriteRedTest" and e["context"]["clause"] == "store-adds"]
+    assert len(red_turns) == 1   # never asked again
 
 
 def test_a_rejected_resolution_is_discarded_and_proposed_again(repo):

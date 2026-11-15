@@ -89,6 +89,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
                              {"failure": _STRING}),
     "GreenCommitted": _object({"unit": _STRING, "clause": _STRING, "sha": _STRING}),
     "CycleClosed": _object({"unit": _STRING, "clause": _STRING}),
+    "CycleDropped": _object({"unit": _STRING, "clause": _STRING, "reason": _STRING}),
     "CycleBlocked": _object({"unit": _STRING, "clause": _STRING, "reason": _STRING}),
     "CycleReopened": _object({"unit": _STRING, "clause": _STRING, "group": _STRING,
                               "phase": {"enum": ["red", "green"]}, "reason": _STRING}),

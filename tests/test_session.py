@@ -274,3 +274,22 @@ def test_the_language_is_asked_open_and_one_beck_cannot_lay_is_asked_again(tmp_p
     assert questions[4].startswith("beck cannot lay a 'rust' project yet: it lays python, elixir.")
     assert questions[5] == "The project's name?"
     assert [e.payload["language"] for e in store.read(types_=("ProjectScaffolded",))] == ["python"]
+
+
+def test_the_workspace_plans_the_units_again_from_the_model_of_now(project):
+    (project / ".beck/domain.yaml").write_text(DOMAIN.replace("""
+      - id: add-sums
+        rule: The result is the sum of the two numbers.
+""", """
+      - id: add-sums
+        rule: The result is the sum of the two numbers.
+      - id: add-commutes
+        rule: The order of the numbers does not change the sum.
+"""))
+    (project / ".beck/architecture.yaml").write_text(ARCHITECTURE)
+    store = Project(project).start_iteration()[1]
+    workspace = IndexWorkspace(store, project)
+    clauses = lambda planned: [c for u in planned["units"] for g in u["groups"] for c in g["clauses"]]  # noqa: E731
+    assert "add-commutes" in clauses(workspace.replan())
+    (project / ".beck/domain.yaml").write_text(DOMAIN)
+    assert "add-commutes" not in clauses(workspace.replan())

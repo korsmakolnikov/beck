@@ -886,6 +886,21 @@ class IndexWorkspace:
     def _conn(self) -> sqlite3.Connection:
         return connect(self.project / ".beck" / "index.db")
 
+    def replan(self) -> dict[str, Any] | None:
+        """UnitsPlanned's payload from the model of now (a resolution may have changed the DSLs); None when the
+        DSLs do not build an index."""
+        def read(name: str) -> Any:
+            path = self.project / ".beck" / name
+            return yaml.safe_load(path.read_text()) if path.is_file() else None
+        conn, _ = build_index(self.project, read("domain.yaml"), read("architecture.yaml"),
+                              self.project / ".beck" / "index.db")
+        if conn is None:
+            return None
+        try:
+            return plan_units(conn)
+        finally:
+            conn.close()
+
     def worktree(self, unit: str) -> Path:
         started = list(self.store.read(stream=f"unit:{unit}", types_=("UnitStarted", "UnitReopened")))
         if not started:

@@ -53,7 +53,11 @@ class Workspace:
     scope_of: Callable[[str, Path], list[str]]                 # (unit, worktree) → the paths it may change
     group_context_of: Callable[[str, str], dict[str, Any]]     # (unit, group) → beck index context
     clause_text_of: Callable[[str], str] = lambda clause: clause  # the clause's sentence, from the domain
+    replan_of: Callable[[], dict[str, Any] | None] = lambda: None  # UnitsPlanned's payload from the model of now
     _cache: dict[str, Path] = field(default_factory=dict)
+
+    def replan(self) -> dict[str, Any] | None:
+        return self.replan_of()
 
     def worktree(self, unit: str) -> Path:
         if unit not in self._cache:
@@ -332,8 +336,13 @@ def handle_apply(command: Event, ctx: Ctx) -> list[Result]:
         _git(ctx.project, "commit", "-q", "-m", f"refactor: {a['summary']}")
     parked = [e.payload["unit"] for e in ctx.store.read(types_=("UnitParked",))
               if e.payload["because_of"] == a["chain"]]
-    return [Result("ResolutionApplied", {"base": _git(ctx.project, "rev-parse", "HEAD"), "units": parked,
-                                         "summary": a["summary"]})]
+    results = []
+    replan = getattr(ctx.workspace, "replan", None)
+    planned = replan() if replan else None   # the resolution may have changed the DSLs: the units' clauses with them
+    if planned is not None and planned["units"] != list(plan(ctx).values()):
+        results.append(Result("UnitsPlanned", planned))
+    return [*results, Result("ResolutionApplied", {"base": _git(ctx.project, "rev-parse", "HEAD"), "units": parked,
+                                                   "summary": a["summary"]})]
 
 
 @units.handler("ResumeUnit")
@@ -350,10 +359,17 @@ def resume_unit(command: Event, ctx: Ctx) -> list[Result]:
                                       "because_of": command.id})]
     applied = [e for e in ctx.store.read(types_=("ResolutionApplied",)) if unit in e.payload["units"]]
     reason = applied[-1].payload["summary"] if applied else "the interfaces changed"
-    results = [Result("UnitResumed", {"unit": unit, "base": base})]
-    if not _open_cycles(ctx, unit) and _implemented_before(ctx, unit):
+    planned = {c for g in plan(ctx)[unit]["groups"] for c in g["clauses"]}
+    dropped = [(c, g) for c, g in _open_cycles(ctx, unit) if c not in planned]
+    # before UnitResumed: the policies that react to it see the dropped cycles closed
+    results = [Result("CycleDropped", {"unit": unit, "clause": c, "reason": f"no longer in the domain: {reason}"},
+                      stream=cycle_stream(unit, c)) for c, _ in dropped]
+    results.append(Result("UnitResumed", {"unit": unit, "base": base}))
+    if not [o for o in _open_cycles(ctx, unit) if o not in dropped] and _implemented_before(ctx, unit):
         results.append(Result("UnitImplemented", {"unit": unit}))
     for clause, group in _open_cycles(ctx, unit):
+        if (clause, group) in dropped:
+            continue
         phase = "green" if _red_committed(ctx, unit, clause) else "red"
         results.append(Result("CycleReopened", {"unit": unit, "clause": clause, "group": group, "phase": phase,
                                                 "reason": f"resumed after a resolution: {reason}"},
@@ -363,7 +379,7 @@ def resume_unit(command: Event, ctx: Ctx) -> list[Result]:
 
 def _open_cycles(ctx: Ctx, unit: str) -> list[tuple[str, str]]:
     opened: dict[str, str] = {}
-    for e in ctx.events(types=("CycleOpened", "CycleReopened", "CycleClosed")):
+    for e in ctx.events(types=("CycleOpened", "CycleReopened", "CycleClosed", "CycleDropped")):
         if e.payload["unit"] != unit:
             continue
         if e.type in ("CycleOpened", "CycleReopened"):
