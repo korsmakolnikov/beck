@@ -29,6 +29,11 @@ Write the least production code that makes the test pass, inside the
 unit's own source paths. Never change a test. Run the `run` command; when
 `failure` is in the context, it is the summary of the last run: start from
 it.
+When the test itself is wrong, so that no correct code can make it pass
+(it builds an input the interfaces refuse, it asserts what the clause does
+not say), answer `change_requested` with `kind: test`, the clause as
+`target`, what is wrong in `problem`: beck undoes the red commit and asks
+you for a new red test.
 
 ## CoverLines
 

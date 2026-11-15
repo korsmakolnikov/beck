@@ -213,6 +213,33 @@ def test_a_run_of_a_rejected_turn_is_stale_once_the_files_change(repo):
     assert types(store)[-1] == "CycleClosed"
 
 
+def wrong_test(a):
+    return {"protocol": 1, "command": "WriteGreenCode", "outcome": "change_requested",
+            "change": {"kind": "test", "target": "doubles", "problem": "the red test builds an invalid input",
+                       "proposal": "rewrite the red test with a valid input"}}
+
+
+def test_a_green_that_finds_the_red_test_wrong_takes_the_cycle_back_to_red(repo):
+    # the session of 2026-11-15: a committed red test became wrong after a resolution; a green may not change a
+    # test, kent found nothing to change in the model, and the unit went round asking for a change
+    agent = Agent(repo, {"WriteRedTest": [red(), red()], "WriteGreenCode": [wrong_test, green()]})
+    reactor, store, _ = machine(repo, agent)
+    asyncio.run(reactor.run_until_idle())
+    assert types(store) == ["SessionStarted", "CycleOpened", "RedDeclared", "RedVerified", "RedCommitted",
+                            "ChangeRequested", "RedRewound", "RedDeclared", "RedVerified", "RedCommitted",
+                            "GreenDeclared", "GreenVerified", "GreenCommitted", "CycleClosed"]
+    assert git(repo, "log", "--format=%s").splitlines() == ["feat(u): doubles", "test(u): doubles", "start"]
+    second_red = [c for c in agent.calls if c["command"] == "WriteRedTest"][1]
+    assert second_red["retry"]["reason"] == "the red test is wrong: the red test builds an invalid input"
+
+
+def test_a_red_taken_back_too_often_blocks_the_cycle(repo):
+    agent = Agent(repo, {"WriteRedTest": [red()], "WriteGreenCode": [wrong_test]})
+    reactor, store, _ = machine(repo, agent)
+    asyncio.run(reactor.run_until_idle())
+    assert types(store).count("RedRewound") == 3 and types(store)[-1] == "CycleBlocked"
+
+
 def test_the_same_rejection_three_times_blocks_the_cycle(repo):
     agent = Agent(repo, {"WriteRedTest": [red(PASSING_TEST)], "WriteGreenCode": [green()]})
     reactor, store, _ = machine(repo, agent)

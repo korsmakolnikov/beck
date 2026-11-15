@@ -95,12 +95,14 @@ $defs:
         items: {$ref: "#/$defs/text"}
 
   change:
-    description: A change of the interfaces or of the architecture the agent cannot make.
+    description: >-
+      A change of the interfaces or of the architecture the agent cannot make; or (kind test, in a green turn)
+      the committed red test is wrong, so beck takes the cycle back to red.
     type: object
     required: [kind, target, problem, proposal]
     additionalProperties: false
     properties:
-      kind: {enum: [interface, architecture]}
+      kind: {enum: [interface, architecture, test]}
       target: {$ref: "#/$defs/id"}
       problem: {$ref: "#/$defs/text"}
       proposal: {$ref: "#/$defs/text"}

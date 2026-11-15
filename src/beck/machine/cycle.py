@@ -164,6 +164,32 @@ def retry_green(event: Event, ctx: Ctx) -> list[Command]:
                                                       (attempt, reason)))
 
 
+@cycle.policy("ChangeRequested")
+def rewind_red(event: Event, ctx: Ctx) -> list[Command]:
+    """unclebob, in a green turn, finds the committed red test wrong: back to red, its commit undone. A green
+    may not change a test, so only a new red can fix it; the repetition rule bounds the rewinds."""
+    p = event.payload
+    if p["kind"] != "test" or p["agent"] != "unclebob":
+        return []
+    a = _issued(ctx, event).payload["args"]
+    rewinds = len(ctx.events(stream=stream(a["unit"], a["clause"]), types=("RedRewound",)))
+    if rewinds >= ctx.limits[0]:
+        return [Command("BlockCycle", "beck", {"unit": a["unit"], "clause": a["clause"],
+                                               "reason": f"the red test was found wrong {rewinds} times"},
+                        event.stream)]
+    return [Command("RewindRed", "beck", {"unit": a["unit"], "clause": a["clause"], "group": a["group"],
+                                          "reason": f"the red test is wrong: {p['problem']}"}, event.stream)]
+
+
+@cycle.policy("RedRewound")
+def red_again(event: Event, ctx: Ctx) -> list[Command]:
+    p = event.payload
+    if parked(ctx, p["unit"]):
+        return []
+    attempt = len(ctx.events(stream=stream(p["unit"], p["clause"]), types=("RedRewound",))) + 1
+    return [_red_turn(ctx, p["unit"], p["clause"], p["group"], False, (attempt, p["reason"]))]
+
+
 @cycle.policy("GreenVerified")
 def commit_green(event: Event, ctx: Ctx) -> list[Command]:
     return [Command("CommitGreen", "beck", dict(event.payload), event.stream)]
@@ -290,6 +316,19 @@ def handle_commit_red(command: Event, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     sha = commit(ctx.workspace.worktree(a["unit"]), message(ctx, a["unit"], f"test({a['unit']}): {a['clause']}"))
     return [Result("RedCommitted", {"unit": a["unit"], "clause": a["clause"], "sha": sha})]
+
+
+@cycle.handler("RewindRed")
+def handle_rewind_red(command: Event, ctx: Ctx) -> list[Result]:
+    a = command.payload["args"]
+    tree = ctx.workspace.worktree(a["unit"])
+    red = [e for e in ctx.store.read(stream=stream(a["unit"], a["clause"]), types_=("RedCommitted",))][-1]
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tree, capture_output=True, text=True,
+                          check=True).stdout.strip()
+    if head == red.payload["sha"]:   # tolerate a crash after the reset, before the event
+        subprocess.run(["git", "reset", "-q", "--hard", f"{head}~1"], cwd=tree, check=True)
+    subprocess.run(["git", "clean", "-fdq", "--", ".", ":!.beck"], cwd=tree, check=True)
+    return [Result("RedRewound", {k: a[k] for k in ("unit", "clause", "group", "reason")})]
 
 
 @cycle.handler("CommitGreen")

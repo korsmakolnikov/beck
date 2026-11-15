@@ -254,6 +254,8 @@ def _affected(ctx: Ctx, requester: str, target: str | None) -> list[str]:
 @units.policy("ChangeRequested")
 def park_for_a_change(event: Event, ctx: Ctx) -> list[Command]:
     p = event.payload
+    if p["kind"] == "test" and p["agent"] == "unclebob":
+        return []  # the cycle goes back to red (cycle.rewind_red): no unit waits for a resolution
     details = {k: p[k] for k in ("agent", "unit", "target", "problem", "proposal")}
     return _park_and_propose(ctx, event, _affected(ctx, p["unit"], p["target"]), p["kind"], details,
                              f"{p['kind']} change requested by {p['agent']}")
@@ -394,7 +396,8 @@ def _implemented_before(ctx: Ctx, unit: str) -> bool:
 
 
 def _red_committed(ctx: Ctx, unit: str, clause: str) -> bool:
-    return bool(list(ctx.store.read(stream=cycle_stream(unit, clause), types_=("RedCommitted",))))
+    last = list(ctx.store.read(stream=cycle_stream(unit, clause), types_=("RedCommitted", "RedRewound")))
+    return bool(last) and last[-1].type == "RedCommitted"
 
 
 implementation = cycle.merge(units)

@@ -89,6 +89,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
                              {"failure": _STRING}),
     "GreenCommitted": _object({"unit": _STRING, "clause": _STRING, "sha": _STRING}),
     "CycleClosed": _object({"unit": _STRING, "clause": _STRING}),
+    "RedRewound": _object({"unit": _STRING, "clause": _STRING, "group": _STRING, "reason": _STRING}),
     "CycleDropped": _object({"unit": _STRING, "clause": _STRING, "reason": _STRING}),
     "CycleBlocked": _object({"unit": _STRING, "clause": _STRING, "reason": _STRING}),
     "CycleReopened": _object({"unit": _STRING, "clause": _STRING, "group": _STRING,
@@ -232,7 +233,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
     "DecisionRouted": _object({"situation": _STRING, "action": _STRING, "args": {"type": "object"}, "why": _STRING,
                                "ask": _STRING}),
     "RouteRejected": _object({"reason": _STRING, "signature": _STRING}),
-    "ChangeRequested": _object({"agent": _STRING, "unit": _STRING, "kind": {"enum": ["interface", "architecture"]},
+    "ChangeRequested": _object({"agent": _STRING, "unit": _STRING, "kind": {"enum": ["interface", "architecture", "test"]},
                                 "target": _STRING, "problem": _STRING, "proposal": _STRING},
                                {"clause": _STRING}),
 }
