@@ -174,7 +174,7 @@ def _trace(args: argparse.Namespace) -> int:
 
 
 def _toolchain_root(root: Path) -> Path:
-    """The toolchain is the project's: $BECK_PROJECT when an agent runs in a unit's worktree."""
+    """The toolchain and the index are the project's: $BECK_PROJECT when an agent runs in a unit's worktree."""
     return Path(os.environ["BECK_PROJECT"]) if os.environ.get("BECK_PROJECT") else root
 
 
@@ -206,7 +206,7 @@ def _check(args: argparse.Namespace) -> int:
         sys.exit(str(error))
     paths = list(args.paths)
     if not paths and args.unit:
-        conn = _db(argparse.Namespace(project=str(root)))
+        conn = _db(argparse.Namespace(project=str(_toolchain_root(root))))  # the index is the project's
         row = conn.execute("SELECT data FROM node WHERE id = ? AND kind = 'component'", (args.unit,)).fetchone()
         if row is None:
             sys.exit(f"no component {args.unit!r} in the index")
@@ -230,7 +230,7 @@ def _check(args: argparse.Namespace) -> int:
 
 def _indexed_tests(root: Path, toolchain, unit: str | None, clause: str | None) -> list[str]:
     """The tests the index knows for a clause, or for every clause a unit realizes."""
-    conn = _db(argparse.Namespace(project=str(root)))
+    conn = _db(argparse.Namespace(project=str(_toolchain_root(root))))  # the index is the project's
     if clause:
         clauses = [clause]
     else:
