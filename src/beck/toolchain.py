@@ -7,6 +7,7 @@
     test: [uv, run, pytest, "--junitxml={report}", "{tests}"]   # optional
     build: [uv, run, python, -m, compileall, -q, src]   # optional: does the code compile
     deps: [mix, deps.get]            # optional: installs the dependencies (python: none, uv run syncs)
+    timeout: 300                     # optional: seconds a test run may take before beck stops it
     coverage:                        # optional: how to measure the coverage
       format: coverage.py            # coverage.py | excoveralls | lcov: how beck reads the report
       args: ["--cov={path}", "--cov-report=json:{coverage}"]   # added to the test command
@@ -103,6 +104,7 @@ class Toolchain:
     build: list[str] = field(default_factory=list)
     complexity: str = "lizard"
     deps: list[str] = field(default_factory=list)
+    timeout: float = 300                # a test run that takes longer is stopped: a test that hangs
 
     @staticmethod
     def _expand(parts: list[str], paths: list[str], report: str) -> list[str]:
@@ -186,7 +188,14 @@ def load(root: Path) -> Toolchain:
                      _coverage(path, config.get("coverage")),
                      [str(p) for p in config.get("build", DEFAULT_BUILD[language])],
                      _complexity(path, (config.get("measures") or {}).get("complexity", DEFAULT_COMPLEXITY[language])),
-                     [str(p) for p in config.get("deps", DEFAULT_DEPS[language])])
+                     [str(p) for p in config.get("deps", DEFAULT_DEPS[language])],
+                     _timeout(path, config.get("timeout", 300)))
+
+
+def _timeout(path: Path, value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        raise ToolchainError(f"{path}: `timeout` must be a number of seconds")
+    return float(value)
 
 
 def _coverage(path: Path, c: Any) -> Coverage:

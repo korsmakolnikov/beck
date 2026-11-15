@@ -3,6 +3,7 @@
 import hashlib
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -151,3 +152,19 @@ def test_a_python_component_is_its_package_or_its_module(tmp_path):
     (tmp_path / "src/pong/tui/renderer.py").write_text("")
     toolchain = Toolchain("python", DEFAULTS["python"])
     assert toolchain.component_paths(tmp_path, ["pong", "tui", "renderer"]) == ["src/pong/tui/renderer.py"]
+
+
+def test_a_test_that_hangs_is_stopped_at_the_timeout(project, capsys):
+    # the session of 2026-11-15: a test of the game loop waited for CTRL+C forever, and unclebob's turn with it
+    (project / ".beck" / "toolchain.yml").write_text(
+        (project / ".beck" / "toolchain.yml").read_text() + "timeout: 2\n")
+    (project / "tests" / "test_hang.py").write_text("import time\n\n\ndef test_hang():\n    time.sleep(60)\n")
+    p = Project(project)
+    it, store, _ = p.start_iteration()
+    store.close()
+    started = time.monotonic()
+    assert main(["test", "tests/test_hang.py::test_hang", "--project", str(project)]) != 0
+    assert time.monotonic() - started < 20
+    assert capsys.readouterr().out.startswith("TIMEOUT after 2 s: a test does not end")
+    e = p.open(it.id).last()
+    assert e.type == "TestsRun" and e.payload["timed_out"] is True

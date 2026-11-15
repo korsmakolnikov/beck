@@ -51,6 +51,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
         "exit_code": {"type": "integer"},
     }, {
         "log": _STRING,                          # the runner's console output
+        "timed_out": {"type": "boolean"},        # stopped at the toolchain's timeout
         "coverage": _STRING,                     # the coverage report, when measured
         "coverage_format": _STRING,              # how to read it (beck.measures.coverage)
         "not_passed": {"type": "array", "items": _STRING},   # the report's tests that failed or erred

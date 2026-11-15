@@ -21,11 +21,13 @@ import hashlib
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from beck.events.project import Project
 from beck.events.store import Event, EventStore
@@ -102,14 +104,17 @@ def run(root: Path, toolchain: Toolchain, tests: list[str], *, actor: str, unit:
             with log.open("w") as out:
                 out.write("$ " + shlex.join(command) + "\n")
                 out.flush()
-                exit_code = subprocess.run(command, cwd=root, env={**os.environ, **env},
-                                           stdout=out, stderr=subprocess.STDOUT).returncode
+                exit_code, timed_out = _run(command, root, {**os.environ, **env}, out, toolchain.timeout)
         except FileNotFoundError as error:
             raise TestRunError(f"cannot run {command[0]!r}: {error}") from error
         payload: dict[str, object] = {"command": shlex.join(command), "tests": tests, "exit_code": exit_code,
                                       "log": str(log.relative_to(store_root))}
         text = f"NO_REPORT (exit {exit_code}): the runner wrote no JUnit report; its output is in {payload['log']}"
-        if report.is_file():
+        if timed_out:
+            payload["timed_out"] = True
+            text = (f"TIMEOUT after {toolchain.timeout:g} s: a test does not end (a loop, a wait for input); "
+                    f"the output is in {payload['log']}")
+        if report.is_file() and not timed_out:
             payload["report"] = str(report.relative_to(store_root))
             payload["report_hash"] = hashlib.sha256(report.read_bytes()).hexdigest()
             try:
@@ -136,6 +141,18 @@ def run(root: Path, toolchain: Toolchain, tests: list[str], *, actor: str, unit:
     finally:
         store.close()
         project.close()
+
+
+def _run(command: list[str], root: Path, env: dict[str, str], out: Any, timeout: float) -> tuple[int, bool]:
+    """The exit code, and whether the run was stopped at the timeout: its whole process group, since the
+    runner's children (uv run, then pytest) would outlive it."""
+    proc = subprocess.Popen(command, cwd=root, env=env, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+    try:
+        return proc.wait(timeout=timeout), False
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
+        return -signal.SIGKILL, True
 
 
 def _cause(store: EventStore) -> Event | None:
