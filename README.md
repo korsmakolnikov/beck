@@ -222,10 +222,13 @@ Implemented: `src/beck/events/`, with `beck sessions`, `beck events` and
   flow) gets its own git worktree, branched from the feature branch once the
   interfaces are committed. N unclebobs work on different units at once, and
   martin refactors the finished units beside them.
-* An unclebob does not wait for the components its unit depends on: it
-  trusts the declared interfaces, which is what they are for. The
-  integration unit at the end exists to find where the components diverge
-  from the interfaces.
+* An unclebob does not wait for the components its unit depends on through
+  an interface (`boundary: interface`): it trusts the declared interfaces,
+  which is what they are for. A `concrete` dependency is tested with the
+  real module, so the unit waits for it to land (`waits_for` in
+  `UnitsPlanned`); its worktree then branches from a feature branch that
+  holds it. The integration unit at the end exists to find where the
+  components diverge from the interfaces.
 * beck commits every TDD phase in the unit's worktree as soon as it has
   verified it: the new test fails (red), then passes with no test changed
   (green). The code is never left uncommitted.

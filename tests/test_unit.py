@@ -111,8 +111,8 @@ class Agents:
                            "units": ["store", "cart"]}}
 
 
-def plan(exclusive=False):
-    return {"units": [
+def plan(exclusive=False, waits=False):
+    planned = {"units": [
         {"id": "store", "groups": [{"id": "entity:Store", "clauses": ["store-adds"]}], "depends_on": [],
          "realizes": ["store-adds"], "exclusive_with": ["cart"] if exclusive else []},
         {"id": "cart", "groups": [{"id": "operation:totals", "clauses": ["cart-totals"]},
@@ -120,16 +120,19 @@ def plan(exclusive=False):
          "depends_on": ["store"], "realizes": ["cart-totals", "cart-empties"],
          "exclusive_with": ["store"] if exclusive else []},
     ]}
+    if waits:   # cart's tests use the real store (boundary: concrete)
+        planned["units"][1]["waits_for"] = ["store"]
+    return planned
 
 
-def setup(repo, agents, slots=2, exclusive=False):
+def setup(repo, agents, slots=2, exclusive=False, waits=False):
     project = Project(repo)
     it, store, _ = project.start_iteration()
     workspace = Workspace(store, repo, lambda unit, tree: [f"src/shop/{unit}"],
                           lambda unit, group: {"unit": {"id": unit}, "group": group, "clauses": [], "entities": [],
                                                "dependencies": [], "files": {"source": [], "tests": []}})
     ctx = Ctx(store, repo, it.id, workspace, units_in_parallel=slots)
-    store.append("UnitsPlanned", plan(exclusive))
+    store.append("UnitsPlanned", plan(exclusive, waits))
     return Reactor(ctx, implementation, agents), store
 
 
@@ -169,6 +172,17 @@ def test_units_sharing_a_file_never_run_together(repo):
     reactor, store = setup(repo, Agents(repo), slots=2, exclusive=True)
     run(reactor)
     assert unit_events(store, "cart") == []
+
+
+def test_a_unit_waits_for_its_concrete_dependencies_to_land(repo):
+    # the session of 2026-11-15: match-program, whose dependencies are concrete, started beside them and tested
+    # against their stubs (NotImplementedError); unclebob asked for an architecture change three times
+    reactor, store = setup(repo, Agents(repo), slots=2, waits=True)
+    run(reactor)
+    assert unit_events(store, "store")[-1] == "UnitImplemented" and unit_events(store, "cart") == []
+    store.append("UnitClosed", {"unit": "store"}, stream="unit:store")
+    run(reactor)
+    assert unit_events(store, "cart")[0] == "UnitStarted"
 
 
 def change(target):

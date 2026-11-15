@@ -191,3 +191,16 @@ def test_a_file_with_symbols_of_two_components_is_shared(project):
 def test_no_file_is_shared_when_each_holds_one_component(index):
     conn, _ = index
     assert plan.shared_files(conn) == {} and plan.exclusive(conn) == set()
+
+
+def test_a_unit_waits_only_for_its_concrete_dependencies(project):
+    from beck.machine.session import plan_units
+    domain, arch = docs()
+    conn, _ = build(project, domain, arch, ":memory:")
+    assert not any("waits_for" in u for u in plan_units(conn)["units"])   # tag-store is an interface
+    store = next(c for d in arch["elements"] for c in d.get("elements", []) if c.get("id") == "tag-store")
+    store["boundary"] = "concrete"
+    conn, _ = build(project, domain, arch, ":memory:")
+    waits = {u["id"]: u.get("waits_for") for u in plan_units(conn)["units"]}
+    assert waits["bookmark-tagger"] == ["tag-store"] and waits["archiver"] == ["tag-store"]
+    assert waits["tag-store"] is None

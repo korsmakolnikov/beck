@@ -142,6 +142,8 @@ def schedule(event: Event, ctx: Ctx) -> list[Command]:
                 continue
             if planned[u].get("integration") and not others_closed:
                 continue  # the integration unit starts once every other unit has landed
+            if any(states.get(d) != "closed" for d in planned[u].get("waits_for", [])):
+                continue  # its tests use the real modules of its concrete dependencies: it waits for them to land
             commands.append(Command(command, "beck", {"unit": u}, stream(u)))
             running.add(u)
             free -= 1

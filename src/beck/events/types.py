@@ -99,7 +99,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
         "depends_on": {"type": "array", "items": _STRING},
         "realizes": {"type": "array", "items": _STRING},
         "exclusive_with": {"type": "array", "items": _STRING},
-    }, {"integration": {"type": "boolean"}})}}),
+    }, {"integration": {"type": "boolean"}, "waits_for": {"type": "array", "items": _STRING}})}}),
     "UnitStarted": _object({"unit": _STRING, "worktree": _STRING, "branch": _STRING, "base": _STRING}),
     "GroupOpened": _object({"unit": _STRING, "group": _STRING}),
     "GroupClosed": _object({"unit": _STRING, "group": _STRING}),

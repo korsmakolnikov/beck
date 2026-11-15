@@ -815,6 +815,11 @@ def anchored(command: Event, output: dict[str, Any], ctx: Ctx) -> list[Result]:
     return [Result("IdsAnchored", {}, actor="kent")]
 
 
+def _boundary(conn: sqlite3.Connection, component: str) -> str | None:
+    row = conn.execute("SELECT data FROM node WHERE id = ?", (component,)).fetchone()
+    return json.loads(row["data"]).get("boundary") if row else None
+
+
 def plan_units(conn: sqlite3.Connection) -> dict[str, Any]:
     """UnitsPlanned's payload from the index: the units in landing order, their groups, dependencies, sharing."""
     units = index_plan.units(conn)
@@ -828,6 +833,9 @@ def plan_units(conn: sqlite3.Connection) -> dict[str, Any]:
         realizes = [r["dst"] for r in conn.execute("SELECT dst FROM edge WHERE src = ? AND kind = 'realizes'", (u,))]
         entry: dict[str, Any] = {"id": u, "groups": groups, "depends_on": deps, "realizes": realizes,
                                  "exclusive_with": sorted(o for pair in exclusive if u in pair for o in pair if o != u)}
+        concrete = [d for d in deps if _boundary(conn, d) != "interface"]
+        if concrete:   # the unit's tests use the real modules: it starts once they have landed
+            entry["waits_for"] = concrete
         if u == INTEGRATION:
             entry["integration"] = True
             entry["depends_on"] = [x for x in units if x != INTEGRATION]
