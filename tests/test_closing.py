@@ -160,3 +160,15 @@ def test_a_failing_test_of_a_dropped_clause_reopens_no_unit(repo):
     [command] = reopen_failing(failed, Ctx(store, repo, "it", None))
     assert command.name == "Ask" and "no longer in the domain: tests/test_t.py::test_t" in \
         command.args["question"]["text"]
+
+
+def test_the_review_names_the_interfaces_no_cycle_implemented(repo):
+    # the session of 2026-11-15: the suite was green, but the program's entry point, which no clause cited, still
+    # raised "not implemented": the command did not start, and the review did not say so
+    (repo / "src/shop/main.py").write_text('def main():\n    """The entry point."""\n'
+                                           '    raise NotImplementedError("not implemented")\n')
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "the entry point's interface")
+    reactor, store, *_ = setup(repo, Reviewers(repo))
+    run(reactor)
+    assert "a stub no cycle implemented: src/shop/main.py:3" in review(reactor).payload["args"]["notes"]

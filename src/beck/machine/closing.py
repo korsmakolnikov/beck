@@ -240,9 +240,30 @@ def _present(ctx: Ctx) -> Command:
     notes += [f"{e.payload['unit']}: lines no test runs, {_lines(e.payload['gaps'])}"
               for e in _last_coverage(ctx) if e.payload["gaps"]]
     notes += [f"flaky: {e.payload['test']} ({e.payload['evidence']})" for e in ctx.events(types=("FlakyTestFound",))]
+    notes += [f"a stub no cycle implemented: {where}" for where in _stubs(ctx.project)]
     if notes:
         args["notes"] = notes
     return Command("PresentForReview", "user", args, BRANCH)
+
+
+STUBS = {"python": ('raise NotImplementedError("not implemented")', ".py"),
+         "elixir": ('raise "not implemented"', ".ex")}
+
+
+def _stubs(root: Path) -> list[str]:
+    """The interface bodies kent wrote that still raise "not implemented": no clause cited them, so no cycle
+    implemented them, and the suite cannot tell."""
+    toolchain = load(root)
+    marker, suffix = STUBS[toolchain.language]
+    found = []
+    for base in toolchain.source_roots(root):
+        for path in sorted((root / base).rglob(f"*{suffix}")):
+            if ".beck" in path.relative_to(root).parts:
+                continue
+            for n, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
+                if marker in line:
+                    found.append(f"{path.relative_to(root)}:{n}")
+    return found
 
 
 def _lines(gaps: dict[str, list[int]]) -> str:
