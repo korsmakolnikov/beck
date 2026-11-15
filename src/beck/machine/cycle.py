@@ -51,9 +51,10 @@ class Workspace:
 
 
 def parked(ctx: Ctx, unit: str) -> bool:
-    """Whether the unit is parked, as of the policy's event."""
+    """Whether the unit is parked, as of the policy's event. A unit parked before it started (a dependent, still
+    waiting) is no longer parked once started."""
     state = False
-    for e in ctx.events(stream=f"unit:{unit}", types=("UnitParked", "UnitResumed")):
+    for e in ctx.events(stream=f"unit:{unit}", types=("UnitParked", "UnitResumed", "UnitStarted")):
         state = e.type == "UnitParked"
     return state
 

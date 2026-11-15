@@ -282,6 +282,20 @@ def test_the_open_cycle_of_a_dropped_clause_is_dropped_on_resume(repo):
     assert len(red_turns) == 1   # never asked again
 
 
+def test_a_unit_parked_before_it_started_runs_its_cycles_once_started(repo):
+    # the session of 2026-11-15: @integration, parked as a dependent while still waiting, started at last and
+    # opened its first cycle, but the cycle took it for parked and asked unclebob for nothing
+    agents = Agents(repo, {("WriteRedTest", "store-adds"): [change("store"), None]})
+    reactor, store = setup(repo, agents, slots=1)
+    run(reactor)
+    approve(reactor)
+    assert unit_events(store, "cart") == ["UnitParked"]
+    store.append("UnitClosed", {"unit": "store"}, stream="unit:store")
+    run(reactor)
+    assert [e["context"]["clause"] for a, e in agents.calls if e["command"] == "WriteRedTest"][-1] == "cart-empties"
+    assert unit_events(store, "cart")[-1] == "UnitImplemented"
+
+
 def test_a_dropped_cycle_takes_its_red_test_away(repo):
     # the session of 2026-11-15: the dropped clause's red test stayed committed, failed the unit's tests, and
     # the regression reopened the cycle of a clause no longer in the domain
