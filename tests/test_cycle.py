@@ -184,6 +184,35 @@ def test_a_malformed_answer_is_a_signal_rejected_and_retried(repo):
     assert types(store)[-1] == "CycleClosed"
 
 
+def test_a_green_retried_for_its_format_alone_keeps_the_run_of_the_rejected_turn(repo):
+    # the session of 2026-11-15: unclebob ran the test, answered with a `result` the schema forbids, then, asked
+    # again, fixed the answer alone; VerifyGreen looked for a run of the second turn and rejected the green
+    def run_then_malformed(a):
+        green()(a)
+        return {"protocol": 1, "command": "WriteGreenCode", "outcome": "done", "result": {}}
+    fixed = lambda a: {"protocol": 1, "command": "WriteGreenCode", "outcome": "done"}  # noqa: E731
+    agent = Agent(repo, {"WriteRedTest": [red()], "WriteGreenCode": [run_then_malformed, fixed]})
+    reactor, store, _ = machine(repo, agent)
+    asyncio.run(reactor.run_until_idle())
+    assert "GreenRejected" not in types(store) and types(store)[-1] == "CycleClosed"
+
+
+def test_a_run_of_a_rejected_turn_is_stale_once_the_files_change(repo):
+    def run_then_malformed(a):
+        green()(a)
+        return {"protocol": 1, "command": "WriteGreenCode", "outcome": "done", "result": {}}
+    def edit_without_running(a):
+        a.write("src/pkg/mod.py", CODE + "\n")
+        return {"protocol": 1, "command": "WriteGreenCode", "outcome": "done"}
+    agent = Agent(repo, {"WriteRedTest": [red()], "WriteGreenCode": [run_then_malformed, edit_without_running,
+                                                                    green()]})
+    reactor, store, _ = machine(repo, agent)
+    asyncio.run(reactor.run_until_idle())
+    [rejected] = store.read(types_=("GreenRejected",))
+    assert rejected.payload["reason"] == "files changed after the last beck test run"
+    assert types(store)[-1] == "CycleClosed"
+
+
 def test_the_same_rejection_three_times_blocks_the_cycle(repo):
     agent = Agent(repo, {"WriteRedTest": [red(PASSING_TEST)], "WriteGreenCode": [green()]})
     reactor, store, _ = machine(repo, agent)

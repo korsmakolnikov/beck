@@ -229,7 +229,16 @@ def _change(args: dict[str, Any], output: dict[str, Any]) -> Result:
 
 
 def _runs(ctx: Ctx, turn: str) -> list[Event]:
-    return [e for e in ctx.store.caused_by(turn) if e.type == "TestsRun"]
+    """The turn's runs, after those of the turns it retries for a malformed answer alone (SignalRejected):
+    the retry fixes the answer, not the code, so the earlier run stands while the tree is the one it saw."""
+    chain = [ctx.store.get(turn)]
+    while chain[-1].causation_id:
+        cause = ctx.store.get(chain[-1].causation_id)
+        if cause.type != "SignalRejected" or not cause.causation_id:
+            break
+        chain.append(ctx.store.get(cause.causation_id))
+    return sorted((e for t in chain for e in ctx.store.caused_by(t.id) if e.type == "TestsRun"),
+                  key=lambda e: e.seq)
 
 
 @cycle.handler("VerifyRed")
