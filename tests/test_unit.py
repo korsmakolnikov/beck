@@ -282,6 +282,20 @@ def test_the_open_cycle_of_a_dropped_clause_is_dropped_on_resume(repo):
     assert len(red_turns) == 1   # never asked again
 
 
+def test_a_dropped_cycle_takes_its_red_test_away(repo):
+    # the session of 2026-11-15: the dropped clause's red test stayed committed, failed the unit's tests, and
+    # the regression reopened the cycle of a clause no longer in the domain
+    agents = Agents(repo, {("WriteGreenCode", "store-adds"): [change("store"), None]})
+    reactor, store = setup(repo, agents, slots=1, replan=lambda: without("store-adds"))
+    run(reactor)
+    approve(reactor)
+    tree = repo / ".beck/worktrees/store"
+    assert not (tree / "tests/test_store_adds.py").exists()
+    assert "test(store): store-adds" not in git(tree, "log", "--format=%s")
+    assert not list(store.read(types_=("CycleReopened",)))
+    assert unit_events(store, "store")[-1] == "UnitImplemented"
+
+
 def test_a_green_that_keeps_asking_for_a_change_goes_back_to_red(repo):
     # the session of 2026-11-15: unclebob asked ten times, from the same green, for a change kent did not find,
     # since the committed red test was wrong; at the repetition rule's times beck takes the cycle back to red

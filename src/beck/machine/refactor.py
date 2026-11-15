@@ -134,7 +134,8 @@ def handle_reopen(command: Event, ctx: Ctx) -> list[Result]:
     unit, tests = a["unit"], _declared_tests(ctx, a["unit"])
     groups = {e.payload["clause"]: e.payload["group"] for e in ctx.store.read(types_=("CycleOpened",))
               if e.payload["unit"] == unit}
-    clauses = sorted({tests[t] for t in a["tests"] if t in tests})
+    planned = {c for g in plan(ctx)[unit]["groups"] for c in g["clauses"]}
+    clauses = sorted({tests[t] for t in a["tests"] if t in tests and tests[t] in planned})  # no dropped clause
     if not clauses:  # a fitness function, or no report: nothing to hand to unclebob
         return [Result("UnitParked", {"unit": unit, "reason": f"the unit's tests fail outside its cycles: "
                                                              f"{a['failure'][:300]}", "because_of": command.id})]

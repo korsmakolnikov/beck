@@ -363,6 +363,9 @@ def resume_unit(command: Event, ctx: Ctx) -> list[Result]:
     reason = applied[-1].payload["summary"] if applied else "the interfaces changed"
     planned = {c for g in plan(ctx)[unit]["groups"] for c in g["clauses"]}
     dropped = [(c, g) for c, g in _open_cycles(ctx, unit) if c not in planned]
+    for c, _ in dropped:
+        if _red_committed(ctx, unit, c):
+            _undo_red(tree, unit, c)
     # before UnitResumed: the policies that react to it see the dropped cycles closed
     results = [Result("CycleDropped", {"unit": unit, "clause": c, "reason": f"no longer in the domain: {reason}"},
                       stream=cycle_stream(unit, c)) for c, _ in dropped]
@@ -377,6 +380,18 @@ def resume_unit(command: Event, ctx: Ctx) -> list[Result]:
                                                 "reason": f"resumed after a resolution: {reason}"},
                               stream=cycle_stream(unit, clause)))
     return results
+
+
+def _undo_red(tree: Path, unit: str, clause: str) -> None:
+    """Takes a dropped cycle's red test away: it would fail the unit's tests as a regression of nothing. The
+    rebase rewrote the commit, so it is found by its subject."""
+    found = _git(tree, "log", "-1", "--format=%H", "--fixed-strings", f"--grep=test({unit}): {clause}")
+    if not found:
+        return
+    if found == _git(tree, "rev-parse", "HEAD"):
+        _git(tree, "reset", "-q", "--hard", "HEAD~1")
+    else:
+        _git(tree, "revert", "--no-edit", found)
 
 
 def _open_cycles(ctx: Ctx, unit: str) -> list[tuple[str, str]]:
