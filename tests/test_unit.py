@@ -282,6 +282,19 @@ def test_the_open_cycle_of_a_dropped_clause_is_dropped_on_resume(repo):
     assert len(red_turns) == 1   # never asked again
 
 
+def test_a_green_that_keeps_asking_for_a_change_goes_back_to_red(repo):
+    # the session of 2026-11-15: unclebob asked ten times, from the same green, for a change kent did not find,
+    # since the committed red test was wrong; at the repetition rule's times beck takes the cycle back to red
+    agents = Agents(repo, {("WriteGreenCode", "store-adds"): [change("store")] * 3 + [None]})
+    reactor, store = setup(repo, agents, slots=1)
+    run(reactor)
+    for _ in range(2):
+        approve(reactor)
+    assert [e.payload["clause"] for e in store.read(types_=("RedRewound",))] == ["store-adds"]
+    assert len(list(store.read(types_=("ResolutionProposed",)))) == 2   # the third request is not resolved
+    assert unit_events(store, "store")[-1] == "UnitImplemented"
+
+
 def test_a_rejected_resolution_is_discarded_and_proposed_again(repo):
     agents = Agents(repo, {("WriteRedTest", "store-adds"): [change("store"), None]})
     reactor, store = setup(repo, agents)

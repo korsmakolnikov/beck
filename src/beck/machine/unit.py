@@ -27,7 +27,7 @@ from typing import Any
 
 from beck.events.store import Event, EventStore
 from beck.machine.core import Command, Ctx, Machine, Result
-from beck.machine.cycle import cycle
+from beck.machine.cycle import cycle, green_stuck
 from beck.machine.cycle import stream as cycle_stream
 
 units = Machine()
@@ -254,7 +254,7 @@ def _affected(ctx: Ctx, requester: str, target: str | None) -> list[str]:
 @units.policy("ChangeRequested")
 def park_for_a_change(event: Event, ctx: Ctx) -> list[Command]:
     p = event.payload
-    if p["kind"] == "test" and p["agent"] == "unclebob":
+    if green_stuck(ctx, event):
         return []  # the cycle goes back to red (cycle.rewind_red): no unit waits for a resolution
     details = {k: p[k] for k in ("agent", "unit", "target", "problem", "proposal")}
     return _park_and_propose(ctx, event, _affected(ctx, p["unit"], p["target"]), p["kind"], details,

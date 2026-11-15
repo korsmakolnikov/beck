@@ -164,12 +164,26 @@ def retry_green(event: Event, ctx: Ctx) -> list[Command]:
                                                       (attempt, reason)))
 
 
+def green_stuck(ctx: Ctx, event: Event) -> bool:
+    """A ChangeRequested that takes the cycle back to red: unclebob's `test` kind, or the repetition rule's
+    times of change requests from the green of one red (no resolution could unblock it: the red is suspect)."""
+    p = event.payload
+    if p["agent"] != "unclebob" or "clause" not in p:
+        return False
+    if p["kind"] == "test":
+        return True
+    events = ctx.events(stream=stream(p["unit"], p["clause"]))
+    since = max((e.seq for e in events if e.type in ("RedCommitted", "RedRewound")), default=0)
+    asked = [e for e in events if e.seq > since and e.type == "ChangeRequested"]
+    return _issued(ctx, event).payload["command"] == "WriteGreenCode" and len(asked) >= ctx.limits[0]
+
+
 @cycle.policy("ChangeRequested")
 def rewind_red(event: Event, ctx: Ctx) -> list[Command]:
     """unclebob, in a green turn, finds the committed red test wrong: back to red, its commit undone. A green
     may not change a test, so only a new red can fix it; the repetition rule bounds the rewinds."""
     p = event.payload
-    if p["kind"] != "test" or p["agent"] != "unclebob":
+    if not green_stuck(ctx, event):
         return []
     a = _issued(ctx, event).payload["args"]
     rewinds = len(ctx.events(stream=stream(a["unit"], a["clause"]), types=("RedRewound",)))
@@ -177,8 +191,9 @@ def rewind_red(event: Event, ctx: Ctx) -> list[Command]:
         return [Command("BlockCycle", "beck", {"unit": a["unit"], "clause": a["clause"],
                                                "reason": f"the red test was found wrong {rewinds} times"},
                         event.stream)]
+    why = "the red test is wrong" if p["kind"] == "test" else "the green asked for a change too many times"
     return [Command("RewindRed", "beck", {"unit": a["unit"], "clause": a["clause"], "group": a["group"],
-                                          "reason": f"the red test is wrong: {p['problem']}"}, event.stream)]
+                                          "reason": f"{why}: {p['problem']}"}, event.stream)]
 
 
 @cycle.policy("RedRewound")
