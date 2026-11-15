@@ -144,3 +144,19 @@ def test_beck_s_own_question_is_routed_by_kent_to_an_action_of_its_menu(repo):
     green = list(store.read(types_=("SuiteGreen",)))[-1]
     assert green.actor == "user"
     assert review(reactor).payload["args"]["round"] == 2
+
+
+def test_a_failing_test_of_a_dropped_clause_reopens_no_unit(repo):
+    # the session of 2026-11-15: the full suite failed on the test of a clause taken out of the domain, and beck
+    # reopened the unit on that clause, four times
+    from test_unit import without
+
+    from beck.machine.closing import reopen_failing
+    store = Project(repo).start_iteration()[1]
+    store.append("UnitsPlanned", without("cart-totals"))
+    store.append("RedVerified", {"unit": "cart", "clause": "cart-totals", "test": "tests/test_t.py::test_t",
+                                 "run": "r"}, stream="cycle:cart/cart-totals")
+    failed = store.append("SuiteFailed", {"tests": ["tests/test_t.py::test_t"], "failure": "NOT_OK"}, stream="branch")
+    [command] = reopen_failing(failed, Ctx(store, repo, "it", None))
+    assert command.name == "Ask" and "no longer in the domain: tests/test_t.py::test_t" in \
+        command.args["question"]["text"]

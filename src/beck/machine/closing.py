@@ -78,13 +78,18 @@ def reopen_failing(event: Event, ctx: Ctx) -> list[Command]:
     tests: dict[str, tuple[str, str]] = {}
     for e in ctx.events(types=("RedVerified",)):
         tests[e.payload["test"]] = (e.payload["unit"], e.payload["clause"])
+    planned = {(u, c) for u, p in plan(ctx).items() for g in p["groups"] for c in g["clauses"]}
     by_unit: dict[str, list[str]] = {}
+    orphans: list[str] = []
     for t in event.payload["tests"]:
-        if t in tests:
+        if t in tests and tests[t] in planned:
             unit, clause = tests[t]
             by_unit.setdefault(unit, []).append(clause)
-    if not by_unit:  # a test no cycle declared: the user decides
-        return [ask_routed(f"The full suite fails outside the units' tests: {event.payload['failure'][:500]}",
+        elif t in tests:   # its clause left the domain: no cycle of it to reopen
+            orphans.append(t)
+    if not by_unit:  # a test no cycle declared, or one of a dropped clause: the user decides
+        dropped = f" Tests of clauses no longer in the domain: {', '.join(orphans)}." if orphans else ""
+        return [ask_routed(f"The full suite fails outside the units' tests: {event.payload['failure'][:500]}{dropped}",
                            "No unit's cycle declared the failing tests.", "suite-outside-units",
                            [action("reopen-unit", "Reopen a unit on one of its clauses, so that unclebob fixes it.",
                                    unit="the unit's id", clause="the clause's id"),
