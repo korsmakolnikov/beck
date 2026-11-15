@@ -293,3 +293,25 @@ def test_the_workspace_plans_the_units_again_from_the_model_of_now(project):
     assert "add-commutes" in clauses(workspace.replan())
     (project / ".beck/domain.yaml").write_text(DOMAIN)
     assert "add-commutes" not in clauses(workspace.replan())
+
+
+def test_a_unit_s_tests_are_found_in_its_worktree_with_the_project_s_model(project, monkeypatch, capsys):
+    # the session of 2026-11-15: martin's `beck test --unit match-rules`, in the unit's worktree, got "the index
+    # knows no test for that": the project's index is built on the main tree, which has not the unit's tests yet
+    from beck.cli import main
+    (project / ".beck/domain.yaml").write_text(DOMAIN)
+    (project / ".beck/architecture.yaml").write_text(ARCHITECTURE)
+    (project / "src/calc/adder").mkdir()
+    (project / "src/calc/adder/__init__.py").write_text(INTERFACE)
+    assert main(["index", "build", "--project", str(project)]) == 0
+    worktree = project / ".beck/worktrees/adder"
+    git(project, "worktree", "add", "-q", "-b", "unit-adder", str(worktree), "HEAD")   # as StartUnit lays it
+    (worktree / "src/calc/adder").mkdir()
+    (worktree / "src/calc/adder/__init__.py").write_text(INTERFACE.replace("raise NotImplementedError", "return a + b"))
+    (worktree / "tests/test_adder.py").write_text(
+        "from calc.adder import add\n\n\ndef test_add_sums():\n    # spec: add-sums\n    assert add(2, 3) == 5\n")
+    Project(project).start_iteration()
+    monkeypatch.setenv("BECK_PROJECT", str(project))
+    capsys.readouterr()
+    assert main(["test", "--unit", "adder", "--project", str(worktree)]) == 0
+    assert "1 passed" in capsys.readouterr().out

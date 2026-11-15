@@ -64,6 +64,19 @@ def _index_build(args: argparse.Namespace) -> int:
     return 0
 
 
+def _unit_index(root: Path):
+    """The index a unit's command reads: in a unit's worktree, the worktree's code (its tests are there, not yet
+    in the main tree) against the project's model ($BECK_PROJECT/.beck), built in memory; else the project's."""
+    project = _toolchain_root(root)
+    beck_dir = project / ".beck"
+    if project.resolve() == root.resolve() or not (beck_dir / "domain.yaml").is_file():
+        return _db(argparse.Namespace(project=str(project)))
+    conn, report = build(root, _load(beck_dir / "domain.yaml"), _load(beck_dir / "architecture.yaml"), ":memory:")
+    if conn is None:
+        sys.exit("\n".join(str(p) for p in report.problems) or "the model builds no index")
+    return conn
+
+
 def _db(args: argparse.Namespace):
     path = Path(args.project) / ".beck" / "index.db"
     if not path.exists():
@@ -174,7 +187,7 @@ def _trace(args: argparse.Namespace) -> int:
 
 
 def _toolchain_root(root: Path) -> Path:
-    """The toolchain and the index are the project's: $BECK_PROJECT when an agent runs in a unit's worktree."""
+    """The toolchain and the model are the project's: $BECK_PROJECT when an agent runs in a unit's worktree."""
     return Path(os.environ["BECK_PROJECT"]) if os.environ.get("BECK_PROJECT") else root
 
 
@@ -206,7 +219,7 @@ def _check(args: argparse.Namespace) -> int:
         sys.exit(str(error))
     paths = list(args.paths)
     if not paths and args.unit:
-        conn = _db(argparse.Namespace(project=str(_toolchain_root(root))))  # the index is the project's
+        conn = _unit_index(root)
         row = conn.execute("SELECT data FROM node WHERE id = ? AND kind = 'component'", (args.unit,)).fetchone()
         if row is None:
             sys.exit(f"no component {args.unit!r} in the index")
@@ -230,7 +243,7 @@ def _check(args: argparse.Namespace) -> int:
 
 def _indexed_tests(root: Path, toolchain, unit: str | None, clause: str | None) -> list[str]:
     """The tests the index knows for a clause, or for every clause a unit realizes."""
-    conn = _db(argparse.Namespace(project=str(_toolchain_root(root))))  # the index is the project's
+    conn = _unit_index(root)
     if clause:
         clauses = [clause]
     else:
