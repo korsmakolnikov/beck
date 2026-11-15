@@ -334,17 +334,20 @@ def handle_commit_red(command: Event, ctx: Ctx) -> list[Result]:
 
 
 def undo_red(tree: Path, unit: str, clause: str) -> None:
-    """Takes the cycle's red commit away, found by its subject (a rebase rewrites the sha); none: nothing to do,
-    as after a crash between the undo and its event."""
-    def git(*args: str) -> str:
-        return subprocess.run(["git", *args], cwd=tree, capture_output=True, text=True, check=True).stdout.strip()
-    found = git("log", "-1", "--format=%H", "--fixed-strings", f"--grep=test({unit}): {clause}")
-    if not found:
+    """Takes the cycle's red commit away, found by its subject (a rebase rewrites the sha). Nothing to do when
+    there is none (a crash between the undo and its event) or when the clause was greened: later cycles may
+    build on its test. A revert that conflicts is given up, the tree left as it was."""
+    def git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["git", *args], cwd=tree, capture_output=True, text=True, check=check)
+    def last(subject: str) -> str:
+        return git("log", "-1", "--format=%H", "--fixed-strings", f"--grep={subject}").stdout.strip()
+    found = last(f"test({unit}): {clause}")
+    if not found or last(f"feat({unit}): {clause}"):
         return
-    if found == git("rev-parse", "HEAD"):
+    if found == git("rev-parse", "HEAD").stdout.strip():
         git("reset", "-q", "--hard", "HEAD~1")
-    else:
-        git("revert", "--no-edit", found)
+    elif git("revert", "--no-edit", found, check=False).returncode != 0:
+        git("revert", "--abort", check=False)
 
 
 @cycle.handler("RewindRed")

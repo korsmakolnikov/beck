@@ -294,3 +294,23 @@ def test_the_repetition_rule(sequence, p):
 def test_thirty_attempts_block_too():
     assert blocked([str(i) for i in range(30)]) == "30 attempts"
     assert blocked([str(i) for i in range(29)]) is None
+
+
+def test_undoing_a_red_leaves_a_greened_clause_and_a_conflict_alone(repo):
+    # the session of 2026-11-15: the dropped clause had its green too, later cycles built on its test, and the
+    # revert of its red stopped in a conflict inside the handler
+    from beck.machine.cycle import undo_red
+    def commit(message, text):
+        (repo / "tests/test_mod.py").write_text(text)
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "--allow-empty", "-m", message)
+    commit("test(u): doubles", RED_TEST)
+    commit("feat(u): doubles", RED_TEST)
+    head = git(repo, "rev-parse", "HEAD")
+    undo_red(repo, "u", "doubles")                      # greened: its test stays
+    assert git(repo, "rev-parse", "HEAD") == head
+    commit("test(u): halves", RED_TEST + "\n\ndef test_half():\n    pass\n")
+    commit("test(u): later", RED_TEST + "\n\ndef test_half():\n    assert True\n")
+    head = git(repo, "rev-parse", "HEAD")
+    undo_red(repo, "u", "halves")                       # the revert conflicts with the later commit
+    assert git(repo, "rev-parse", "HEAD") == head and git(repo, "status", "--short") == ""
