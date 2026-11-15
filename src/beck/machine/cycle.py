@@ -313,14 +313,15 @@ def handle_verify_green(command: Event, ctx: Ctx) -> list[Result]:
     return [Result("GreenRejected", payload)]
 
 
-def commit(root: Path, message: str) -> str:
-    """Commits everything outside .beck/; tolerates a commit already made before a crash."""
+def commit(root: Path, message: str, allow_empty: bool = False) -> str:
+    """Commits everything outside .beck/; tolerates a commit already made before a crash. allow_empty: a green
+    may need no code (a cycle reopened on a test that passes as it is): nothing is committed, HEAD stands."""
     git = lambda *a: subprocess.run(["git", *a], cwd=root, capture_output=True, text=True, check=True).stdout.strip()  # noqa: E731
     git("add", "-A", "--", ".", ":!.beck")
     staged = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=root).returncode != 0
     if staged:
         git("commit", "-q", "-m", message)
-    elif git("log", "-1", "--format=%s") != message:
+    elif git("log", "-1", "--format=%s") != message and not allow_empty:
         raise RuntimeError(f"nothing to commit for {message!r}")
     return git("rev-parse", "HEAD")
 
@@ -370,7 +371,8 @@ def handle_rewind_red(command: Event, ctx: Ctx) -> list[Result]:
 @cycle.handler("CommitGreen")
 def handle_commit_green(command: Event, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
-    sha = commit(ctx.workspace.worktree(a["unit"]), message(ctx, a["unit"], f"feat({a['unit']}): {a['clause']}"))
+    sha = commit(ctx.workspace.worktree(a["unit"]), message(ctx, a["unit"], f"feat({a['unit']}): {a['clause']}"),
+                 allow_empty=True)
     return [Result("GreenCommitted", {"unit": a["unit"], "clause": a["clause"], "sha": sha}),
             Result("CycleClosed", {"unit": a["unit"], "clause": a["clause"]})]
 

@@ -337,3 +337,13 @@ def test_a_component_test_that_passes_at_once_is_still_refused(repo):
     reactor, store, _ = machine(repo, agent)
     asyncio.run(reactor.run_until_idle())
     assert "RedRejected" in types(store) and "RedCommitted" not in types(store)
+
+
+def test_a_green_with_nothing_to_commit_closes_on_the_head(repo):
+    # the session of 2026-11-15: a cycle reopened at green in a correction round passed with no code to write,
+    # and CommitGreen raised "nothing to commit"
+    from beck.machine.cycle import commit
+    head = git(repo, "rev-parse", "HEAD")
+    assert commit(repo, "fixup! feat(u): implement u", allow_empty=True) == head
+    with pytest.raises(RuntimeError, match="nothing to commit"):
+        commit(repo, "test(u): doubles")
