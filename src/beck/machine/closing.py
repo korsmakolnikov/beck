@@ -241,9 +241,16 @@ def _present(ctx: Ctx) -> Command:
               for e in _last_coverage(ctx) if e.payload["gaps"]]
     notes += [f"flaky: {e.payload['test']} ({e.payload['evidence']})" for e in ctx.events(types=("FlakyTestFound",))]
     notes += [f"a stub no cycle implemented: {where}" for where in _stubs(ctx.project)]
+    notes += [f"a clause no cycle proved: {c}" for c in unproved(ctx)]
     if notes:
         args["notes"] = notes
     return Command("PresentForReview", "user", args, BRANCH)
+
+
+def unproved(ctx: Ctx) -> list[str]:
+    """The planned clauses no cycle closed, as unit/clause: a resolution may add one to a unit that has landed."""
+    done = {(e.payload["unit"], e.payload["clause"]) for e in ctx.events(types=("CycleClosed", "CycleDropped"))}
+    return [f"{u}/{c}" for u, p in plan(ctx).items() for g in p["groups"] for c in g["clauses"] if (u, c) not in done]
 
 
 STUBS = {"python": ('raise NotImplementedError("not implemented")', ".py"),

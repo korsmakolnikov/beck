@@ -172,3 +172,20 @@ def test_the_review_names_the_interfaces_no_cycle_implemented(repo):
     reactor, store, *_ = setup(repo, Reviewers(repo))
     run(reactor)
     assert "a stub no cycle implemented: src/shop/main.py:3" in review(reactor).payload["args"]["notes"]
+
+
+def test_the_review_names_the_planned_clauses_no_cycle_proved(repo):
+    # the session of 2026-11-15: a resolution added a clause to a unit already landed; the new plan held it, but
+    # no cycle ran it, the code never enforced it, and the program broke it: the match could last forever
+    from test_unit import plan as unit_plan
+
+    from beck.machine.closing import unproved
+    store = Project(repo).start_iteration()[1]
+    later = unit_plan()
+    later["units"][0]["groups"][0]["clauses"].append("store-refuses-negatives")
+    store.append("UnitsPlanned", later)
+    for unit, clause in (("store", "store-adds"), ("cart", "cart-totals")):
+        store.append("CycleClosed", {"unit": unit, "clause": clause}, stream=f"cycle:{unit}/{clause}")
+    store.append("CycleDropped", {"unit": "cart", "clause": "cart-empties", "reason": "r"},
+                 stream="cycle:cart/cart-empties")
+    assert unproved(Ctx(store, repo, "it", None)) == ["store/store-refuses-negatives"]
