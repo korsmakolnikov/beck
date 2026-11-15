@@ -228,7 +228,9 @@ Implemented: `src/beck/events/`, with `beck sessions`, `beck events` and
   real module, so the unit waits for it to land (`waits_for` in
   `UnitsPlanned`); its worktree then branches from a feature branch that
   holds it. The integration unit at the end exists to find where the
-  components diverge from the interfaces.
+  components diverge from the interfaces; since they are implemented, its
+  red test may pass on the first run: beck accepts it as the clause's
+  proof and closes the cycle with no green (`already_green`).
 * beck commits every TDD phase in the unit's worktree as soon as it has
   verified it: the new test fails (red), then passes with no test changed
   (green). The code is never left uncommitted.

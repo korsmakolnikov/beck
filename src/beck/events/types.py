@@ -81,7 +81,8 @@ SCHEMAS: dict[str, dict[str, Any]] = {
     # the cycle (phase 4)
     "CycleOpened": _object({"unit": _STRING, "clause": _STRING, "group": _STRING, "first": {"type": "boolean"}}),
     "RedDeclared": _object({"unit": _STRING, "clause": _STRING, "test": _STRING}),
-    "RedVerified": _object({"unit": _STRING, "clause": _STRING, "test": _STRING, "run": _STRING}),
+    "RedVerified": _object({"unit": _STRING, "clause": _STRING, "test": _STRING, "run": _STRING},
+                           {"already_green": {"type": "boolean"}}),
     "RedRejected": _object({"unit": _STRING, "clause": _STRING, "reason": _STRING, "signature": _STRING}),
     "RedCommitted": _object({"unit": _STRING, "clause": _STRING, "sha": _STRING}),
     "GreenDeclared": _object({"unit": _STRING, "clause": _STRING, "test": _STRING}),

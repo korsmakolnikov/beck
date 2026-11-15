@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from beck.events.store import Event
+from beck.index.store import INTEGRATION
 from beck.machine import verify
 from beck.machine.core import Command, Ctx, Machine, Result
 from beck.machine.signatures import blocked, signature
@@ -143,7 +144,7 @@ def commit_red(event: Event, ctx: Ctx) -> list[Command]:
 @cycle.policy("RedCommitted")
 def open_green(event: Event, ctx: Ctx) -> list[Command]:
     p = event.payload
-    if parked(ctx, p["unit"]):
+    if parked(ctx, p["unit"]) or _issued(ctx, event).payload["args"].get("already_green"):
         return []
     test, group = _declared_test(ctx, p["unit"], p["clause"])
     return [_green_turn(p["unit"], p["clause"], group, test, None, None)]
@@ -286,10 +287,13 @@ def _runs(ctx: Ctx, turn: str) -> list[Event]:
 @cycle.handler("VerifyRed")
 def handle_verify_red(command: Event, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
-    verdict = verify.verify_red(ctx.workspace.worktree(a["unit"]), _runs(ctx, a["turn"]), a["test"], ctx.project)
+    # the integration unit tests components already implemented: its faithful test passes on the first run
+    verdict = verify.verify_red(ctx.workspace.worktree(a["unit"]), _runs(ctx, a["turn"]), a["test"], ctx.project,
+                                accept_pass=a["unit"] == INTEGRATION)
     if verdict.ok:
         return [Result("RedVerified", {"unit": a["unit"], "clause": a["clause"], "test": a["test"],
-                                       "run": verdict.run or ""})]
+                                       "run": verdict.run or "",
+                                       **({"already_green": True} if verdict.reason == "already green" else {})})]
     return [Result("RedRejected", {"unit": a["unit"], "clause": a["clause"], "reason": verdict.reason,
                                    "signature": signature(verdict.problems)})]
 
@@ -331,7 +335,10 @@ def message(ctx: Ctx, unit: str, own: str) -> str:
 def handle_commit_red(command: Event, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     sha = commit(ctx.workspace.worktree(a["unit"]), message(ctx, a["unit"], f"test({a['unit']}): {a['clause']}"))
-    return [Result("RedCommitted", {"unit": a["unit"], "clause": a["clause"], "sha": sha})]
+    committed = Result("RedCommitted", {"unit": a["unit"], "clause": a["clause"], "sha": sha})
+    if a.get("already_green"):   # no green to write: the test proves the clause as it is
+        return [committed, Result("CycleClosed", {"unit": a["unit"], "clause": a["clause"]})]
+    return [committed]
 
 
 def undo_red(tree: Path, unit: str, clause: str) -> None:

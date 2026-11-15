@@ -49,8 +49,8 @@ def repo(tmp_path, monkeypatch):
 class Agent:
     """Plays unclebob from a script: per command, one step per attempt (the last one repeats)."""
 
-    def __init__(self, root, script):
-        self.root, self.script, self.calls = root, script, []
+    def __init__(self, root, script, unit="u"):
+        self.root, self.script, self.calls, self.unit = root, script, [], unit
 
     async def turn(self, agent, session, envelope, env, cwd):
         self.calls.append(envelope)
@@ -71,7 +71,7 @@ class Agent:
         (self.root / path).write_text(text)
 
     def test(self, selector=TEST):
-        run_tests(self.root, load(self.root), [selector], actor="unclebob", unit="u", clause="doubles")
+        run_tests(self.root, load(self.root), [selector], actor="unclebob", unit=self.unit, clause="doubles")
 
 
 def red(test_text=RED_TEST, run=True, answer=TEST):
@@ -93,15 +93,15 @@ def green(code=CODE, also=None):
     return step
 
 
-def machine(repo, agent):
+def machine(repo, agent, unit="u"):
     project = Project(repo)
     it, store, _ = project.start_iteration()
-    workspace = Workspace({"u": repo}, {"u": ["src/pkg"]}, {("u", "operation:double"): {
-        "unit": {"id": "u"}, "group": "operation:double", "clauses": [], "entities": [], "dependencies": [],
+    workspace = Workspace({unit: repo}, {unit: ["src/pkg"]}, {(unit, "operation:double"): {
+        "unit": {"id": unit}, "group": "operation:double", "clauses": [], "entities": [], "dependencies": [],
         "files": {"source": [], "tests": []}}})
     ctx = Ctx(store, repo, it.id, workspace)
-    opened = store.append("CycleOpened", {"unit": "u", "clause": "doubles", "group": "operation:double",
-                                          "first": True}, stream="cycle:u/doubles")
+    opened = store.append("CycleOpened", {"unit": unit, "clause": "doubles", "group": "operation:double",
+                                          "first": True}, stream=f"cycle:{unit}/doubles")
     return Reactor(ctx, cycle, agent), store, opened
 
 
@@ -314,3 +314,26 @@ def test_undoing_a_red_leaves_a_greened_clause_and_a_conflict_alone(repo):
     head = git(repo, "rev-parse", "HEAD")
     undo_red(repo, "u", "halves")                       # the revert conflicts with the later commit
     assert git(repo, "rev-parse", "HEAD") == head and git(repo, "status", "--short") == ""
+
+
+def test_an_integration_test_that_passes_at_once_proves_the_clause(repo):
+    # the session of 2026-11-15: every component landed, so the integration test of every-match-ends-with-a-winner
+    # passed on its first run, faithful to the property; beck refused it as a red that passes
+    (repo / "src/pkg/mod.py").write_text(CODE)
+    git(repo, "commit", "-qam", "the components landed")
+    agent = Agent(repo, {"WriteRedTest": [red()], "WriteGreenCode": [green()]}, unit="@integration")
+    reactor, store, _ = machine(repo, agent, unit="@integration")
+    asyncio.run(reactor.run_until_idle())
+    assert types(store) == ["SessionStarted", "CycleOpened", "RedDeclared", "RedVerified", "RedCommitted",
+                            "CycleClosed"]
+    assert [c["command"] for c in agent.calls] == ["WriteRedTest"]
+    assert git(repo, "log", "-1", "--format=%s") == "test(@integration): doubles"
+
+
+def test_a_component_test_that_passes_at_once_is_still_refused(repo):
+    (repo / "src/pkg/mod.py").write_text(CODE)
+    git(repo, "commit", "-qam", "already there")
+    agent = Agent(repo, {"WriteRedTest": [red()]})
+    reactor, store, _ = machine(repo, agent)
+    asyncio.run(reactor.run_until_idle())
+    assert "RedRejected" in types(store) and "RedCommitted" not in types(store)

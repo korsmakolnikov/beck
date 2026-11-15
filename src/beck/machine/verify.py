@@ -51,8 +51,10 @@ def _the_run(root: Path, runs: list[Event], test: str) -> tuple[Event | None, Ve
     return run, None
 
 
-def verify_red(root: Path, runs: list[Event], test: str, store_root: Path | None = None) -> Verdict:
-    """root: the unit's worktree; store_root: where the reports are (default: root)."""
+def verify_red(root: Path, runs: list[Event], test: str, store_root: Path | None = None,
+               accept_pass: bool = False) -> Verdict:
+    """root: the unit's worktree; store_root: where the reports are (default: root). accept_pass: a test that
+    passes proves the clause (the integration unit's, over components already implemented)."""
     run, refused = _the_run(root, runs, test)
     if refused:
         return refused
@@ -67,13 +69,14 @@ def verify_red(root: Path, runs: list[Event], test: str, store_root: Path | None
     if broken:
         return Verdict(False, "the test file does not compile or collect: fix it at once",
                        tuple(f"collect {c.message}" for c in broken), run=run.id)
-    if report.count("passed"):
+    passes = bool(report.count("passed"))
+    if passes and not accept_pass:
         return Verdict(False, "the test passes already: a red test must fail", ("passes",), run=run.id)
     others = [f for f in changed_files(root) if not is_test_file(Path(f))]
     if others:
         return Verdict(False, f"a red changes only tests; changed: {', '.join(others)}",
                        tuple(f"changed {f}" for f in others), run=run.id)
-    return Verdict(True, "red", run=run.id)
+    return Verdict(True, "already green" if passes else "red", run=run.id)
 
 
 def _collection_error(message: str) -> bool:
