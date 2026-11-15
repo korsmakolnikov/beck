@@ -917,8 +917,9 @@ class IndexWorkspace:
 
 
 def _component_paths(language: str, namespace: list[str]) -> list[str]:
-    if language == "python":
-        return [str(Path("src", *namespace)), str(Path(*namespace))]
+    if language == "python":   # a component is a package or a module
+        module = [*namespace[:-1], namespace[-1] + ".py"]
+        return [str(Path("src", *namespace)), str(Path("src", *module)), str(Path(*namespace)), str(Path(*module))]
     return [str(Path("lib", *namespace)), str(Path("lib", *namespace[:-1], namespace[-1] + ".ex"))]
 
 

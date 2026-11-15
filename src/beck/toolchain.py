@@ -144,10 +144,10 @@ class Toolchain:
         return ["lib"]
 
     def component_paths(self, root: Path, namespace: list[str]) -> list[str]:
-        """The directories (and the Elixir facade file) of a component, as they exist."""
+        """The directories (and the Elixir facade file, the Python module) of a component, as they exist."""
         if self.language == "python":
             base = "src" if (root / "src").is_dir() else "."
-            candidates = [str(Path(base, *namespace))]
+            candidates = [str(Path(base, *namespace)), str(Path(base, *namespace[:-1], namespace[-1] + ".py"))]
         else:
             candidates = [str(Path("lib", *namespace)), str(Path("lib", *namespace[:-1], namespace[-1] + ".ex"))]
         return [c for c in candidates if (root / c).exists()]

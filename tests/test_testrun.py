@@ -139,3 +139,15 @@ def test_a_run_without_report_tells_the_agent_where_the_log_is(project, capsys):
     main(["test", "--project", str(project)])
     assert capsys.readouterr().out.startswith("NO_REPORT (exit 0): the runner wrote no JUnit report; "
                                               "its output is in .beck/reports/")
+
+
+def test_a_python_component_is_its_package_or_its_module(tmp_path):
+    # the session of 2026-11-15: kent wrote the component frame-renderer as src/pong/tui/renderer.py, and
+    # VerifyGreen refused unclebob's edit to it as outside the unit's scope
+    from beck.machine.session import _component_paths
+    assert _component_paths("python", ["pong", "tui", "renderer"]) == [
+        "src/pong/tui/renderer", "src/pong/tui/renderer.py", "pong/tui/renderer", "pong/tui/renderer.py"]
+    (tmp_path / "src/pong/tui").mkdir(parents=True)
+    (tmp_path / "src/pong/tui/renderer.py").write_text("")
+    toolchain = Toolchain("python", DEFAULTS["python"])
+    assert toolchain.component_paths(tmp_path, ["pong", "tui", "renderer"]) == ["src/pong/tui/renderer.py"]
