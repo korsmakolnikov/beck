@@ -83,7 +83,9 @@ def _fitness(tree: Path) -> list[str]:
 def _run_unit(ctx: Ctx, unit: str, command: Event, extra: list[str] | None = None) -> tuple[Event, Any]:
     """beck runs the unit's tests and the fitness functions, asked by a policy; returns the run and its report."""
     tree = ctx.workspace.worktree(unit)
-    selectors = list(dict.fromkeys([*_declared_tests(ctx, unit), *(extra or [])])) + _fitness(tree)
+    planned = {c for g in plan(ctx)[unit]["groups"] for c in g["clauses"]}
+    declared = [t for t, c in _declared_tests(ctx, unit).items() if c in planned]   # a dropped clause's test is gone
+    selectors = list(dict.fromkeys([*declared, *(extra or [])])) + _fitness(tree)
     result = run_tests(tree, load(ctx.project), selectors, actor="beck", unit=unit, store_root=ctx.project,
                        cause_id=command.id, iteration=ctx.iteration, coverage_of=ctx.workspace.scope(unit))
     report = None
@@ -137,11 +139,18 @@ def handle_reopen(command: Event, ctx: Ctx) -> list[Result]:
     planned = {c for g in plan(ctx)[unit]["groups"] for c in g["clauses"]}
     clauses = sorted({tests[t] for t in a["tests"] if t in tests and tests[t] in planned})  # no dropped clause
     if not clauses:  # a fitness function, or no report: nothing to hand to unclebob
-        return [Result("UnitParked", {"unit": unit, "reason": f"the unit's tests fail outside its cycles: "
-                                                             f"{a['failure'][:300]}", "because_of": command.id})]
+        return [Result("RegressionUnassigned", {"unit": unit, "failure": a["failure"][:2000]})]
     return [Result("CycleReopened", {"unit": unit, "clause": c, "group": groups[c], "phase": "green",
                                      "reason": f"a regression: {a['failure'][:500]}"}, stream=cycle_stream(unit, c))
             for c in clauses]
+
+
+@refactor.policy("RegressionUnassigned")
+def resolve_unassigned(event: Event, ctx: Ctx) -> list[Command]:
+    """A failing test no planned cycle owns: the unit parks with a resolution to approve, never with no way out."""
+    p = event.payload
+    reason = f"the unit's tests fail outside its cycles: {p['failure'][:300]}"
+    return _park_and_propose(ctx, event, [p["unit"]], "blocked_cycle", {"unit": p["unit"], "reason": reason}, reason)
 
 
 # --- the coverage: measured, its gaps tried once, never a stop -----------------------------------

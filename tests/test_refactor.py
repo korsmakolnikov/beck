@@ -154,6 +154,21 @@ def test_a_regression_reopens_the_cycle_of_the_failing_test(repo):
     assert "return 1" in (repo / "src/shop/cart/cart_totals.py").read_text()
 
 
+def test_a_failing_test_of_no_cycle_asks_for_a_resolution_instead_of_stalling(repo):
+    # the session of 2026-11-15: a failing test that cites no planned clause parked the unit with no way out,
+    # and the session stopped with nothing to do and nothing to answer
+    team = Team(repo)
+    reactor, store = setup(repo, team)
+    run(reactor)
+    store.append("RegressionFound", {"unit": "cart", "tests": ["tests/fitness/test_stray.py::test_stray"],
+                                     "failure": "NOT_OK (1 of 3 not passed)"}, stream="unit:cart")
+    run(reactor)
+    assert [e.payload["unit"] for e in store.read(types_=("RegressionUnassigned",))] == ["cart"]
+    proposals = [e for a, e in team.calls if e["command"] == "ProposeResolution"]
+    assert proposals and proposals[-1]["context"]["kind"] == "blocked_cycle"
+    assert [c.payload["command"] for c in reactor.pending() if c.payload["target"] == "user"] == ["ApproveResolution"]
+
+
 CHECKER = """import sys
 bad = [f"{p}:2:1 X1 a TODO is left" for p in sys.argv[1:] for p in ([p] if p.endswith('.py') else [])]
 import pathlib

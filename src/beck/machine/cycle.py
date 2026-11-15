@@ -333,15 +333,25 @@ def handle_commit_red(command: Event, ctx: Ctx) -> list[Result]:
     return [Result("RedCommitted", {"unit": a["unit"], "clause": a["clause"], "sha": sha})]
 
 
+def undo_red(tree: Path, unit: str, clause: str) -> None:
+    """Takes the cycle's red commit away, found by its subject (a rebase rewrites the sha); none: nothing to do,
+    as after a crash between the undo and its event."""
+    def git(*args: str) -> str:
+        return subprocess.run(["git", *args], cwd=tree, capture_output=True, text=True, check=True).stdout.strip()
+    found = git("log", "-1", "--format=%H", "--fixed-strings", f"--grep=test({unit}): {clause}")
+    if not found:
+        return
+    if found == git("rev-parse", "HEAD"):
+        git("reset", "-q", "--hard", "HEAD~1")
+    else:
+        git("revert", "--no-edit", found)
+
+
 @cycle.handler("RewindRed")
 def handle_rewind_red(command: Event, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     tree = ctx.workspace.worktree(a["unit"])
-    red = [e for e in ctx.store.read(stream=stream(a["unit"], a["clause"]), types_=("RedCommitted",))][-1]
-    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tree, capture_output=True, text=True,
-                          check=True).stdout.strip()
-    if head == red.payload["sha"]:   # tolerate a crash after the reset, before the event
-        subprocess.run(["git", "reset", "-q", "--hard", f"{head}~1"], cwd=tree, check=True)
+    undo_red(tree, a["unit"], a["clause"])   # by its subject: a resume's rebase rewrote its sha
     subprocess.run(["git", "clean", "-fdq", "--", ".", ":!.beck"], cwd=tree, check=True)
     return [Result("RedRewound", {k: a[k] for k in ("unit", "clause", "group", "reason")})]
 
