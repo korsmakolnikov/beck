@@ -94,7 +94,7 @@ def test_invalid_dsls_build_no_index(project):
     assert conn is None and report.problems
 
 
-def test_an_morphism_brings_its_requirements(index):
+def test_a_morphism_brings_its_requirements(index):
     conn, _ = index
     implemented = {dst for src, dst in edges(conn, "implements") if src == "bookmark-tagger"}
     assert implemented == {"tag-bookmark", "tagged-bookmark-carries-the-requested-tags", "tag-missing-bookmark",
@@ -112,10 +112,11 @@ def test_components_land_dependencies_first_and_integration_last(index):
 def test_units_go_from_the_particular_to_the_general(index):
     conn, _ = index
     assert execution.units(conn, "bookmark-tagger") == [
-        execution.Unit("model:Bookmark", "Bookmark", ("tag-belongs-to-the-same-user",)),
+        # a property is an invariant: of its entity, in the entity's model unit
+        execution.Unit("model:Bookmark", "Bookmark", ("tag-belongs-to-the-same-user",
+                                                      "tagging-twice-equals-tagging-once")),
         execution.Unit("morphism:tag-bookmark", "tag-bookmark",
-                   ("tagged-bookmark-carries-the-requested-tags", "tag-missing-bookmark",
-                    "tagging-twice-equals-tagging-once")),
+                       ("tagged-bookmark-carries-the-requested-tags", "tag-missing-bookmark")),
     ]
     assert execution.units(conn, INTEGRATION) == [execution.Unit("component", None, ("tagging-is-atomic",))]
 
@@ -154,7 +155,7 @@ def test_the_context_holds_only_the_unit(index):
     conn, _ = index
     ctx = execution.context(conn, "bookmark-tagger", "morphism:tag-bookmark")
     assert [c["id"] for c in ctx["requirements"]] == ["tagged-bookmark-carries-the-requested-tags",
-                                                 "tag-missing-bookmark", "tagging-twice-equals-tagging-once"]
+                                                      "tag-missing-bookmark"]
     assert [e["name"] for e in ctx["entities"]] == ["Bookmark", "Tag", "TagName"]
     assert ctx["morphism"]["symbols"][0]["signature"].startswith("@callback tag(")
     assert [e["name"] for e in ctx["morphism"]["emits"]] == ["BookmarkTagged"]

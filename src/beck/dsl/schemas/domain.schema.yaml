@@ -151,12 +151,17 @@ $defs:
 
   property:
     type: object
-    required: [id, kind, forall, holds]
+    required: [id, about, kind, forall, holds]
     additionalProperties: false
     properties:
       id: {$ref: "#/$defs/id"}
+      about:
+        description: >-
+          A property is an invariant: of its entity (one name, the entity's model unit), or of the component
+          when it spans several entities (the component unit).
+        $ref: "#/$defs/names"
       morphisms:
-        description: One morphism puts the property in its unit; several or none, in the component unit.
+        description: The morphisms the property exercises, for the context of its test; they do not place it.
         type: array
         uniqueItems: true
         items: {$ref: "#/$defs/id"}

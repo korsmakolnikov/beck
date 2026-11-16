@@ -713,6 +713,7 @@ def handle_compile(command: Event, ctx: Ctx) -> list[Result]:
     toolchain = load_toolchain(ctx.project)
     # an unimplemented no id references has no cycle to implement it: the suite stays green, the program does not run
     errors = [f"{file}:{line}: an unimplemented no id references" for file, line in unreferenced(ctx.project)]
+    errors += foreign_references(ctx, toolchain.language)
     if errors:
         return [Result("InterfacesBroken", {"errors": errors, "signature": signature(errors)})]
     if not toolchain.build:
@@ -724,6 +725,39 @@ def handle_compile(command: Event, ctx: Ctx) -> list[Result]:
         return [Result("InterfacesCompiled", {})]
     lines = [line for line in (done.stdout + done.stderr).splitlines() if line.strip()][-30:]
     return [Result("InterfacesBroken", {"errors": lines or [f"exit {done.returncode}"], "signature": signature(lines)})]
+
+
+def foreign_references(ctx: Ctx, language: str) -> list[str]:
+    """The references to the specs that point to what another component implements: the component holding the
+    code has no cycle for it, the one implementing it does not write that code, and the component stops (the
+    replay of 2026-11-16: program's main referenced an error of setup's start-game)."""
+    domain, arch = _dsls(ctx)
+    if not domain or not arch:
+        return []
+    conn, _ = build_index(ctx.project, domain, arch, ":memory:")
+    if conn is None:
+        return []
+    try:
+        scopes = [(c["id"], path) for c in conn.execute("SELECT id, data FROM node WHERE kind = 'component'")
+                  for path in _component_paths(language, json.loads(c["data"])["namespace"])]
+        implemented = {(r["src"], r["dst"]) for r in conn.execute("SELECT src, dst FROM edge WHERE kind = 'implements'")}
+        anchored = conn.execute("SELECT a.src AS id, s.data FROM edge a JOIN node s ON s.id = a.dst "
+                                "WHERE a.kind = 'anchored_to' AND s.kind = 'symbol'").fetchall()
+    finally:
+        conn.close()
+    errors = []
+    for row in anchored:
+        symbol = json.loads(row["data"])
+        file = symbol["file"]
+        owners = [(len(p), c) for c, p in scopes if file == p or file.startswith(p.rstrip("/") + "/")]
+        if not owners:
+            continue
+        owner = max(owners)[1]   # the innermost component: the integration one holds the whole system
+        if (owner, row["id"]) not in implemented:
+            others = sorted(c for c, i in implemented if i == row["id"])
+            errors.append(f"{file}:{symbol['line']}: {owner} references {row['id']}, which "
+                          f"{', '.join(others) or 'no component'} implements: reference what {owner} implements")
+    return errors
 
 
 @session.policy("InterfacesBroken", "FitnessFunctionsFailed")

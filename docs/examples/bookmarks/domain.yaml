@@ -80,6 +80,7 @@ morphisms:
 
 properties:
   - id: tagging-twice-equals-tagging-once
+    about: [Bookmark]
     morphisms: [tag-bookmark]
     kind: idempotence
     forall:

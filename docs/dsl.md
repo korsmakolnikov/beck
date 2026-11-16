@@ -95,7 +95,8 @@ morphisms:
 
 properties:
   - id: tagging-twice-equals-tagging-once
-    morphisms: [tag-bookmark]       # one: the morphism's unit; several or none: the model unit
+    about: [Bookmark]                # an invariant: one entity, its model unit; several, the component unit
+    morphisms: [tag-bookmark]        # what it exercises, for its test's context
     kind: idempotence
     forall:
       - {name: bookmark, generator: an existing bookmark}
@@ -277,7 +278,7 @@ never edited.
    * architecture: ids unique across both files; every `depends_on`, `from`,
      `to`, `within` and `except` names an element of the right kind; no
      cycle in `depends_on`; every `implements` names a domain id that is not
-     a morphism's `post`, error or single-morphism property; every
+     a morphism's `post` or error; every
      morphism and every requirement implemented exactly once; `$var` used only
      inside its `foreach`.
 
@@ -326,10 +327,12 @@ deterministic.
 * **Components**: the components in topological order of `depends_on` (the
   landing order); they are developed in parallel, trusting the interfaces.
   The integration component comes last.
-* **Units**, inside a component, from the particular to the general: one per
-  entity whose requirements the component implements, then one per morphism (its
-  `post`, errors, single-morphism properties), then one `model` unit for
-  the properties over several morphisms.
+* **Units**, inside a component, from the particular to the general: a
+  **model** per entity whose requirements the component implements (its
+  invariants and the properties about it alone), then a **morphism** per
+  morphism (its `post` and errors), then one **component** unit for the
+  requirements spanning several entities (the constraints, the properties
+  about several entities).
 * **The context of a unit**, one recursive query from its owner node: the
   text of its requirements; the types of the entities it uses; the signature of
   the morphism; the signatures of the dependencies' interfaces; the paths of

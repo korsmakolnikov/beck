@@ -15,7 +15,7 @@ elements:
         physical: bookmark_tagger
         boundary: interface
         depends_on: [tag-store]
-        implements: [tag-bookmark, tag-belongs-to-the-same-user]
+        implements: [tag-bookmark, tag-belongs-to-the-same-user, tagging-twice-equals-tagging-once]
       - kind: component
         id: tag-store
         name: Tag Store

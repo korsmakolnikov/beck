@@ -357,3 +357,38 @@ def test_an_unimplemented_no_id_references_sends_the_interfaces_back_to_kent(pro
     second = [e for a, e in agents.calls if e["command"] == "WriteInterfaces"][1]
     assert second["context"]["errors"] == broken.payload["errors"]
     assert list(store.read(types_=("IterationClosed",)))
+
+
+def test_a_reference_to_what_another_component_implements_sends_the_interfaces_back(project):
+    # the replay of 2026-11-16: program's main referenced an error of setup's start-game; program had no cycle
+    # for it, setup's cycle does not write program's code, and program stopped
+    from beck.machine.core import Ctx
+    from beck.machine.session import foreign_references
+    (project / ".beck/domain.yaml").write_text(DOMAIN + """  - id: show
+    description: A number is shown.
+    uses: [Number]
+    post:
+      - id: show-prints
+        rule: The number is printed.
+""")
+    (project / ".beck/architecture.yaml").write_text(ARCHITECTURE + """  - kind: component
+    id: display
+    name: Display
+    physical: display
+    boundary: concrete
+    depends_on: [adder]
+    implements: [show]
+""")
+    (project / "src/calc/adder").mkdir()
+    (project / "src/calc/adder/__init__.py").write_text(INTERFACE)
+    (project / "src/calc/display").mkdir()
+    (project / "src/calc/display/__init__.py").write_text(
+        'def show(n):\n    """Shows a number. spec: show"""\n    raise NotImplementedError\n\n\n'
+        'def main():\n    """Adds and shows. spec: add-sums"""\n    raise NotImplementedError\n')
+    ctx = Ctx(None, project, "it", None)
+    assert foreign_references(ctx, "python") == [
+        "src/calc/display/__init__.py:7: display references add-sums, which adder implements: "
+        "reference what display implements"]
+    (project / "src/calc/display/__init__.py").write_text(
+        'def show(n):\n    """Shows a number. spec: show"""\n    raise NotImplementedError\n')
+    assert foreign_references(ctx, "python") == []

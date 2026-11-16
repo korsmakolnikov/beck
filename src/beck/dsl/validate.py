@@ -90,9 +90,8 @@ def domain_ids(doc: dict[str, Any]) -> tuple[DomainIds, list[tuple[str, str]]]:
             add(post["id"], f"morphisms[{i}].post[{j}].id", ids.inherited)
         for j, err in enumerate(op.get("errors", [])):
             add(err["id"], f"morphisms[{i}].errors[{j}].id", ids.inherited)
-    for i, p in enumerate(doc.get("properties", [])):
-        single = len(p.get("morphisms", [])) == 1
-        add(p["id"], f"properties[{i}].id", ids.inherited if single else ids.explicit)
+    for i, p in enumerate(doc.get("properties", [])):   # an invariant: listed in one implements, like the others
+        add(p["id"], f"properties[{i}].id", ids.explicit)
     return ids, seen
 
 
@@ -125,6 +124,7 @@ def _domain_semantics(doc: dict[str, Any]) -> Iterator[Problem]:
         yield from refs(op["uses"], entities, f"morphisms[{i}].uses", "entity")
         yield from refs(op.get("emits", []), events, f"morphisms[{i}].emits", "event")
     for i, p in enumerate(doc.get("properties", [])):
+        yield from refs(p["about"], entities, f"properties[{i}].about", "entity")
         yield from refs(p.get("morphisms", []), ids.morphisms, f"properties[{i}].morphisms", "morphism")
 
 

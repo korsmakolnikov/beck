@@ -28,6 +28,11 @@ beck's commands (`beck index`, `beck validate`) read them for you.
   interfaces back (`an unimplemented no id references`). Reference the morphism or the requirement
   the body implements; when its component implements no id at all (an adapter,
   a system clock), ask the user which requirement it implements.
+* A reference points only to what the component holding the code implements:
+  a reference to another component's requirement leaves the code with no
+  cycle (`<component> references <id>, which <other> implements`). When a
+  component needs it (an entry point that reports another's error), give the
+  component a requirement of its own in the domain.
 * `beck validate domain` and `beck validate architecture` check what you
   wrote; run them before answering.
 * A restart (`ProposeRestart`) is made as a real change: edit the

@@ -41,11 +41,13 @@ def load_domain(conn: sqlite3.Connection, doc: dict[str, Any]) -> None:
             add_node(conn, err["id"], "requirement", subkind="error", owner=op["id"], text=err["outcome"],
                      when=err["when"])
             add_edge(conn, err["id"], op["id"], "binds")
-    for p in doc.get("properties", []):
-        ops = p.get("morphisms", [])
-        add_node(conn, p["id"], "requirement", subkind="property", owner=ops[0] if len(ops) == 1 else None,
-                 text=p["holds"], property_kind=p["kind"], forall=p["forall"])
-        for op in ops:
+    for p in doc.get("properties", []):   # an invariant: of its entity, or of the component over several
+        about = p["about"]
+        add_node(conn, p["id"], "requirement", subkind="property", owner=about[0] if len(about) == 1 else None,
+                 text=p["holds"], property_kind=p["kind"], forall=p["forall"], morphisms=p.get("morphisms", []))
+        for name in about:
+            add_edge(conn, p["id"], name, "binds")
+        for op in p.get("morphisms", []):
             add_edge(conn, p["id"], op, "binds")
 
 
@@ -80,9 +82,9 @@ def load_architecture(conn: sqlite3.Connection, doc: dict[str, Any]) -> None:
 
     def implement(component: str, id_: str) -> None:
         add_edge(conn, component, id_, "implements")
-        # a morphism brings its post, its errors and its single-morphism properties
+        # a morphism brings its post and its errors
         for row in conn.execute("SELECT id FROM node WHERE kind = 'requirement' AND owner = ? AND "
-                                "subkind IN ('post', 'error', 'property')", (id_,)):
+                                "subkind IN ('post', 'error')", (id_,)):
             add_edge(conn, component, row["id"], "implements")
 
     for e in doc["elements"]:
