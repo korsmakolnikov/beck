@@ -121,6 +121,9 @@ def handle_run_unit_tests(command: Event, ctx: Ctx) -> list[Result]:
     if report is None or report.not_passed:
         failing = [c.id for c in report.not_passed] if report else []
         return [Result("RegressionFound", {"unit": unit, "tests": failing, "failure": _failure(run, report)})]
+    left = _stubs_left(ctx, unit)
+    if left:
+        return left
     coverage = _coverage_of(ctx, run, ctx.workspace.worktree(unit))
     if coverage is None:
         return [Result("UnitVerified", {"unit": unit})]
@@ -133,6 +136,20 @@ def reopen_regressions(event: Event, ctx: Ctx) -> list[Command]:
     return [Command("ReopenRegressions", "beck", dict(p), event.stream)]
 
 
+def _stub_clauses(ctx: Ctx, unit: str, left: list[tuple[str, int]]) -> list[str]:
+    """The planned clauses of the unit that cite these stubs: a clause directly, an operation by its first clause."""
+    tree = ctx.workspace.worktree(unit)
+    groups = plan(ctx)[unit]["groups"]
+    planned = {c for g in groups for c in g["clauses"]}
+    of_operation = {g["id"].split(":", 1)[1]: g["clauses"] for g in groups if g["id"].startswith("operation:")}
+    found: list[str] = []
+    for file in dict.fromkeys(f for f, _ in left):
+        for ids in ids_at(tree, Path(file), {n for f, n in left if f == file}).values():
+            for i in ids:
+                found += [i] if i in planned else of_operation.get(i, [])[:1]
+    return list(dict.fromkeys(found))
+
+
 def _doctest_clauses(ctx: Ctx, unit: str, failing: list[str]) -> list[str]:
     """The planned clauses a failing doctest of the unit's sources hands back to unclebob: those that cite the
     stubs left in its file (an example kent wrote, on a body no green has written yet)."""
@@ -140,17 +157,29 @@ def _doctest_clauses(ctx: Ctx, unit: str, failing: list[str]) -> list[str]:
     if not files:
         return []
     tree = ctx.workspace.worktree(unit)
-    groups = plan(ctx)[unit]["groups"]
-    planned = {c for g in groups for c in g["clauses"]}
-    of_operation = {g["id"].split(":", 1)[1]: g["clauses"] for g in groups if g["id"].startswith("operation:")}
-    left = [(f, n) for f, n in stubs(tree, load(ctx.project)) if f in files]
-    found: list[str] = []
-    for file in files:
-        lines = {n for f, n in left if f == file}
-        for ids in ids_at(tree, Path(file), lines).values():
-            for i in ids:
-                found += [i] if i in planned else of_operation.get(i, [])[:1]
-    return list(dict.fromkeys(found))
+    return _stub_clauses(ctx, unit, [(f, n) for f, n in stubs(tree, load(ctx.project)) if f in files])
+
+
+def _stubs_left(ctx: Ctx, unit: str) -> list[Result]:
+    """When the cycles end, a stub still in the unit's scope goes back to the clause that cites it, at green: no
+    test needed it, so no green wrote it. Past the repetition rule's times, or with no clause, to a resolution."""
+    tree = ctx.workspace.worktree(unit)
+    scope = ctx.workspace.scope(unit)
+    left = [(f, n) for f, n in stubs(tree, load(ctx.project))
+            if any(f == p or f.startswith(p.rstrip("/") + "/") for p in scope)]
+    if not left:
+        return []
+    where = ", ".join(f"{f}:{n}" for f, n in left)
+    tries = [e for e in ctx.store.read(types_=("CycleReopened",))
+             if e.payload["unit"] == unit and e.payload["reason"].startswith("a stub left")]
+    clauses = _stub_clauses(ctx, unit, left) if len(tries) < ctx.limits[0] else []
+    if not clauses:
+        return [Result("RegressionUnassigned", {"unit": unit, "failure": f"stubs no green implemented: {where}"})]
+    groups = {e.payload["clause"]: e.payload["group"] for e in ctx.store.read(types_=("CycleOpened",))
+              if e.payload["unit"] == unit}
+    return [Result("CycleReopened", {"unit": unit, "clause": c, "group": groups.get(c, "model"), "phase": "green",
+                                     "reason": f"a stub left: {where}; write it"}, stream=cycle_stream(unit, c))
+            for c in clauses]
 
 
 @refactor.handler("ReopenRegressions")

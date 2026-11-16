@@ -362,3 +362,23 @@ def test_a_doctest_on_a_stub_reopens_the_cycle_of_the_clause_that_cites_it(repo)
     assert "src/shop/store/total.py::shop.store.total.total" in reopened.payload["reason"]
     assert not list(store.read(types_=("RegressionUnassigned",)))
     assert unit_events(store, "store")[-1] == "UnitClosed"
+
+
+def test_a_stub_left_when_the_cycles_end_reopens_the_cycle_of_the_clause_citing_it(repo):
+    # the session of 2026-11-16: main() cited three operations, but no test needed it: their greens wrote other
+    # functions, and the program still raised NotImplementedError when the unit closed
+    (repo / "src/shop/store/total.py").write_text('def total(prices):\n    """The sum.\n\n    spec: store-adds\n    """\n'
+                                                  '    raise NotImplementedError\n')
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "the interface of total")
+    def implements_total(team, envelope, cwd):
+        (cwd / "src/shop/store/total.py").write_text('def total(prices):\n    """The sum.\n\n    spec: store-adds\n'
+                                                     '    """\n    return sum(prices)\n')
+        return team.WriteGreenCode(envelope, cwd)
+    team = Team(repo, {("WriteGreenCode", "store-adds"): [None, implements_total]})
+    reactor, store = setup(repo, team)
+    run(reactor)
+    [reopened] = [e for e in store.read(types_=("CycleReopened",)) if e.payload["unit"] == "store"]
+    assert reopened.payload["clause"] == "store-adds"
+    assert "a stub left: src/shop/store/total.py:6" in reopened.payload["reason"]
+    assert unit_events(store, "store")[-1] == "UnitClosed"
