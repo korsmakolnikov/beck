@@ -133,6 +133,17 @@ def test_a_finding_already_met_closes_with_no_commit(repo):
     assert unit_events(store, "store")[-1] == "UnitClosed"
 
 
+def test_a_malformed_refactor_is_asked_again_once(repo):
+    # the replay of 2026-11-16: the generic retry and the refactor's both answered a rejection, doubling the turns
+    team = Team(repo, {("ReviewUnit", "store"): [
+        lambda t, e, c: out("ReviewUnit", result={"findings": [finding("store", "store-adds")], "weak_tests": []})],
+        ("RefactorUnit", "store"): [lambda t, e, c: out("RefactorUnit", result={"phase": "blue"}), None]})
+    reactor, store = setup(repo, team)
+    run(reactor)
+    assert len([e for a, e in team.calls if e["command"] == "RefactorUnit"]) == 2
+    assert unit_events(store, "store")[-1] == "UnitClosed"
+
+
 def test_a_worsened_measure_waits_for_the_user(repo):
     def branches(team, envelope, cwd):
         (cwd / "src/shop/store/store_adds.py").write_text(

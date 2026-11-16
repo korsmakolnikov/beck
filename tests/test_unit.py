@@ -412,6 +412,7 @@ def test_a_malformed_answer_outside_the_cycles_is_asked_again(repo):
 
 def test_a_stale_rejection_is_not_asked_again(repo):
     # the session of 2026-11-16: on attach, the retry of malformed answers picked up martin's old rejections, on
+    # (ExplainUnit: a turn of a unit with no retry of its own; martin's are retried by beck.machine.refactor)
     # units closed long before, whose worktrees were gone: six turns crashed
     from beck.machine.core import retry_a_rejected_turn
     reactor, store = setup(repo, Agents(repo))
@@ -426,16 +427,16 @@ def test_a_stale_rejection_is_not_asked_again(repo):
                                    "args": {"session": "s", "context": {"kind": "interface", "details": {}}}},
                  stream="resolution")
     assert retry_a_rejected_turn(rejected, reactor.ctx) == []                  # a later turn: stale
-    cart = store.append("CommandIssued", {"command": "ReviewUnit", "target": "martin",
+    cart = store.append("CommandIssued", {"command": "ExplainUnit", "target": "martin",
                                           "args": {"session": "m", "unit": "cart", "context": {}}}, stream="unit:cart")
-    open_ = store.append("SignalRejected", {"agent": "martin", "command": "ReviewUnit", "errors": ["e"],
+    open_ = store.append("SignalRejected", {"agent": "martin", "command": "ExplainUnit", "errors": ["e"],
                                             "signature": "z"}, stream="unit:cart", cause=cart)
     assert retry_a_rejected_turn(open_, reactor.ctx)                           # its unit still open: asked again
-    closed = store.append("CommandIssued", {"command": "ReviewUnit", "target": "martin",
+    closed = store.append("CommandIssued", {"command": "ExplainUnit", "target": "martin",
                                             "args": {"session": "m", "unit": "store", "context": {}}},
                           stream="unit:store")
     store.append("UnitClosed", {"unit": "store"}, stream="unit:store")
-    old = store.append("SignalRejected", {"agent": "martin", "command": "ReviewUnit", "errors": ["e"],
+    old = store.append("SignalRejected", {"agent": "martin", "command": "ExplainUnit", "errors": ["e"],
                                           "signature": "y"}, stream="unit:store", cause=closed)
     assert retry_a_rejected_turn(old, reactor.ctx) == []                       # its unit closed
 

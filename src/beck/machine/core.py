@@ -238,7 +238,10 @@ def retry_a_failed_turn(event: Event, ctx: Ctx) -> list[Command]:
     return [Command(turn.payload["command"], turn.payload["target"], dict(turn.payload["args"]), turn.stream)]
 
 
-OWN_RETRIES = {"WriteRedTest", "WriteGreenCode"}   # the cycle retries these itself, under its own loop rule
+# the machines that retry these themselves, under their own loop rule (beck.machine.cycle, beck.machine.refactor);
+# FixStaticFindings of the feature branch (args.branch) is retried here
+OWN_RETRIES = {"WriteRedTest", "WriteGreenCode", "CoverLines", "RefactorUnit", "ReviewUnit", "ResolveConflict",
+               "FixStaticFindings"}
 
 
 @conversation.policy("SignalRejected")
@@ -247,7 +250,8 @@ def retry_a_rejected_turn(event: Event, ctx: Ctx) -> list[Command]:
     rejection three times in a row asks the user, as a turn that fails does."""
     name = event.payload["command"]
     turn = ctx.store.get(event.causation_id or "")
-    if name in OWN_RETRIES or "context" not in turn.payload["args"]:
+    own = name in OWN_RETRIES and not (name == "FixStaticFindings" and turn.payload["args"].get("branch"))
+    if own or "context" not in turn.payload["args"]:
         return []
     later = [e for e in ctx.store.read(stream=event.stream, types_=("CommandIssued",))
              if e.seq > event.seq and e.payload["command"] == name]
