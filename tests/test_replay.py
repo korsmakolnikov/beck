@@ -127,3 +127,58 @@ def test_a_resumed_replay_does_not_take_again_what_it_took(tmp_path):
     recording.consume(store)
     assert recording.take("unclebob", "WriteGreenCode", "u/g", ("first", 0)) is None
     assert recording.take("unclebob", "WriteGreenCode", "u/g", ("retry", 1)) is not None
+
+
+def test_a_turn_s_changes_are_a_patch_that_redoes_them(tmp_path):
+    import subprocess
+
+    from beck.machine.core import changes, snapshot
+
+    def git(root, *args):
+        subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+    for d in ("a", "b"):
+        root = tmp_path / d
+        root.mkdir()
+        git(root, "init", "-q")
+        (root / "kept.py").write_text("x = 1\n")
+        (root / "gone.py").write_text("y = 2\n")
+    a, b = tmp_path / "a", tmp_path / "b"
+    before = snapshot(a)
+    (a / "kept.py").write_text("x = 2\n")
+    (a / "gone.py").unlink()
+    (a / "new.py").write_text("z = 3\n")
+    patch = changes(a, before)
+    subprocess.run(["git", "apply", "-"], cwd=b, input=patch, text=True, check=True)
+    assert (b / "kept.py").read_text() == "x = 2\n" and not (b / "gone.py").exists()
+    assert (b / "new.py").read_text() == "z = 3\n"
+    assert changes(a, snapshot(a)) == ""
+    (tmp_path / "nowhere").mkdir()
+    assert snapshot(tmp_path / "nowhere") is None   # not a repository: no patch
+
+
+def test_a_turn_recorded_in_the_events_replays_with_no_transcript(tmp_path):
+    import subprocess
+
+    from beck.machine.core import changes, snapshot
+    original = tmp_path / "original"
+    original.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=original, check=True)
+    before = snapshot(original)
+    (original / "x.py").write_text("x = 1\n")
+    patch = changes(original, before)
+    project = Project(original)
+    it, store, started = project.start_iteration()
+    c = store.append("CommandIssued", {"command": "WriteGreenCode", "target": "unclebob",
+                                       "args": {"session": "u/g", "context": {}}}, cause=started, policy="p")
+    answer_ = {"protocol": 1, "command": "WriteGreenCode", "outcome": "done"}
+    store.append("AgentTurnEnded", {"agent": "unclebob", "model": "m", "tokens": {"input": 1, "output": 2},
+                                    "output": answer_}, cause=c)
+    store.append("TurnChanged", {"agent": "unclebob", "patch": patch}, cause=c)
+    recording = Recording(store, it.id, project.root, tmp_path / "no-transcripts")
+    assert recording.legacy == 0 and not recording.missing
+    new = tmp_path / "replay"
+    new.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=new, check=True)
+    agents = ReplayAgents(recording, new, "it")
+    turn = asyncio.run(agents.turn("unclebob", "u/g", envelope("n"), {}, new))
+    assert turn.output == answer_ and (new / "x.py").read_text() == "x = 1\n" and not agents.drifted

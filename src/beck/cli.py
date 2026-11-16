@@ -319,9 +319,10 @@ def _audit(args: argparse.Namespace) -> int:
 
 def _replay(args: argparse.Namespace) -> int:
     from beck import replay
+    models = dict(m.split("=", 1) for m in args.model)
     try:
         return replay.run(Path(args.project), args.iteration, Path(args.into) if args.into else None,
-                           live=args.live, resume=args.resume)
+                          mode=args.agents, models=models, resume=args.resume)
     except KeyError as error:
         sys.exit(str(error.args[0]))
 
@@ -433,10 +434,14 @@ def main(argv: list[str] | None = None) -> int:
     au.add_argument("--project", default=".", help="the project's root (default: .)")
     au.set_defaults(run=_audit)
 
-    rp = sub.add_parser("replay", help="run an iteration again with the current code, the answers as recorded")
+    rp = sub.add_parser("replay", help="implement an iteration again: its start and the user's answers as recorded")
     rp.add_argument("iteration")
     rp.add_argument("--into", help="an empty folder for the replay (default: a new one in the temporary folder)")
-    rp.add_argument("--live", action="store_true", help="the turns the recording lacks go to the real agents")
+    rp.add_argument("--agents", choices=["live", "recorded", "mixed"], default="live",
+                    help="live: the agents implement it again (default); recorded: each turn as the events hold it, "
+                         "to test beck's code; mixed: recorded, the missing turns live")
+    rp.add_argument("--model", action="append", default=[], metavar="AGENT=MODEL",
+                    help="the model of an agent in this replay, e.g. unclebob=opus (repeatable)")
     rp.add_argument("--resume", metavar="REPLAY", help="go on with a replay stopped at a decision (in --into)")
     rp.add_argument("--project", default=".", help="the recorded project's root (default: .)")
     rp.set_defaults(run=_replay)

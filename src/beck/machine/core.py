@@ -22,6 +22,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import subprocess
+import tempfile
+import time
 import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -61,6 +65,7 @@ class Turn:
     tokens: dict[str, int]
     session: str | None = None                                        # the CLI's own session id
     tools: list[dict[str, Any]] = field(default_factory=list)        # the tool calls: {"tool", "input"}
+    definition: str | None = None                                     # the hash of the agent's definition
 
 
 class TurnFailed(RuntimeError):
@@ -286,6 +291,27 @@ def after_turn_failed(event: Event, ctx: Ctx) -> list[Command]:
                                           "because_of": event.id}, f"unit:{unit}")]
 
 
+def snapshot(folder: Path) -> str | None:
+    """The tree of a folder's files as git sees them (tracked and untracked, ignored left out), without touching its
+    index; None outside a repository."""
+    with tempfile.TemporaryDirectory() as tmp:
+        env = {**os.environ, "GIT_INDEX_FILE": str(Path(tmp) / "index")}
+        add = subprocess.run(["git", "add", "-A", "."], cwd=folder, env=env, capture_output=True)
+        if add.returncode != 0:
+            return None
+        tree = subprocess.run(["git", "write-tree"], cwd=folder, env=env, capture_output=True, text=True)
+        return tree.stdout.strip() if tree.returncode == 0 else None
+
+
+def changes(folder: Path, before: str | None) -> str:
+    """The binary patch from a snapshot to the folder now: what a turn changed."""
+    after = snapshot(folder) if before else None
+    if not before or not after or before == after:
+        return ""
+    diff = subprocess.run(["git", "diff", "--binary", before, after], cwd=folder, capture_output=True, text=True)
+    return diff.stdout if diff.returncode == 0 else ""
+
+
 def crash(where: str, name: str, error: BaseException) -> Result:
     """beck's own exception, as an event: smart_audit sends it to argyris, the user resumes after the fix."""
     text = f"{type(error).__name__}: {error}"[:2000]
@@ -375,30 +401,43 @@ class Reactor:
         env = {"BECK_CAUSE": command.id, "BECK_ITERATION": self.ctx.iteration, "BECK_ACTOR": agent,
                "BECK_PROJECT": str(self.ctx.project)}
         cwd = self.ctx.workspace.worktree(args["unit"]) if args.get("unit") and agent != "kent" else self.ctx.project
+        before = await asyncio.to_thread(snapshot, cwd)
+        started = time.monotonic()
         try:
             turn = await self.agents.turn(agent, args["session"], envelope, env, cwd)
         except TurnFailed as error:
             text = str(error)[:2000] or "the turn failed"
-            return [Result("AgentTurnFailed", {"agent": agent, "command": name, "error": text,
+            patch = await asyncio.to_thread(changes, cwd, before)   # a failed turn may have changed files too
+            return [*([Result("TurnChanged", {"agent": agent, "patch": patch}, actor=agent)] if patch else []),
+                    Result("AgentTurnFailed", {"agent": agent, "command": name, "error": text,
                                                "signature": signature([text])}, actor=agent)]
         tools = [Result("ToolCalled", {"agent": agent, "tool": t["tool"], "input": t["input"]}, actor=agent)
                  for t in turn.tools]
         ended = Result("AgentTurnEnded", {"agent": agent, "model": turn.model, "tokens": turn.tokens,
-                                          **({"session": turn.session} if turn.session else {})},
+                                          "output": turn.output,
+                                          "duration_ms": int((time.monotonic() - started) * 1000),
+                                          **({"session": turn.session} if turn.session else {}),
+                                          **({"definition": turn.definition} if turn.definition else {})},
                        actor=agent, tokens=turn.tokens)
+        patch = await asyncio.to_thread(changes, cwd, before)
+        if patch:
+            ended_and_changed = [ended, Result("TurnChanged", {"agent": agent, "patch": patch}, actor=agent)]
+        else:
+            ended_and_changed = [ended]
         checked = protocol.check_output(agent, name, turn.output)
         if checked.output is None:
-            return [*tools, ended, Result("SignalRejected", {"agent": agent, "command": name, "errors": checked.errors,
-                                                     "signature": signature(checked.errors)}, actor=agent)]
+            return [*tools, *ended_and_changed,
+                    Result("SignalRejected", {"agent": agent, "command": name, "errors": checked.errors,
+                                              "signature": signature(checked.errors)}, actor=agent)]
         if checked.output["outcome"] == "question":
-            return [*tools, ended, Result("QuestionAsked", {"agent": agent, "command": name,
+            return [*tools, *ended_and_changed, Result("QuestionAsked", {"agent": agent, "command": name,
                                                     "question": checked.output["question"]}, actor=agent)]
         try:
             translated = self.machine.translators[name](command, checked.output, self.ctx)
         except Exception as error:
             logger.exception("translator %s crashed", name)
-            raise _Crashed([*tools, ended, crash("translator", name, error)]) from error
-        return [*tools, ended, *translated]
+            raise _Crashed([*tools, *ended_and_changed, crash("translator", name, error)]) from error
+        return [*tools, *ended_and_changed, *translated]
 
     def _record_crash(self, command: Event, results: list[Result]) -> None:
         store = self.ctx.store

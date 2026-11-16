@@ -33,8 +33,13 @@ SCHEMAS: dict[str, dict[str, Any]] = {
     "BranchCreated": _object({"branch": _STRING}),
     "IterationClosed": _object({}),
     # agents (cross-cutting)
+    # the turn as it happened, for a replay from the events alone: the agent's JSON as it answered (before the
+    # protocol checks it), the hash of the definition it ran with (prompt, tools, examples), how long it took
     "AgentTurnEnded": _object({"agent": _STRING, "model": _STRING, "tokens": _TOKENS},
-                              {"session": _STRING}),
+                              {"session": _STRING, "output": {}, "definition": _STRING,
+                               "duration_ms": {"type": "integer", "minimum": 0}}),
+    # what the turn changed in its folder, as a binary git patch (files added, changed, removed)
+    "TurnChanged": _object({"agent": _STRING, "patch": _STRING}),
     "AgentTurnFailed": _object({"agent": _STRING, "command": _STRING, "error": _STRING, "signature": _STRING}),
     "BeckCrashed": _object({"where": {"enum": ["policy", "handler", "translator", "turn"]}, "name": _STRING,
                             "error": _STRING, "traceback": _STRING, "signature": _STRING}),

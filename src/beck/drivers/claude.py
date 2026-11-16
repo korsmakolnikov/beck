@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -61,6 +62,12 @@ def definition(agent: str, model: str | None = None) -> dict[str, Any]:
     if model:
         out["model"] = model
     return out
+
+
+def definition_hash(agent: str, model: str | None = None) -> str:
+    """The definition an agent's turn ran with (prompt, common protocol, examples, tools), as a short hash."""
+    text = json.dumps({"definition": definition(agent, model), "allowed": allowed_tools(agent)}, sort_keys=True)
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
 # what an agent with a shell may run to read: harmless, and audited like a Read (smart_audit's scope rule)
@@ -179,4 +186,5 @@ class ClaudeCode:
                   "cache_read": int(usage.get("cache_read_input_tokens", 0)),
                   "cache_creation": int(usage.get("cache_creation_input_tokens", 0))}
         model = self.models.get(agent) or next(iter(result.get("modelUsage", {}) or {}), "default")
-        return Turn(parse_answer(str(result.get("result", ""))), model, tokens, sid, tools)
+        return Turn(parse_answer(str(result.get("result", ""))), model, tokens, sid, tools,
+                    definition_hash(agent, self.models.get(agent)))

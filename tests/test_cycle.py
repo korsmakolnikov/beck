@@ -106,7 +106,7 @@ def machine(repo, agent, unit="u", met=()):
 
 
 def types(store):
-    return [e.type for e in store.read() if e.type not in ("CommandIssued", "CommandDone", "AgentTurnEnded",
+    return [e.type for e in store.read() if e.type not in ("CommandIssued", "CommandDone", "AgentTurnEnded", "TurnChanged",
                                                             "TestsRun")]
 
 

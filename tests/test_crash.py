@@ -39,7 +39,8 @@ def test_a_translator_that_raises_keeps_the_turn_and_leaves_the_command_pending(
     assert crash["where"] == "translator" and crash["name"] == "WriteShoppingList"
     assert crash["error"] == "KeyError: 'context'" and "boom" in crash["traceback"]
     turn = next(e for e in store.read(types_=("CommandIssued",)) if e.payload["command"] == "WriteShoppingList")
-    assert [e.type for e in store.caused_by(turn.id)] == ["AgentTurnEnded", "BeckCrashed"]  # tokens kept, not done
+    # its tokens and its changes kept, not done
+    assert [e.type for e in store.caused_by(turn.id)] == ["AgentTurnEnded", "TurnChanged", "BeckCrashed"]
     assert [r.kind for r in p.pending()] == ["beck-crashed"]
     assert p.pending()[0].payload["name"] == "WriteShoppingList"
     resume(project, store, it)
