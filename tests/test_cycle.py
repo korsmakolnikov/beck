@@ -93,12 +93,12 @@ def green(code=CODE, also=None):
     return step
 
 
-def machine(repo, agent, unit="u"):
+def machine(repo, agent, unit="u", met=()):
     project = Project(repo)
     it, store, _ = project.start_iteration()
     workspace = Workspace({unit: repo}, {unit: ["src/pkg"]}, {(unit, "operation:double"): {
         "unit": {"id": unit}, "group": "operation:double", "clauses": [], "entities": [], "dependencies": [],
-        "files": {"source": [], "tests": []}}})
+        "files": {"source": [], "tests": []}}}, set(met))
     ctx = Ctx(store, repo, it.id, workspace)
     opened = store.append("CycleOpened", {"unit": unit, "clause": "doubles", "group": "operation:double",
                                           "first": True}, stream=f"cycle:{unit}/doubles")
@@ -325,9 +325,23 @@ def test_an_integration_test_that_passes_at_once_proves_the_clause(repo):
     reactor, store, _ = machine(repo, agent, unit="@integration")
     asyncio.run(reactor.run_until_idle())
     assert types(store) == ["SessionStarted", "CycleOpened", "RedDeclared", "RedVerified", "RedCommitted",
-                            "CycleClosed"]
+                            "GreenCommitted", "CycleClosed"]
     assert [c["command"] for c in agent.calls] == ["WriteRedTest"]
-    assert git(repo, "log", "-1", "--format=%s") == "test(@integration): doubles"
+    assert git(repo, "log", "-2", "--format=%s").splitlines() == ["feat(@integration): doubles",
+                                                                  "test(@integration): doubles"]
+
+
+def test_a_red_that_passes_on_code_the_index_shows_implemented_closes_with_an_empty_green(repo):
+    # the user, 2026-11-16: a clause an earlier green already met is covered by the index; the cycle keeps the TDD
+    # order of the commits with an empty green, as the old workflow did
+    (repo / "src/pkg/mod.py").write_text(CODE)
+    git(repo, "commit", "-qam", "an earlier green")
+    agent = Agent(repo, {"WriteRedTest": [red()]})
+    reactor, store, _ = machine(repo, agent, met=[("u", "doubles")])
+    asyncio.run(reactor.run_until_idle())
+    assert types(store)[-3:] == ["RedCommitted", "GreenCommitted", "CycleClosed"]
+    assert git(repo, "log", "-2", "--format=%s").splitlines() == ["feat(u): doubles", "test(u): doubles"]
+    assert git(repo, "show", "--stat", "--format=", "HEAD") == ""        # the green is empty
 
 
 def test_a_component_test_that_passes_at_once_is_still_refused(repo):

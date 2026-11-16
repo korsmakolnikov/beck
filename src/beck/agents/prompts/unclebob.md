@@ -21,10 +21,12 @@ property, an example for a `post` or an error. Replace a dependency with a
 double only when its boundary is an interface. Run it with the `run`
 command, giving the test's selector (pytest `path::name`, ExUnit
 `path:line`): it must fail, by an assertion or because the interface still
-raises. Change only test files. Answer the test's selector. In the
-integration unit (`@integration`) the components are already implemented:
-a test faithful to the clause may pass on its first run, and beck accepts
-it as the clause's proof; never weaken it to make it fail.
+raises. Change only test files. Answer the test's selector. When the code
+already does what the clause says (an earlier green, or the integration
+unit's components), a test faithful to the clause passes on its first run:
+answer it. beck checks in the index that the clause's code is implemented,
+and keeps the TDD order with an empty green. Never weaken a test to make it
+fail.
 
 ## WriteGreenCode
 

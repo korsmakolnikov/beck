@@ -32,7 +32,7 @@ from beck.machine.refactor import _declared_tests, _git, _head, autosquash_onto,
 from beck.machine.signatures import blocked, signature
 from beck.machine.unit import plan, state, stream
 from beck.testrun import run as run_tests
-from beck.toolchain import load
+from beck.toolchain import STUBS, load
 
 closing = Machine()
 BRANCH = "branch"
@@ -261,10 +261,6 @@ def unproved(ctx: Ctx) -> list[str]:
     """The planned clauses no cycle closed, as unit/clause: a resolution may add one to a unit that has landed."""
     done = {(e.payload["unit"], e.payload["clause"]) for e in ctx.events(types=("CycleClosed", "CycleDropped"))}
     return [f"{u}/{c}" for u, p in plan(ctx).items() for g in p["groups"] for c in g["clauses"] if (u, c) not in done]
-
-
-STUBS = {"python": ('raise NotImplementedError("not implemented")', ".py"),
-         "elixir": ('raise "not implemented"', ".ex")}
 
 
 def _stubs(root: Path) -> list[str]:

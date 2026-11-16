@@ -315,3 +315,20 @@ def test_a_unit_s_tests_are_found_in_its_worktree_with_the_project_s_model(proje
     capsys.readouterr()
     assert main(["test", "--unit", "adder", "--project", str(worktree)]) == 0
     assert "1 passed" in capsys.readouterr().out
+
+
+def test_the_index_tells_a_clause_an_earlier_green_implemented(project):
+    # the user, 2026-11-16: the index must say which code covers a clause; a red that passes on it is covered
+    (project / ".beck/domain.yaml").write_text(DOMAIN)
+    (project / ".beck/architecture.yaml").write_text(ARCHITECTURE)
+    worktree = project / ".beck/worktrees/adder"
+    git(project, "worktree", "add", "-q", "-b", "unit-adder", str(worktree), "HEAD")
+    (worktree / "src/calc/adder").mkdir()
+    (worktree / "src/calc/adder/__init__.py").write_text(INTERFACE)
+    store = Project(project).start_iteration()[1]
+    store.append("UnitStarted", {"unit": "adder", "worktree": str(worktree), "branch": "unit-adder", "base": "x"},
+                 stream="unit:adder")
+    workspace = IndexWorkspace(store, project)
+    assert not workspace.already_met("adder", "add-sums")                  # the interface is still a stub
+    (worktree / "src/calc/adder/__init__.py").write_text(INTERFACE.replace("raise NotImplementedError", "return a + b"))
+    assert workspace.already_met("adder", "add-sums")

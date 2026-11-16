@@ -42,7 +42,7 @@ from beck.machine.signatures import blocked, signature
 from beck.scaffold import LANGUAGES as LAID
 from beck.scaffold import ScaffoldError, scaffold
 from beck.testrun import run as run_tests
-from beck.toolchain import ToolchainError
+from beck.toolchain import STUBS, ToolchainError
 from beck.toolchain import load as load_toolchain
 
 session = Machine()
@@ -900,6 +900,43 @@ class IndexWorkspace:
             return plan_units(conn)
         finally:
             conn.close()
+
+    def already_met(self, unit: str, clause: str) -> bool:
+        """Whether the unit's worktree already implements the clause: the index, built on the worktree's code,
+        anchors the clause (or its entity, its operation) to a symbol in the unit's scope whose body is no
+        longer kent's stub. A red test that passes on such code proves the clause."""
+        tree = self.worktree(unit)
+        def read(name: str) -> Any:
+            path = self.project / ".beck" / name
+            return yaml.safe_load(path.read_text()) if path.is_file() else None
+        conn, _ = build_index(tree, read("domain.yaml"), read("architecture.yaml"), ":memory:")
+        if conn is None:
+            return False
+        try:
+            row = conn.execute("SELECT owner FROM node WHERE id = ? AND kind = 'clause'", (clause,)).fetchone()
+            ids = [clause] + ([row["owner"]] if row and row["owner"] else [])
+            anchored = [json.loads(r["data"]) for r in conn.execute(
+                f"SELECT s.data FROM edge a JOIN node s ON s.id = a.dst WHERE a.kind = 'anchored_to' "
+                f"AND s.kind = 'symbol' AND a.src IN ({','.join('?' * len(ids))})", ids)]
+            starts: dict[str, list[int]] = {}
+            for r in conn.execute("SELECT data FROM node WHERE kind = 'symbol'"):
+                d = json.loads(r["data"])
+                starts.setdefault(d["file"], []).append(d["line"])
+            component = conn.execute("SELECT data FROM node WHERE id = ?", (unit,)).fetchone()
+        finally:
+            conn.close()
+        language = load_toolchain(self.project).language
+        scope = _component_paths(language, json.loads(component["data"])["namespace"]) if component else []
+        marker, _ = STUBS[language]
+        for symbol in anchored:
+            file, line = symbol["file"], symbol["line"]
+            if not any(file == s or file.startswith(s.rstrip("/") + "/") for s in scope) or not (tree / file).is_file():
+                continue
+            end = min((n for n in starts.get(file, []) if n > line), default=None)
+            lines = (tree / file).read_text(errors="replace").splitlines()[line - 1:(end - 1) if end else None]
+            if not any(marker in text for text in lines):
+                return True
+        return False
 
     def worktree(self, unit: str) -> Path:
         started = list(self.store.read(stream=f"unit:{unit}", types_=("UnitStarted", "UnitReopened")))

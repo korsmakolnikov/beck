@@ -161,6 +161,10 @@ class Toolchain:
         return f"{file}:{line}"
 
 
+# the body kent gives every interface ("no logic: every body raises not implemented"), per language
+STUBS = {"python": ("raise NotImplementedError", ".py"), "elixir": ('raise "not implemented"', ".ex")}
+
+
 def load(root: Path) -> Toolchain:
     path = root / ".beck" / "toolchain.yml"
     if not path.is_file():

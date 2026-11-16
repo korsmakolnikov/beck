@@ -14,7 +14,7 @@ cycles starts; CycleReopened resumes a cycle at its phase.
 from __future__ import annotations
 
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -40,9 +40,13 @@ class Workspace:
     worktrees: dict[str, Path]
     scopes: dict[str, list[str]]
     groups: dict[tuple[str, str], dict[str, Any]]   # (unit, group) → beck index context
+    met: set[tuple[str, str]] = field(default_factory=set)   # (unit, clause) the index shows implemented
 
     def worktree(self, unit: str) -> Path:
         return self.worktrees[unit]
+
+    def already_met(self, unit: str, clause: str) -> bool:
+        return (unit, clause) in self.met
 
     def scope(self, unit: str) -> list[str]:
         return self.scopes[unit]
@@ -287,9 +291,12 @@ def _runs(ctx: Ctx, turn: str) -> list[Event]:
 @cycle.handler("VerifyRed")
 def handle_verify_red(command: Event, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
-    # the integration unit tests components already implemented: its faithful test passes on the first run
+    # a test that passes proves the clause when its code exists: the integration unit's (over components already
+    # implemented), or a clause the index shows implemented by an earlier green
+    met = getattr(ctx.workspace, "already_met", None)
+    accept = a["unit"] == INTEGRATION or bool(met and met(a["unit"], a["clause"]))
     verdict = verify.verify_red(ctx.workspace.worktree(a["unit"]), _runs(ctx, a["turn"]), a["test"], ctx.project,
-                                accept_pass=a["unit"] == INTEGRATION)
+                                accept_pass=accept)
     if verdict.ok:
         return [Result("RedVerified", {"unit": a["unit"], "clause": a["clause"], "test": a["test"],
                                        "run": verdict.run or "",
@@ -313,7 +320,7 @@ def handle_verify_green(command: Event, ctx: Ctx) -> list[Result]:
     return [Result("GreenRejected", payload)]
 
 
-def commit(root: Path, message: str, allow_empty: bool = False) -> str:
+def commit(root: Path, message: str, allow_empty: bool = False, empty: bool = False) -> str:
     """Commits everything outside .beck/; tolerates a commit already made before a crash. allow_empty: a green
     may need no code (a cycle reopened on a test that passes as it is): nothing is committed, HEAD stands."""
     git = lambda *a: subprocess.run(["git", *a], cwd=root, capture_output=True, text=True, check=True).stdout.strip()  # noqa: E731
@@ -321,6 +328,8 @@ def commit(root: Path, message: str, allow_empty: bool = False) -> str:
     staged = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=root).returncode != 0
     if staged:
         git("commit", "-q", "-m", message)
+    elif empty and git("log", "-1", "--format=%s") != message:   # once: a crash may come after it
+        git("commit", "-q", "--allow-empty", "-m", message)
     elif git("log", "-1", "--format=%s") != message and not allow_empty:
         raise RuntimeError(f"nothing to commit for {message!r}")
     return git("rev-parse", "HEAD")
@@ -335,10 +344,13 @@ def message(ctx: Ctx, unit: str, own: str) -> str:
 @cycle.handler("CommitRed")
 def handle_commit_red(command: Event, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
-    sha = commit(ctx.workspace.worktree(a["unit"]), message(ctx, a["unit"], f"test({a['unit']}): {a['clause']}"))
+    tree = ctx.workspace.worktree(a["unit"])
+    sha = commit(tree, message(ctx, a["unit"], f"test({a['unit']}): {a['clause']}"))
     committed = Result("RedCommitted", {"unit": a["unit"], "clause": a["clause"], "sha": sha})
-    if a.get("already_green"):   # no green to write: the test proves the clause as it is
-        return [committed, Result("CycleClosed", {"unit": a["unit"], "clause": a["clause"]})]
+    if a.get("already_green"):   # the code exists: an empty green keeps the TDD order of the commits
+        green = commit(tree, message(ctx, a["unit"], f"feat({a['unit']}): {a['clause']}"), empty=True)
+        return [committed, Result("GreenCommitted", {"unit": a["unit"], "clause": a["clause"], "sha": green}),
+                Result("CycleClosed", {"unit": a["unit"], "clause": a["clause"]})]
     return [committed]
 
 

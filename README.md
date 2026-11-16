@@ -228,9 +228,13 @@ Implemented: `src/beck/events/`, with `beck sessions`, `beck events` and
   real module, so the unit waits for it to land (`waits_for` in
   `UnitsPlanned`); its worktree then branches from a feature branch that
   holds it. The integration unit at the end exists to find where the
-  components diverge from the interfaces; since they are implemented, its
-  red test may pass on the first run: beck accepts it as the clause's
-  proof and closes the cycle with no green (`already_green`).
+  components diverge from the interfaces.
+* **A clause already met.** A red test that passes on its first run proves
+  its clause when the code exists: the integration unit's, or a clause the
+  index, built on the unit's worktree, anchors to code in the unit's scope
+  that is no longer a stub (an earlier green did more than its clause).
+  beck commits the test and an empty green, to keep the TDD order of the
+  commits (`already_green`).
 * beck commits every TDD phase in the unit's worktree as soon as it has
   verified it: the new test fails (red), then passes with no test changed
   (green). The code is never left uncommitted.
@@ -764,13 +768,6 @@ together, then the points below.
 ## Open points
 
 * **TODO: a tool in the TUI to delete old event stores.**
-* **TODO, the user's call (method): a clause a previous green already
-  met.** A green that does more than its clause makes the next clause's red
-  pass at once; beck refuses it (`the test passes already`) and has no way
-  to record the clause as covered, so kent can only merge or drop the
-  clause in the domain. Seen three times in the pong session of
-  2026-11-15. What counts as proof then (a mutation run, the user's word)
-  is a choice of method.
 * **TODO: the TUI keeps an answer sent while nothing waits.** Enter with no
   decision pending leaves the text in the input, and the next answer is
   appended to it.
