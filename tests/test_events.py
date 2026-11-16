@@ -124,17 +124,6 @@ def test_the_catalog_and_the_event_stores(tmp_path):
     assert project.open(it.id).last() == started
 
 
-def test_the_outbox_survives_its_iteration(tmp_path):
-    project = Project(tmp_path)
-    it, store, started = project.start_iteration()
-    record = project.post(it.id, started, "forbidden-tool", {"tool": "WebFetch"})
-    assert (record.event_id, record.correlation_id) == (started.id, started.correlation_id)
-    assert project.pending() == [record]
-    project.handle(record.id, "argyris")
-    assert project.pending() == []
-    store.close()
-
-
 def test_cli(tmp_path, capsys):
     project = Project(tmp_path)
     it, store, started = project.start_iteration()

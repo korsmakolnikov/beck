@@ -17,7 +17,7 @@ import yaml
 from referencing import Registry, Resource
 
 SCHEMAS = files("beck.agents") / "schemas"
-AGENTS = ("kent", "unclebob", "martin", "reader", "argyris")
+AGENTS = ("kent", "unclebob", "martin", "reader")
 BASE = "https://beck.local/agents/"
 
 

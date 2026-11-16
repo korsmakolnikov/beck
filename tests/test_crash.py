@@ -1,8 +1,7 @@
-"""beck's own exceptions: recorded as BeckCrashed, sent to the outbox for argyris, resumed after the fix.
+"""beck's own exceptions: recorded as BeckCrashed, resumed after the fix.
 
 The user's session of 2026-11-14 died in a translator (KeyError) inside the
-TUI's worker: no event recorded it, so smart_audit had nothing to post and
-argyris nothing to read.
+TUI's worker: no event recorded it, so nothing could trace it.
 """
 
 import asyncio
@@ -41,8 +40,6 @@ def test_a_translator_that_raises_keeps_the_turn_and_leaves_the_command_pending(
     turn = next(e for e in store.read(types_=("CommandIssued",)) if e.payload["command"] == "WriteShoppingList")
     # its tokens and its changes kept, not done
     assert [e.type for e in store.caused_by(turn.id)] == ["AgentTurnEnded", "TurnChanged", "BeckCrashed"]
-    assert [r.kind for r in p.pending()] == ["beck-crashed"]
-    assert p.pending()[0].payload["name"] == "WriteShoppingList"
     resume(project, store, it)
     assert list(store.read(types_=("IterationClosed",)))
 
@@ -64,7 +61,6 @@ def test_a_policy_that_raises_is_run_again_on_resume(project):
     reactor.machine.policies["BranchCreated"] = [(name, boom) for name, _ in policies]
     drive(reactor, ANSWERS)
     assert {(c["where"], c["name"]) for c in crashed(store)} == {("policy", name) for name, _ in policies}
-    assert [r.kind for r in p.pending()] == ["beck-crashed"] * len(policies)
     resume(project, store, it)
     assert list(store.read(types_=("IterationClosed",)))
 

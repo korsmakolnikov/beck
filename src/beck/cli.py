@@ -287,36 +287,6 @@ def _answer(args: argparse.Namespace) -> int:
     return app.answer(Path(args.project), args.iteration, args.command_id, " ".join(args.words))
 
 
-def _audit(args: argparse.Namespace) -> int:
-    from beck import argyris
-    project = _project(args)
-    if args.message:
-        doc = argyris.message(project)
-        if doc is None:
-            return 1
-        print(json.dumps(doc, indent=1))
-        return 0
-    if args.wake:
-        return argyris.wake(project)
-    if args.settle:
-        try:
-            doc = json.loads(sys.stdin.read())
-        except json.JSONDecodeError as error:
-            print(f"beck: the answer is not JSON: {error}", file=sys.stderr)
-            return 1
-        errors = argyris.settle(project, doc)
-        for e in errors:
-            print(f"beck: {e}", file=sys.stderr)
-        return 1 if errors else 0
-    if args.handle:
-        project.handle(args.handle, args.by)
-        return 0
-    for r in project.pending():
-        print(f"{r.id[:8]} {r.created_at} {r.kind:<24} event={r.event_id[:8]} corr={r.correlation_id[:8]} "
-              f"{json.dumps(r.payload)}")
-    return 0
-
-
 def _usage(args: argparse.Namespace) -> int:
     from beck import config as beck_config
     from beck.usage import NUMBERS, Usage, tokens
@@ -370,23 +340,6 @@ def _replay(args: argparse.Namespace) -> int:
                           mode=args.agents, models=models, resume=args.resume)
     except KeyError as error:
         sys.exit(str(error.args[0]))
-
-
-def _contrib(args: argparse.Namespace) -> int:
-    from beck import config as beck_config
-    from beck import contrib
-    try:
-        config = beck_config.load(Path(args.project))
-        if args.contrib_command == "start":
-            print(contrib.start(args.slug, config))
-        elif args.contrib_command == "diff":
-            print(contrib.diff(args.slug))
-        else:
-            print(contrib.submit(args.slug, args.title, sys.stdin.read(), config))
-    except (contrib.ContribError, beck_config.ConfigError) as error:
-        print(f"beck: {error}", file=sys.stderr)
-        return 1
-    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -469,16 +422,6 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--project", default=".", help="the project's root (default: .)")
     a.set_defaults(run=_answer)
 
-    au = sub.add_parser("audit", help="smart_audit's outbox: the violations not handled yet")
-    mode = au.add_mutually_exclusive_group()
-    mode.add_argument("--message", action="store_true", help="print the pending records as argyris's message (JSON)")
-    mode.add_argument("--wake", action="store_true", help="open argyris's session with the message")
-    mode.add_argument("--settle", action="store_true", help="read argyris's JSON answer on stdin, mark the records")
-    mode.add_argument("--handle", help="mark a record (its id) handled")
-    au.add_argument("--by", default="argyris")
-    au.add_argument("--project", default=".", help="the project's root (default: .)")
-    au.set_defaults(run=_audit)
-
     rp = sub.add_parser("replay", help="implement an iteration again: its start and the user's answers as recorded")
     rp.add_argument("iteration")
     rp.add_argument("--into", help="an empty folder for the replay (default: a new one in the temporary folder)")
@@ -511,17 +454,6 @@ def main(argv: list[str] | None = None) -> int:
     db.add_argument("--project", default=".", help="the project's root (default: .)")
     db.set_defaults(run=_dashboard)
 
-    co = sub.add_parser("contrib", help="argyris's changes to beck, as pull requests")
-    co_sub = co.add_subparsers(dest="contrib_command", required=True)
-    for name, help_ in [("start", "a worktree of beck's source for one change; prints its path"),
-                        ("diff", "what the change's worktree changes"),
-                        ("submit", "commit, push and open the pull request (the body on stdin); prints its URL")]:
-        c = co_sub.add_parser(name, help=help_)
-        c.add_argument("slug")
-        if name == "submit":
-            c.add_argument("--title", required=True, help="a Conventional Commit subject")
-        c.add_argument("--project", default=".", help="the project whose config names beck's repository")
-        c.set_defaults(run=_contrib)
     args = parser.parse_args(argv)
     return args.run(args)
 

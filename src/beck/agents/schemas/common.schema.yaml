@@ -31,7 +31,7 @@ $defs:
     additionalProperties: false
     properties:
       protocol: {const: 1}
-      agent: {enum: [kent, unclebob, martin, reader, argyris]}
+      agent: {enum: [kent, unclebob, martin, reader]}
       command: {type: string, pattern: "^[A-Z][A-Za-z]+$"}
       cause:
         description: The event the turn answers; every event the turn causes carries it.

@@ -51,8 +51,8 @@ from beck.drivers.claude import INPUT_CHARS, parse_answer, session_id
 from beck.dsl.validate import migrate
 from beck.events.project import Project
 from beck.events.store import Event, EventStore
-from beck.machine.audit import parts
 from beck.machine.core import Agents, Result, Turn
+from beck.shell import parts
 
 FILE_TOOLS = {"Write", "Edit", "MultiEdit"}
 REPLAYED_SHELL = ("beck ", "git rm ")   # an agent's commands with effects: the rest only read
@@ -437,7 +437,7 @@ async def _drive(reactor: Any, recording: Recording, store: EventStore, outcome:
 
 COMPARED = ("CommandIssued", "SignalRejected", "BeckCrashed", "AgentTurnFailed", "RedRewound", "CycleReopened",
             "CycleDropped", "UnitParked", "RefactorRejected", "ResolutionProposed", "RegressionFound",
-            "GreenCommitted", "UnitLanded", "ViolationLogged")
+            "GreenCommitted", "UnitLanded")
 
 
 def _counts(store: EventStore) -> Counter[str]:
@@ -445,8 +445,6 @@ def _counts(store: EventStore) -> Counter[str]:
     for e in store.read():
         if e.type in COMPARED and e.type != "CommandIssued":
             c[e.type] += 1
-            if e.type == "ViolationLogged":
-                c[f"  {e.payload.get('kind')}"] += 1
     return c
 
 

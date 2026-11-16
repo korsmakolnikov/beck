@@ -14,8 +14,7 @@ def test_the_project_overrides_the_global_file_which_overrides_the_defaults(tmp_
     (tmp_path / ".beck/config.yml").write_text("units_in_parallel: 2\n")
     c = config.load(tmp_path, g)
     assert c["units_in_parallel"] == 2
-    assert c["models"] == {"kent": "sonnet", "unclebob": "sonnet", "martin": "sonnet", "reader": "haiku",
-                           "argyris": "opus"}
+    assert c["models"] == {"kent": "sonnet", "unclebob": "sonnet", "martin": "sonnet", "reader": "haiku"}
     assert c["limits"] == {"times": 3, "attempts": 30}
 
 

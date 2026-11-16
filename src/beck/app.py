@@ -69,7 +69,7 @@ async def drive(reactor: Reactor, interactive: bool, read: TextIO, out: TextIO) 
         if reactor.crashes:
             for c in reactor.crashes:
                 out.write(f"beck crashed in the {c.payload['where']} {c.payload['name']}: {c.payload['error']}\n")
-            out.write(f"beck: fix it, then `beck attach {reactor.ctx.iteration[:8]}` resumes (`beck audit`)\n")
+            out.write(f"beck: fix it, then `beck attach {reactor.ctx.iteration[:8]}` resumes\n")
             return 1
         end = finished(store)
         if end is not None:

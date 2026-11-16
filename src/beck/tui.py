@@ -112,7 +112,7 @@ def crashed(reactor: Reactor) -> str:
     """What the user reads when beck itself raised: where, and how to resume after the fix."""
     lines = [f"[b red]beck crashed[/b red] in the {c.payload['where']} {c.payload['name']}: {c.payload['error']}"
              for c in reactor.crashes]
-    return "\n".join([*lines, f"The traceback is in `beck events` and in the outbox (`beck audit`). Fix it, "
+    return "\n".join([*lines, f"The traceback is in `beck events`. Fix it, "
                                 f"then `beck tui {reactor.ctx.iteration[:8]}` resumes. Ctrl-C to quit."])
 
 

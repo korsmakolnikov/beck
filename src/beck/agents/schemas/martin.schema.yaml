@@ -103,7 +103,7 @@ $defs:
     description: >-
       The findings to address in this turn, or the weak tests to strengthen.
       A weak test is fixed by martin under the three laws of TDD: the test
-      first; if it turns red, then the code; smart_audit checks the order.
+      first; if it turns red, then the code.
     type: object
     required: [run, check]
     minProperties: 3

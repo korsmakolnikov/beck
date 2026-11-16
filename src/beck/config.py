@@ -6,8 +6,7 @@
     limits: {times: 3, attempts: 30}   # the repetition rule
     flakiness: {window: 3, runs: 5}    # mixed results in the last `window` runs on one tree: hunt, `runs` each
     driver: claude              # the CLI that runs the agents
-    models: {kent: opus, unclebob: sonnet, martin: sonnet, reader: haiku, argyris: opus}
-    contrib: {repo: null, base: master}   # where argyris proposes its changes to beck: owner/name, the base branch
+    models: {kent: opus, unclebob: sonnet, martin: sonnet, reader: haiku}
     budget: {session: null, iteration: null}   # tokens; null: unlimited (first we measure)
     usage: {window_minutes: 10}   # the windows of the consumption's projection (beck usage, beck dashboard)
 
@@ -29,15 +28,14 @@ DEFAULTS: dict[str, Any] = {
     "limits": {"times": 3, "attempts": 30},
     "flakiness": {"window": 3, "runs": 5},
     "driver": "claude",
-    "models": {"kent": "opus", "unclebob": "sonnet", "martin": "sonnet", "reader": "haiku", "argyris": "opus"},
-    "contrib": {"repo": None, "base": "master"},
+    "models": {"kent": "opus", "unclebob": "sonnet", "martin": "sonnet", "reader": "haiku"},
     "budget": {"session": None, "iteration": None},
     "usage": {"window_minutes": 10},
 }
 
 _TYPES: dict[str, type | tuple[type, ...]] = {"versioned": bool, "branch_format": str, "units_in_parallel": int,
                                               "limits": dict, "flakiness": dict, "driver": str, "models": dict, "budget": dict,
-                                              "contrib": dict, "usage": dict}
+                                              "usage": dict}
 
 
 class ConfigError(ValueError):

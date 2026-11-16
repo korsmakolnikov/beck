@@ -24,10 +24,10 @@ command and with the same context as before.
 * To read you may use Read, Glob, Grep, or the shell's `ls`, `cat`, `bat`,
   `head`, `tail`, `sed -n`, `wc`, `rg`, `grep`, `tree`, `echo` and `git
   log`, `show`, `diff`, `status`, `ls-files`, `grep`; nothing else (no
-  `find`: use Glob). They are audited like a Read. You already run
+  `find`: use Glob). You already run
   in the right directory: give paths, never `cd`.
 * Change files only with Edit and Write: never with the shell (`sed -i`, a
-  heredoc, `python -`, `rm`); beck audits the changes the tools make. To
+  heredoc, `python -`, `rm`); beck records the changes of every turn. To
   delete a file, `git rm` it when your tools allow it (kent in a
   resolution, martin in a refactor).
 * When the step cannot be done as asked (an interface lacks a datum, an

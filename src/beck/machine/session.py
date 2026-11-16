@@ -988,7 +988,6 @@ def _component_paths(language: str, namespace: list[str]) -> list[str]:
     return [str(Path("lib", *namespace)), str(Path("lib", *namespace[:-1], namespace[-1] + ".ex"))]
 
 
-from beck.machine.audit import audit  # noqa: E402  (smart_audit observes the whole workflow)
-from beck.machine.flaky import flaky  # noqa: E402  (and the detector reads every run)
+from beck.machine.flaky import flaky  # noqa: E402  (the detector reads every run)
 
-beck_machine = workflow.merge(session).merge(audit).merge(flaky)
+beck_machine = workflow.merge(session).merge(flaky)

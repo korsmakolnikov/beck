@@ -11,7 +11,7 @@
   of the turn, parsed as JSON (a code fence around it is tolerated).
 * The tools are the agent's own, `Bash` limited to beck's commands;
   anything else is denied without asking (`--permission-prompts none`).
-* Every tool call of the stream is returned, for smart_audit; the tokens
+* Every tool call of the stream is returned, for the events; the tokens
   come from the result.
 """
 
@@ -49,8 +49,7 @@ def _front_matter(text: str) -> tuple[dict[str, Any], str]:
 def definition(agent: str, model: str | None = None) -> dict[str, Any]:
     """The agent's definition for `--agents`: its prompt and its tools."""
     meta, body = _front_matter((PROMPTS / f"{agent}.md").read_text())
-    # argyris talks with the user in a session of its own: beck's turn protocol is not its
-    common = "" if agent == "argyris" else (PROMPTS / "common.md").read_text()
+    common = (PROMPTS / "common.md").read_text()
     examples = yaml.safe_load(EXAMPLES.read_text())[agent]
     shown = "\n\n".join(
         f"### {command}\n\nInput context:\n```json\n{json.dumps(e['in'], indent=1)}\n```\n\nOutput:\n```json\n"
@@ -70,7 +69,7 @@ def definition_hash(agent: str, model: str | None = None) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
-# what an agent with a shell may run to read: harmless, and audited like a Read (smart_audit's scope rule)
+# what an agent with a shell may run to read: harmless
 READ_ONLY = ["Bash(cd:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(bat:*)", "Bash(head:*)", "Bash(tail:*)",
              "Bash(wc:*)", "Bash(rg:*)", "Bash(grep:*)", "Bash(echo:*)", "Bash(tree:*)", "Bash(git log:*)",
              "Bash(git show:*)", "Bash(git diff:*)", "Bash(git status:*)", "Bash(git ls-files:*)",

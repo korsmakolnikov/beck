@@ -313,7 +313,7 @@ def changes(folder: Path, before: str | None) -> str:
 
 
 def crash(where: str, name: str, error: BaseException) -> Result:
-    """beck's own exception, as an event: smart_audit sends it to argyris, the user resumes after the fix."""
+    """beck's own exception, as an event: traceable, and the user resumes after the fix."""
     text = f"{type(error).__name__}: {error}"[:2000]
     trace = "".join(traceback.format_exception(error))[-4000:]
     return Result("BeckCrashed", {"where": where, "name": name, "error": text, "traceback": trace,
@@ -365,7 +365,7 @@ class Reactor:
                         logger.exception("policy %s crashed on %s", name, event.type)
                         r = crash("policy", name, error)
                         self.crashes.append(store.append(r.type, r.payload, stream=event.stream, cause=event))
-                        issued = True           # an event to react to: smart_audit posts it
+                        issued = True
                         continue
                     for c in commands:
                         store.append("CommandIssued", {"command": c.name, "target": c.target, "args": c.args},
