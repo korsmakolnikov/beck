@@ -320,3 +320,22 @@ def test_a_lower_coverage_asks_the_user_after_the_one_try(repo):
     reactor.answer(ask.id, user.answer(ask, "Go on, I will cover it later."))
     run(reactor)
     assert unit_events(store, "store")[-1] == "UnitClosed"
+
+
+def test_a_unit_with_no_commit_of_its_own_squashes_into_an_empty_one(repo):
+    # the session of 2026-11-16: the unit clock realizes no clause, so it had no commit to squash, and
+    # SquashUnit crashed on an empty commit
+    from beck.events.project import Project
+    from beck.machine.core import Ctx
+    from beck.machine.refactor import handle_squash
+    from beck.machine.unit import Workspace
+    store = Project(repo).start_iteration()[1]
+    base = git(repo, "rev-parse", "HEAD")
+    store.append("UnitStarted", {"unit": "clock", "worktree": str(repo), "branch": "b", "base": base},
+                 stream="unit:clock")
+    workspace = Workspace(store, repo, lambda u, t: [], lambda u, g: {})
+    command = store.append("CommandIssued", {"command": "SquashUnit", "target": "beck", "args": {"unit": "clock"}},
+                           stream="unit:clock")
+    [squashed] = handle_squash(command, Ctx(store, repo, "it", workspace))
+    assert git(repo, "log", "-1", "--format=%s") == "feat(clock): implement clock"
+    assert git(repo, "rev-parse", "HEAD~1") == base and squashed.payload["sha"] == git(repo, "rev-parse", "HEAD")
