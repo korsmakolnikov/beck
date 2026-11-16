@@ -249,6 +249,12 @@ def retry_a_rejected_turn(event: Event, ctx: Ctx) -> list[Command]:
     turn = ctx.store.get(event.causation_id or "")
     if name in OWN_RETRIES or "context" not in turn.payload["args"]:
         return []
+    later = [e for e in ctx.store.read(stream=event.stream, types_=("CommandIssued",))
+             if e.seq > event.seq and e.payload["command"] == name]
+    unit = turn.payload["args"].get("unit")
+    closed = bool(unit) and bool(list(ctx.store.read(stream=f"unit:{unit}", types_=("UnitClosed",))))
+    if later or closed:   # stale: a later turn took it over, or its unit closed (an attach replays old rejections)
+        return []
     rejected = [e.payload["signature"] for e in ctx.events(stream=event.stream, types=("SignalRejected",))
                 if e.payload["command"] == name]
     why = blocked(rejected, *ctx.limits)
