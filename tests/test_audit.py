@@ -69,6 +69,9 @@ def test_the_read_only_commands_are_allowed_and_audited_like_a_read(repo):
         {"tool": "Bash", "input": {"command": "bat --plain tests/test_mod.py"}},
         {"tool": "Bash", "input": {"command": "head -20 docs/design.md"}},
         {"tool": "Bash", "input": {"command": "git log --oneline"}},
+        # the session of 2026-11-16: a heredoc's words were taken for paths, 1237 times
+        {"tool": "Bash", "input": {"command": "cat <<'EOF' > tests/test_new.py\nimport os\nx = 1\nEOF"}},
+        {"tool": "Bash", "input": {"command": "cat src/pkg/mod.py | head -5"}},
     ]})
     assert [(r.kind, r.payload.get("path")) for r in project.pending()] == [("explored", "docs/design.md")]
 

@@ -12,6 +12,7 @@ comes back inside this component as its fallback.
 from __future__ import annotations
 
 import fnmatch
+import re
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +47,8 @@ def _allowed(agent: str, tool: str, tool_input: dict[str, Any]) -> bool:
 
 
 READERS = ("cat", "bat", "head", "tail", "less")
+SHELL_OPERATORS = {"|", "||", "&&", ";", "&"}
+PATHLIKE = re.compile(r"[\w./@+-]+")
 
 
 def _read_paths(root: Path, tool: dict[str, Any]) -> list[str]:
@@ -58,7 +61,12 @@ def _read_paths(root: Path, tool: dict[str, Any]) -> list[str]:
     words = str(tool["input"].get("command", "")).split()
     if not words or words[0] not in READERS:
         return []
-    files = [w for w in words[1:] if not w.startswith("-") and not w.isdigit()]
+    files = []
+    for w in words[1:]:
+        if w in SHELL_OPERATORS or w.startswith(("<", ">", "|")):   # a heredoc, a redirection, a pipe: no more reads
+            break
+        if PATHLIKE.fullmatch(w) and ("/" in w or "." in w) and not w.startswith("-"):
+            files.append(w)
     return [p for p in (_path(root, {"file_path": f}) for f in files) if p]
 
 
