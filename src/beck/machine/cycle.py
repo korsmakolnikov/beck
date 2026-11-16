@@ -119,7 +119,7 @@ def reopen(event: Event, ctx: Ctx) -> list[Command]:
     """After a resolution: the cycle goes on at its phase, the reason in the retry."""
     p = event.payload
     retry = (2, p["reason"])
-    if p["phase"] == "red" or not has_red(ctx, p["unit"], p["clause"]):   # no red yet: the cycle starts from one
+    if p["phase"] == "red":
         return [_red_turn(ctx, p["unit"], p["clause"], p["group"], False, retry)]
     test, group = _declared_test(ctx, p["unit"], p["clause"])
     return [_green_turn(p["unit"], p["clause"], group, test, None, retry)]
@@ -237,11 +237,6 @@ def _agent_turn(ctx: Ctx, rejection: Event) -> tuple[str, dict[str, Any]]:
     if rejection.type != "SignalRejected":
         issued = ctx.store.get(issued.payload["args"]["turn"])
     return issued.payload["command"], issued.payload["args"]
-
-
-def has_red(ctx: Ctx, unit: str, clause: str) -> bool:
-    """Whether the clause's cycle has a verified red: a clause a resolution added after the plan has none."""
-    return bool(ctx.events(stream=stream(unit, clause), types=("RedVerified",)))
 
 
 def _declared_test(ctx: Ctx, unit: str, clause: str) -> tuple[str, str]:

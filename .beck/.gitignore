@@ -1,0 +1,9 @@
+events/
+reports/
+worktrees/
+index.db
+beck.db
+beck.db-*
+beck.log
+agents.json
+argyris.json

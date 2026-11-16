@@ -408,15 +408,3 @@ def test_a_stub_left_when_the_cycles_end_reopens_the_cycle_of_the_clause_citing_
     assert "a stub left: src/shop/store/total.py:6" in reopened.payload["reason"]
     assert unit_events(store, "store")[-1] == "UnitClosed"
 
-
-def test_a_reopened_clause_with_no_red_starts_from_the_red(repo):
-    # the replay of 2026-11-16: a stub cited a clause a resolution had added, which had no cycle yet; reopening it
-    # at green looked for its red test and crashed
-    from beck.machine.cycle import reopen
-    reactor, store = setup(repo, Team(repo))
-    run(reactor)
-    event = store.append("CycleReopened", {"unit": "store", "clause": "store-new", "group": "entity:Store",
-                                           "phase": "green", "reason": "a stub left: x.py:1; write it"},
-                         stream="cycle:store/store-new")
-    [command] = reopen(event, reactor.ctx)
-    assert command.name == "WriteRedTest" and command.args["clause"] == "store-new"

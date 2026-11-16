@@ -126,7 +126,7 @@ def plan(exclusive=False, waits=False):
     return planned
 
 
-def setup(repo, agents, slots=2, exclusive=False, waits=False, replan=None):
+def setup(repo, agents, slots=2, exclusive=False, waits=False, replan=None, initial=None):
     project = Project(repo)
     it, store, _ = project.start_iteration()
     workspace = Workspace(store, repo, lambda unit, tree: [f"src/shop/{unit}"],
@@ -134,7 +134,7 @@ def setup(repo, agents, slots=2, exclusive=False, waits=False, replan=None):
                                                "dependencies": [], "files": {"source": [], "tests": []}},
                           replan_of=replan or (lambda: None))
     ctx = Ctx(store, repo, it.id, workspace, units_in_parallel=slots)
-    store.append("UnitsPlanned", plan(exclusive, waits))
+    store.append("UnitsPlanned", initial or plan(exclusive, waits))
     return Reactor(ctx, implementation, agents), store
 
 
@@ -452,3 +452,43 @@ def test_a_rejected_resolution_brings_back_a_file_kent_removed(repo):
     reactor, store = setup(repo, Agents(repo))
     discard_resolution(None, reactor.ctx)
     assert (repo / "src/shop/store/store_adds.py").is_file() and git(repo, "status", "--short") == ""
+
+
+def resolve(repo, store, unit, planned):
+    """A resolution applied to the parked `unit` that planned the units again."""
+    cause = store.append("UnitParked", {"unit": unit, "reason": "stubs left", "because_of": "x"}, stream=f"unit:{unit}")
+    store.append("UnitsPlanned", planned, cause=cause)
+    store.append("ResolutionApplied", {"base": git(repo, "rev-parse", "HEAD"), "units": [unit], "summary": "s"},
+                 cause=cause)
+
+
+def test_a_clause_a_resolution_adds_to_an_implemented_unit_gets_its_cycle(repo):
+    # the replay of 2026-11-16: kent gave program a new operation; on resume beck took the implemented unit for
+    # finished, the stub check reopened at green a clause no cycle had opened, and its policy crashed
+    agents = Agents(repo)
+    reactor, store = setup(repo, agents, initial=without("cart-empties"))
+    run(reactor)
+    assert unit_events(store, "cart")[-1] == "UnitImplemented"
+    resolve(repo, store, "cart", plan())
+    run(reactor)
+    [opened] = [e for e in store.read(types_=("CycleOpened",)) if e.payload["clause"] == "cart-empties"]
+    assert opened.payload["group"] == "operation:empties"
+    assert [e["context"]["clause"] for a, e in agents.calls if e["command"] == "WriteRedTest"][-1] == "cart-empties"
+    assert unit_events(store, "cart")[-1] == "UnitImplemented"
+    assert not list(store.read(types_=("BeckCrashed", "CycleReopened")))
+
+
+def test_a_clause_a_resolution_adds_to_a_closed_group_gets_its_cycle(repo):
+    planned = plan()
+    planned["units"][1]["groups"] = [{"id": "operation:totals", "clauses": ["cart-totals"]}]
+    planned["units"][1]["implements"] = ["cart-totals"]
+    grown = plan()
+    grown["units"][1]["groups"] = [{"id": "operation:totals", "clauses": ["cart-totals", "cart-empties"]}]
+    agents = Agents(repo)
+    reactor, store = setup(repo, agents, initial=planned)
+    run(reactor)
+    resolve(repo, store, "cart", grown)
+    run(reactor)
+    assert [e.payload["clause"] for e in store.read(types_=("CycleClosed",)) if e.payload["unit"] == "cart"] == \
+        ["cart-totals", "cart-empties"]
+    assert unit_events(store, "cart")[-1] == "UnitImplemented"

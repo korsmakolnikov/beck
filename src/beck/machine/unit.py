@@ -171,13 +171,25 @@ def start_unit(command: Event, ctx: Ctx) -> list[Result]:
 @units.policy("UnitStarted", "GroupClosed", "UnitResumed")
 def next_group(event: Event, ctx: Ctx) -> list[Command]:
     unit = event.payload["unit"]
-    if event.type == "UnitResumed" and (_open_cycles(ctx, unit) or _implemented_before(ctx, unit)):
-        return []  # the reopened cycles go on; an implemented unit went back to phase 5
-    done = _groups_closed(ctx, unit)
+    if event.type == "UnitResumed" and (_open_cycles(ctx, unit) or
+                                        (_implemented_before(ctx, unit) and not _unwritten(ctx, unit))):
+        return []  # the reopened cycles go on; an implemented unit with nothing new went back to phase 5
+    return _walk(ctx, unit)
+
+
+def _walk(ctx: Ctx, unit: str) -> list[Command]:
+    """The next group to open: one never closed, or one a resolution gave a clause no cycle closed yet."""
+    done, closed = _groups_closed(ctx, unit), _closed_clauses(ctx, unit)
     for g in plan(ctx)[unit]["groups"]:
-        if g["id"] not in done:
+        if g["id"] not in done or any(c not in closed for c in g["clauses"]):
             return [Command("OpenGroup", "beck", {"unit": unit, "group": g["id"]}, stream(unit))]
     return [Command("FinishUnit", "beck", {"unit": unit}, stream(unit))]
+
+
+def _unwritten(ctx: Ctx, unit: str) -> list[str]:
+    """The planned clauses no cycle closed: after a resolution, those it added to the unit."""
+    closed = _closed_clauses(ctx, unit)
+    return [c for g in plan(ctx)[unit]["groups"] for c in g["clauses"] if c not in closed]
 
 
 def _next_clause(ctx: Ctx, unit: str, group: str) -> str | None:
@@ -200,10 +212,8 @@ def open_group(command: Event, ctx: Ctx) -> list[Result]:
 @units.policy("CycleClosed")
 def next_cycle(event: Event, ctx: Ctx) -> list[Command]:
     unit = event.payload["unit"]
-    if _implemented_before(ctx, unit):  # a cycle reopened after the unit was implemented
-        if _open_cycles(ctx, unit):
-            return []
-        return [Command("FinishUnit", "beck", {"unit": unit}, stream(unit))]
+    if _implemented_before(ctx, unit):  # a cycle reopened after the unit was implemented, or one a resolution added
+        return [] if _open_cycles(ctx, unit) else _walk(ctx, unit)
     group = _current_group(ctx, unit)
     if group is None:
         return []
@@ -387,7 +397,8 @@ def resume_unit(command: Event, ctx: Ctx) -> list[Result]:
     results = [Result("CycleDropped", {"unit": unit, "clause": c, "reason": f"no longer in the domain: {reason}"},
                       stream=cycle_stream(unit, c)) for c, _ in dropped]
     results.append(Result("UnitResumed", {"unit": unit, "base": base}))
-    if not [o for o in _open_cycles(ctx, unit) if o not in dropped] and _implemented_before(ctx, unit):
+    if not [o for o in _open_cycles(ctx, unit) if o not in dropped] and _implemented_before(ctx, unit) \
+            and not _unwritten(ctx, unit):   # a clause the resolution added still needs its cycle: next_group opens it
         results.append(Result("UnitImplemented", {"unit": unit}))
     for clause, group in _open_cycles(ctx, unit):
         if (clause, group) in dropped:
