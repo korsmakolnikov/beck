@@ -9,6 +9,7 @@
     models: {kent: opus, unclebob: sonnet, martin: sonnet, reader: haiku, argyris: opus}
     contrib: {repo: null, base: master}   # where argyris proposes its changes to beck: owner/name, the base branch
     budget: {session: null, iteration: null}   # tokens; null: unlimited (first we measure)
+    usage: {window_minutes: 10}   # the windows of the consumption's projection (beck usage, beck dashboard)
 
 Anything tied to a work environment lives only in the global file.
 """
@@ -31,11 +32,12 @@ DEFAULTS: dict[str, Any] = {
     "models": {"kent": "opus", "unclebob": "sonnet", "martin": "sonnet", "reader": "haiku", "argyris": "opus"},
     "contrib": {"repo": None, "base": "master"},
     "budget": {"session": None, "iteration": None},
+    "usage": {"window_minutes": 10},
 }
 
 _TYPES: dict[str, type | tuple[type, ...]] = {"versioned": bool, "branch_format": str, "units_in_parallel": int,
                                               "limits": dict, "flakiness": dict, "driver": str, "models": dict, "budget": dict,
-                                              "contrib": dict}
+                                              "contrib": dict, "usage": dict}
 
 
 class ConfigError(ValueError):
@@ -73,6 +75,9 @@ def load(project: Path, global_file: Path | None = None) -> dict[str, Any]:
     errors += [f"unknown setting `{k}`" for k in unknown]
     if isinstance(config.get("units_in_parallel"), int) and config["units_in_parallel"] < 1:
         errors.append("`units_in_parallel` must be at least 1")
+    minutes = config["usage"].get("window_minutes") if isinstance(config.get("usage"), dict) else None
+    if not isinstance(minutes, int) or not 1 <= minutes <= 60 or 60 % minutes:
+        errors.append("`usage.window_minutes` must divide an hour (1 to 60)")
     if errors:
         raise ConfigError("; ".join(errors))
     return config

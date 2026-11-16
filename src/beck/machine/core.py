@@ -333,8 +333,10 @@ class Reactor:
     is not tried again in this run; the command stays pending (the policy unanchored), so `beck attach`,
     after the fix, runs it again."""
 
-    def __init__(self, ctx: Ctx, machine: Machine, agents: Agents, slots: int = 4):
+    def __init__(self, ctx: Ctx, machine: Machine, agents: Agents, slots: int = 4,
+                 projectors: list[Callable[[], object]] | None = None):
         self.ctx, self.machine, self.agents, self.slots = ctx, conversation.merge(machine), agents, slots
+        self.projectors = projectors or []      # read models fed from the events: they never stop the session
         self._cursor = 0
         self._running: dict[str, asyncio.Task[list[Result]]] = {}
         self.crashes: list[Event] = []          # this run's BeckCrashed
@@ -346,6 +348,11 @@ class Reactor:
         """Runs the policies on the events after the cursor; True when it issued something (or recorded a crash)."""
         issued = False
         store = self.ctx.store
+        for project in self.projectors:
+            try:
+                project()
+            except Exception:
+                logger.exception("a projector crashed: it can be rebuilt from the events")
         for event in list(store.read(after=self._cursor)):
             self._cursor = event.seq
             for name, policy in self.machine.policies.get(event.type, []):

@@ -10,6 +10,7 @@ dependencies = [
     "lizard>=1.26.0",
     "pyyaml>=6.0",
     "referencing>=0.37.0",
+    "rich>=13",
     "textual>=8.2.8",
     "tree-sitter>=0.26.1",
     "tree-sitter-c>=0.24.2",

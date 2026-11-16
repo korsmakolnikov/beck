@@ -317,6 +317,51 @@ def _audit(args: argparse.Namespace) -> int:
     return 0
 
 
+def _usage(args: argparse.Namespace) -> int:
+    from beck import config as beck_config
+    from beck.usage import NUMBERS, Usage, tokens
+    project = _project(args)
+    it = _iteration(project, args.iteration)
+    try:
+        minutes = beck_config.load(project.root)["usage"]["window_minutes"]
+    except beck_config.ConfigError:
+        minutes = beck_config.DEFAULTS["usage"]["window_minutes"]
+    usage, store = Usage(project.root, minutes), project.open(it.id)
+    (usage.rebuild if args.rebuild else usage.catch_up)(store, it.id)
+    if args.events:
+        where = {k: v for k, v in (("agent", args.agent), ("model", args.model), ("command", args.command),
+                                   ("unit", args.unit), ("kind", args.kind), ("win", args.window)) if v}
+        rows = list(usage.events(it.id, **where))
+        for r in rows:
+            print(json.dumps(r) if args.json else
+                  f"{r['at'][:19]}  {r['event_id'][:8]}  {r['kind']:<16} {r['agent']:<9} {r['command']:<20} "
+                  f"{r['unit'] or '-':<14} {tokens(r):>9,} tokens {r['ms'] // 1000:>5} s  "
+                  f"command {(r['command_id'] or '-')[:8]}")
+        return 0
+    rows = usage.by(it.id, args.by)
+    if args.json:
+        for r in rows:
+            print(json.dumps(r))
+        return 0
+    keys = [k for k in rows[0] if k not in (*NUMBERS, "events", "first_seq", "last_seq")] if rows else [args.by]
+    print(f"{'  '.join(f'{k:<20}' for k in keys)}{'turns':>7}{'failed':>7}{'reject':>7}{'in':>12}{'out':>10}"
+          f"{'cache read':>13}{'s':>7}  events (seq)")
+    for r in rows:
+        print(f"{'  '.join(f'{r[k]:<20}' for k in keys)}{r['turns']:>7}{r['failed']:>7}{r['rejected']:>7}"
+              f"{r['input']:>12,}{r['output']:>10,}{r['cache_read']:>13,}{r['ms'] // 1000:>7}  "
+              f"{r['events']} ({r['first_seq']}..{r['last_seq']})")
+    return 0
+
+
+def _dashboard(args: argparse.Namespace) -> int:
+    from beck import dashboard
+    _project(args)
+    try:
+        return dashboard.run(Path(args.project), args.iteration, once=args.once, every=args.every)
+    except KeyError as error:
+        sys.exit(str(error.args[0]))
+
+
 def _replay(args: argparse.Namespace) -> int:
     from beck import replay
     models = dict(m.split("=", 1) for m in args.model)
@@ -445,6 +490,26 @@ def main(argv: list[str] | None = None) -> int:
     rp.add_argument("--resume", metavar="REPLAY", help="go on with a replay stopped at a decision (in --into)")
     rp.add_argument("--project", default=".", help="the recorded project's root (default: .)")
     rp.set_defaults(run=_replay)
+
+    us = sub.add_parser("usage", help="what the agents consumed in an iteration, from the usage projection")
+    us.add_argument("iteration")
+    us.add_argument("--by", choices=["agent", "model", "command", "window"], default="agent")
+    us.add_argument("--events", action="store_true",
+                    help="the ledger's rows instead: the events every number comes from")
+    for f in ("agent", "model", "command", "unit", "kind"):
+        us.add_argument(f"--{f}", help=f"with --events: only this {f}")
+    us.add_argument("--window", help="with --events: only the window starting at this time (2026-11-16T18:50)")
+    us.add_argument("--rebuild", action="store_true", help="drop the iteration's projection and project it again")
+    us.add_argument("--json", action="store_true", help="JSON lines, for an agent")
+    us.add_argument("--project", default=".", help="the project's root (default: .)")
+    us.set_defaults(run=_usage)
+
+    db = sub.add_parser("dashboard", help="the consumption of an iteration, live (Ctrl-C to leave)")
+    db.add_argument("iteration", nargs="?", help="an iteration's id or its first characters (default: the last)")
+    db.add_argument("--once", action="store_true", help="print it once and exit")
+    db.add_argument("--every", type=float, default=1.0, help="seconds between two looks at the outbox")
+    db.add_argument("--project", default=".", help="the project's root (default: .)")
+    db.set_defaults(run=_dashboard)
 
     co = sub.add_parser("contrib", help="argyris's changes to beck, as pull requests")
     co_sub = co.add_subparsers(dest="contrib_command", required=True)

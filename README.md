@@ -231,6 +231,16 @@ Implemented: `src/beck/events/`, with `beck sessions`, `beck events` and
   ran with (`definition`: prompt, tools, examples), its duration, and its
   changes as a git patch (`TurnChanged`). Iterations recorded before
   2026-11-16 lack them: their replay reads the Claude Code transcripts.
+* **The consumption is a projection** (implemented, `src/beck/usage.py`):
+  every `AgentTurnEnded`, `AgentTurnFailed` and `SignalRejected` becomes a
+  row of a ledger in `beck.db` (`usage_event`: the event's id, seq, command,
+  unit, agent, model, tokens, time), and in the same transaction adds to the
+  totals per iteration, agent, model and command (`usage`) and per time
+  window (`usage_window`, `usage.window_minutes`, 10 by default). Every
+  number is a sum of ledger rows, and every row names its event: `beck usage
+  <iteration> --events` lists them, `beck trace` follows one. The ledger is
+  the dashboard's outbox: `beck dashboard` wakes when a row lands after its
+  cursor. Nothing there is a fact: `beck usage --rebuild` projects it again.
 * The flow log stays, only as a human-readable log.
 
 ## Parallelism and commits
@@ -484,6 +494,8 @@ beck attach <iteration> [--batch]     resume it from its events (Ctrl-C is safe)
 beck pending <iteration>              the decisions of the user it waits for
 beck answer <iteration> <id> <words>  answer one: yes, or the words
 beck replay <iteration> [--agents …]  implement it again: its start and the user's answers as recorded
+beck usage <iteration> [--by …]       what the agents consumed (--events: the events it comes from; --json)
+beck dashboard [<iteration>]          the consumption, live (--once: print it once)
 ```
 
 On a terminal beck asks each decision and goes on; with `--batch` (or

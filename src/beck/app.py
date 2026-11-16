@@ -23,6 +23,7 @@ from beck.events.store import Event, EventStore
 from beck.machine import user
 from beck.machine.core import Agents, Ctx, Reactor
 from beck.machine.session import IndexWorkspace, beck_machine
+from beck.usage import Usage, projector
 
 DONE = ("IterationClosed", "ConfigInvalid")
 
@@ -43,7 +44,9 @@ def reactor_for(project: Project, iteration: str, store: EventStore, agents: Age
               flakiness=(config["flakiness"]["window"], config["flakiness"]["runs"]))
     driver = agents or ClaudeCode(store, project.root, iteration, config["models"],
                                   executable=os.environ.get("BECK_CLAUDE", "claude"), docs=docs_dir())
-    return Reactor(ctx, beck_machine, driver, slots=config["units_in_parallel"])
+    usage = Usage(project.root, config["usage"]["window_minutes"])
+    return Reactor(ctx, beck_machine, driver, slots=config["units_in_parallel"],
+                   projectors=[projector(usage, store, iteration)])
 
 
 def pending_decisions(reactor: Reactor) -> list[Event]:
