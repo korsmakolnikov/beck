@@ -17,15 +17,15 @@ a requirement.
 * The domain names no component and reads no code; every clause a test
   must prove has an id; every operation lists the entities it uses.
 * The architecture names the domain's ids, never restates them;
-  `realizes`, `depends_on` and the assertions follow the manifest.
+  `implements`, `depends_on` and the assertions follow the manifest.
 * Every interface's doc cites the operation it offers (`spec: <id>`): the
   index anchors the ids through these markers. Write each doc as the common
   "Writing" rules say: what it does, why it exists, an example.
 * Every stub body must be cited by an id, in its own doc or an enclosing
   one: a stub no id cites has no cycle to implement it, and beck sends the
   interfaces back (`a stub no id cites`). Cite the operation or the clause
-  the body realizes; when its component realizes no id at all (an adapter,
-  a system clock), ask the user which clause it realizes.
+  the body implements; when its component implements no id at all (an adapter,
+  a system clock), ask the user which clause it implements.
 * `beck validate domain` and `beck validate architecture` check what you
   wrote; run them before answering.
 * A resolution (`ProposeResolution`) is made as a real change: edit the

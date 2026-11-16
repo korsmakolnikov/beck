@@ -835,8 +835,8 @@ def plan_units(conn: sqlite3.Connection) -> dict[str, Any]:
         deps = [r["dst"] for r in conn.execute(
             "SELECT e.dst FROM edge e JOIN node n ON n.id = e.dst WHERE e.src = ? AND e.kind = 'depends_on' "
             "AND n.kind = 'component'", (u,))]
-        realizes = [r["dst"] for r in conn.execute("SELECT dst FROM edge WHERE src = ? AND kind = 'realizes'", (u,))]
-        entry: dict[str, Any] = {"id": u, "groups": groups, "depends_on": deps, "realizes": realizes,
+        implements = [r["dst"] for r in conn.execute("SELECT dst FROM edge WHERE src = ? AND kind = 'implements'", (u,))]
+        entry: dict[str, Any] = {"id": u, "groups": groups, "depends_on": deps, "implements": implements,
                                  "exclusive_with": sorted(o for pair in exclusive if u in pair for o in pair if o != u)}
         concrete = [d for d in deps if _boundary(conn, d) != "interface"]
         if concrete:   # the unit's tests use the real modules: it starts once they have landed

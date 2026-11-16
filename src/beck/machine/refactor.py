@@ -449,7 +449,7 @@ def handle_squash(command: Event, ctx: Ctx) -> list[Result]:
     subject = f"feat({unit}): implement {unit}"
     if _subject(ctx, unit) is None and _git(tree, "log", "-1", "--format=%s").stdout.strip() != subject:
         _git(tree, "reset", "-q", "--soft", _base(ctx, unit))
-        # a unit with no commit of its own (it realizes no clause) still gets its commit: fixups and landing aim at it
+        # a unit with no commit of its own (it implements no clause) still gets its commit: fixups and landing aim at it
         _git(tree, "commit", "-q", "--allow-empty", "-m", subject,
              *(["-m", "Clauses: " + ", ".join(clauses)] if clauses else []))
     return [Result("UnitSquashed", {"unit": unit, "sha": _head(tree), "subject": subject})]

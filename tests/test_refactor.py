@@ -323,7 +323,7 @@ def test_a_lower_coverage_asks_the_user_after_the_one_try(repo):
 
 
 def test_a_unit_with_no_commit_of_its_own_squashes_into_an_empty_one(repo):
-    # the session of 2026-11-16: the unit clock realizes no clause, so it had no commit to squash, and
+    # the session of 2026-11-16: the unit clock implements no clause, so it had no commit to squash, and
     # SquashUnit crashed on an empty commit
     from beck.events.project import Project
     from beck.machine.core import Ctx

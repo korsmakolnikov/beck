@@ -141,7 +141,7 @@ The manifesto, the formats and the graph built from them are in
 * **ADL dropped**, replaced by a YAML architecture DSL in the style of the
   domain spec, keeping ADL's features (the kinds of `DEFINE`, `ASSERT`,
   `FOREACH`), with an id on every element and every assertion.
-* **No components map**: which component realizes each spec id is written
+* **No components map**: which component implements each spec id is written
   in the architecture YAML (a design decision, so it lives in a versioned
   source); the index derives the rest down to the code.
 * The domain and the architecture are two parallel branches of the model,
@@ -173,7 +173,7 @@ fitness functions: `beck fitness generate` (`src/beck/fitness/`).
 * **At the start of every iteration** the whole map is checked against the
   diff from the last indexed commit, including other people's commits (a new
   PR merged into the base). This covers most cases. When the diff changes
-  the behaviour of code that realizes spec ids, the DSLs have drifted: kent
+  the behaviour of code that implements spec ids, the DSLs have drifted: kent
   proposes how to bring them back in sync, the user approves, beck rebuilds
   the index.
 * An agent that finds the code different from what the index says reports
@@ -621,7 +621,7 @@ P: DomainWritten → ValidateDomain (B, spec-check)  → DomainValidated | Domai
    ApproveDomain (U)                               → DomainApproved
    ReviseDomain (U)                                → DomainRevised ⟲ WriteDomain
 P: DomainApproved → WriteArchitecture (A kent, fresh context) → ArchitectureWritten
-P: ArchitectureWritten → ValidateArchitecture (B: the schema, every spec id realized by exactly one component)
+P: ArchitectureWritten → ValidateArchitecture (B: the schema, every spec id implemented by exactly one component)
                                                    → ArchitectureValidated | ArchitectureInvalid ⟲ WriteArchitecture
 P: ArchitectureValidated → WriteInterfaces (A kent) → InterfacesWritten
 P: InterfacesWritten → CompileInterfaces (B)       → InterfacesCompiled | InterfacesBroken ⟲ WriteInterfaces
@@ -728,7 +728,7 @@ P: UnitClosed [every other unit landed] → StartUnit (B: the integration unit) 
 P: UnitClosed [the integration unit] | CorrectionsApplied
    → RunFullSuite (B)                                           → FullSuiteRun
 P: FullSuiteRun → VerifySuite (B)                               → SuiteGreen | SuiteFailed
-P: SuiteFailed → MapFailures (B: test → clause → the unit that realizes it) → UnitsReopened
+P: SuiteFailed → MapFailures (B: test → clause → the unit that implements it) → UnitsReopened
                  → OpenGroup in a worktree of each unit ⟲ phases 4 and 5 (fixups of the unit's commit)
 P: SuiteGreen → RunStaticChecks (B: the toolchain's check)      → StaticChecksPassed | StaticChecksFailed
 P: StaticChecksFailed → ProposeStaticFixes (A martin: fixups of the commits

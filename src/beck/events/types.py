@@ -102,7 +102,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
         "id": _STRING,
         "groups": {"type": "array", "items": _object({"id": _STRING, "clauses": {"type": "array", "items": _STRING}})},
         "depends_on": {"type": "array", "items": _STRING},
-        "realizes": {"type": "array", "items": _STRING},
+        "implements": {"type": "array", "items": _STRING},
         "exclusive_with": {"type": "array", "items": _STRING},
     }, {"integration": {"type": "boolean"}, "waits_for": {"type": "array", "items": _STRING}})}}),
     "UnitStarted": _object({"unit": _STRING, "worktree": _STRING, "branch": _STRING, "base": _STRING}),

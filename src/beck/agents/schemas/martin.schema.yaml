@@ -45,7 +45,7 @@ $defs:
       unit: {$ref: "#/$defs/unit"}
       measures: {type: object}
       clauses:
-        description: Every clause the unit realizes, with its sentence and the tests that cite it.
+        description: Every clause the unit implements, with its sentence and the tests that cite it.
         type: array
         items:
           type: object

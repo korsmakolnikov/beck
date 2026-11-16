@@ -73,19 +73,19 @@ def load_architecture(conn: sqlite3.Connection, doc: dict[str, Any]) -> None:
     def wire(e: dict[str, Any]) -> None:
         for dep in e.get("depends_on", []):
             add_edge(conn, e["id"], dep, "depends_on")
-        for id_ in e.get("realizes", []):
-            realize(e["id"], id_)
+        for id_ in e.get("implements", []):
+            implement(e["id"], id_)
         for child in e.get("elements", []):
             wire(child)
 
-    def realize(component: str, id_: str) -> None:
-        add_edge(conn, component, id_, "realizes")
+    def implement(component: str, id_: str) -> None:
+        add_edge(conn, component, id_, "implements")
         # an operation brings its post, its errors and its single-operation properties
         for row in conn.execute("SELECT id FROM node WHERE kind = 'clause' AND owner = ? AND "
                                 "subkind IN ('post', 'error', 'property')", (id_,)):
-            add_edge(conn, component, row["id"], "realizes")
+            add_edge(conn, component, row["id"], "implements")
 
     for e in doc["elements"]:
         wire(e)
-    for id_ in doc.get("integration", {}).get("realizes", []):
-        realize(INTEGRATION, id_)
+    for id_ in doc.get("integration", {}).get("implements", []):
+        implement(INTEGRATION, id_)

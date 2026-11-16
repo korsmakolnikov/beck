@@ -15,7 +15,7 @@ elements:
         physical: bookmark_tagger
         boundary: interface
         depends_on: [tag-store]
-        realizes: [tag-bookmark, tag-belongs-to-the-same-user]
+        implements: [tag-bookmark, tag-belongs-to-the-same-user]
       - kind: component
         id: tag-store
         name: Tag Store
@@ -23,7 +23,7 @@ elements:
         boundary: interface
         supervised: true
         depends_on: [storage]
-        realizes: [tag-name-is-1-to-40-characters]
+        implements: [tag-name-is-1-to-40-characters]
   - kind: domain
     id: archive
     name: Archive
@@ -35,7 +35,7 @@ elements:
         physical: archiver
         boundary: concrete
         depends_on: [tag-store]
-        realizes: [archive-bookmark, archived-bookmark-has-a-tag]
+        implements: [archive-bookmark, archived-bookmark-has-a-tag]
   - kind: library
     id: storage
     name: Storage
@@ -66,4 +66,4 @@ assertions:
     rule: Every write of a tagging component is recorded in the audit log.
 
 integration:
-  realizes: [tagging-is-atomic]
+  implements: [tagging-is-atomic]

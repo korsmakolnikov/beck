@@ -62,7 +62,7 @@ class DomainIds:
     all: dict[str, str] = field(default_factory=dict)  # id -> path
     operations: set[str] = field(default_factory=set)
     inherited: set[str] = field(default_factory=set)  # come with their operation
-    explicit: set[str] = field(default_factory=set)  # must be listed in one realizes
+    explicit: set[str] = field(default_factory=set)  # must be listed in one implements
 
 
 def domain_ids(doc: dict[str, Any]) -> tuple[DomainIds, list[tuple[str, str]]]:
@@ -198,21 +198,21 @@ def _architecture_semantics(doc: dict[str, Any], domain: DomainIds) -> Iterator[
             elif role == "container" and "elements" not in by_id[ref]:
                 yield Problem(path, f"element {ref!r} contains no elements")
 
-    # realization: every operation and explicit clause exactly once
-    realized: list[tuple[str, str]] = []
+    # implementation: every operation and explicit clause exactly once
+    implemented: list[tuple[str, str]] = []
     for e, path in elements:
-        realized += [(r, f"{path}.realizes[{k}]") for k, r in enumerate(e.get("realizes", []))]
+        implemented += [(r, f"{path}.implements[{k}]") for k, r in enumerate(e.get("implements", []))]
     if "integration" in doc:
-        realized += [(r, f"integration.realizes[{k}]") for k, r in enumerate(doc["integration"]["realizes"])]
-    for id_, path in realized:
+        implemented += [(r, f"integration.implements[{k}]") for k, r in enumerate(doc["integration"]["implements"])]
+    for id_, path in implemented:
         if id_ in domain.inherited:
             yield Problem(path, f"{id_!r} comes with its operation and is never listed")
         elif id_ not in domain.operations and id_ not in domain.explicit:
             yield Problem(path, f"no domain id {id_!r}")
-    yield from _duplicates([(i, p) for i, p in realized if i in domain.operations | domain.explicit], "realized id")
-    listed = {i for i, _ in realized}
+    yield from _duplicates([(i, p) for i, p in implemented if i in domain.operations | domain.explicit], "implemented id")
+    listed = {i for i, _ in implemented}
     for id_ in sorted((domain.operations | domain.explicit) - listed):
-        yield Problem(domain.all[id_], f"{id_!r} is realized by no component")
+        yield Problem(domain.all[id_], f"{id_!r} is implemented by no component")
 
 
 def _cycles(graph: dict[str, list[str]], paths: dict[str, str]) -> Iterator[Problem]:
@@ -236,7 +236,24 @@ def _cycles(graph: dict[str, list[str]], paths: dict[str, str]) -> Iterator[Prob
             yield from visit(node)
 
 
+def _renamed(doc: Any, path: str = "") -> list[Problem]:
+    """The keys of an earlier version of the DSL, named with their new name rather than as unknown properties."""
+    found: list[Problem] = []
+    if isinstance(doc, dict):
+        if "realizes" in doc:
+            found.append(Problem(path, "`realizes` is now `implements`: rename the key"))
+        for k, v in doc.items():
+            found += _renamed(v, f"{path}.{k}" if path else str(k))
+    elif isinstance(doc, list):
+        for i, v in enumerate(doc):
+            found += _renamed(v, f"{path}[{i}]")
+    return found
+
+
 def validate_architecture(doc: Any, domain_doc: Any) -> list[Problem]:
+    renamed = _renamed(doc)
+    if renamed:
+        return renamed
     problems = _schema_problems("architecture", doc)
     if problems:
         return problems

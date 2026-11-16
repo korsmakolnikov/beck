@@ -236,11 +236,11 @@ def finish_unit(command: Event, ctx: Ctx) -> list[Result]:
 
 
 def _owner(ctx: Ctx, target: str) -> str | None:
-    """The unit a change's target belongs to: a unit's id, or the unit that realizes the operation."""
+    """The unit a change's target belongs to: a unit's id, or the unit that implements the operation."""
     planned = plan(ctx)
     if target in planned:
         return target
-    return next((u for u, p in planned.items() if target in p["realizes"]), None)
+    return next((u for u, p in planned.items() if target in p["implements"]), None)
 
 
 def _affected(ctx: Ctx, requester: str, target: str | None) -> list[str]:

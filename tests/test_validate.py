@@ -62,7 +62,7 @@ def store(arch):
 @pytest.mark.parametrize(
     "mutate, expected",
     [
-        (lambda a: a["elements"][0].__setitem__("realizes", ["tag-bookmark"]), "elements[0]"),
+        (lambda a: a["elements"][0].__setitem__("implements", ["tag-bookmark"]), "elements[0]"),
         (lambda a: tagger(a).pop("boundary"), "'boundary' is a required property"),
         (lambda a: a["assertions"][0].__setitem__("rule", "Two forms."), "assertions[0]"),
         (lambda a: a["assertions"][2]["foreach"].__setitem__("assert", {"rule": "No."}), "assertions[2]"),
@@ -73,10 +73,10 @@ def store(arch):
         (lambda a: a["assertions"][0]["no_dependency"].__setitem__("to", "ghost"), "no element with id 'ghost'"),
         (lambda a: a["assertions"][0]["no_dependency"].__setitem__("to", "$c"), "$c is not a variable"),
         (lambda a: a["assertions"][2]["foreach"].__setitem__("within", "storage"), "contains no elements"),
-        (lambda a: tagger(a)["realizes"].append("tag-missing-bookmark"), "comes with its operation"),
-        (lambda a: tagger(a)["realizes"].append("ghost"), "no domain id 'ghost'"),
-        (lambda a: store(a)["realizes"].append("tag-bookmark"), "realized id 'tag-bookmark' is not unique"),
-        (lambda a: a.pop("integration"), "'tagging-is-atomic' is realized by no component"),
+        (lambda a: tagger(a)["implements"].append("tag-missing-bookmark"), "comes with its operation"),
+        (lambda a: tagger(a)["implements"].append("ghost"), "no domain id 'ghost'"),
+        (lambda a: store(a)["implements"].append("tag-bookmark"), "implemented id 'tag-bookmark' is not unique"),
+        (lambda a: a.pop("integration"), "'tagging-is-atomic' is implemented by no component"),
         (lambda a: a["constants"][0].__setitem__("id", "tag-bookmark"), "already a domain id"),
         (lambda a: store(a).__setitem__("id", "bookmark-tagger"), "id 'bookmark-tagger' is not unique"),
     ],
@@ -103,7 +103,7 @@ def test_cli(tmp_path, capsys, domain, arch):
     broken.pop("integration")
     (beck_dir / "architecture.yaml").write_text(yaml.safe_dump(broken))
     assert main(["validate", "architecture", "--project", str(tmp_path)]) == 1
-    assert "realized by no component" in capsys.readouterr().out
+    assert "implemented by no component" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("mutate, expected", [
@@ -114,3 +114,12 @@ def test_cli(tmp_path, capsys, domain, arch):
 def test_supervised_and_package_belong_to_their_kinds(domain, arch, mutate, expected):
     mutate(arch)
     assert any(expected in m for m in messages(validate_architecture(arch, domain)))
+
+
+def test_the_old_realizes_key_is_named_with_its_new_name(domain, arch):
+    # the user, 2026-11-16: a component implements its ids; `realizes` is renamed `implements` everywhere
+    from beck.dsl.validate import validate_architecture
+    tagger(arch)["realizes"] = tagger(arch).pop("implements")
+    arch["integration"]["realizes"] = arch["integration"].pop("implements")
+    problems = [p.message for p in validate_architecture(arch, domain)]
+    assert problems == ["`realizes` is now `implements`: rename the key", "`realizes` is now `implements`: rename the key"]

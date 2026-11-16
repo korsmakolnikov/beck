@@ -39,7 +39,7 @@ elements:
     name: Adder
     physical: adder
     boundary: concrete
-    realizes: [add]
+    implements: [add]
 """
 INTERFACE = 'def add(a, b):\n    """Adds two numbers. spec: add"""\n    raise NotImplementedError\n'
 

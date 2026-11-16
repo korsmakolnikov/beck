@@ -3,7 +3,7 @@ $id: https://beck.local/schemas/architecture.schema.yaml
 title: beck architecture
 description: >-
   The architecture of a system (.beck/architecture.yaml): the tree of
-  elements, which component realizes which domain id, the dependencies, and
+  elements, which component implements which domain id, the dependencies, and
   the assertions the fitness functions enforce. The shape only; the
   references are checked by beck validate architecture (see docs/dsl.md).
 type: object
@@ -43,12 +43,12 @@ properties:
     type: array
     items: {$ref: "#/$defs/assertion"}
   integration:
-    description: The clauses that span components, realized by the integration unit.
+    description: The clauses that span components, implemented by the integration unit.
     type: object
-    required: [realizes]
+    required: [implements]
     additionalProperties: false
     properties:
-      realizes: {$ref: "#/$defs/ids"}
+      implements: {$ref: "#/$defs/ids"}
 
 $defs:
   id:
@@ -94,7 +94,7 @@ $defs:
         type: string
         minLength: 1
       depends_on: {$ref: "#/$defs/ids"}
-      realizes: {$ref: "#/$defs/ids"}
+      implements: {$ref: "#/$defs/ids"}
     additionalProperties: false
     allOf:
       - if: {properties: {kind: {const: component}}}
@@ -107,7 +107,7 @@ $defs:
               - required: [boundary]
               - required: [supervised]
               - required: [depends_on]
-              - required: [realizes]
+              - required: [implements]
       - if: {properties: {kind: {const: library}}}
         then:
           not: {required: [elements]}

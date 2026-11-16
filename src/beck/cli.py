@@ -242,7 +242,7 @@ def _check(args: argparse.Namespace) -> int:
 
 
 def _indexed_tests(root: Path, toolchain, unit: str | None, clause: str | None) -> list[str]:
-    """The tests the index knows for a clause, or for every clause a unit realizes."""
+    """The tests the index knows for a clause, or for every clause a unit implements."""
     conn = _unit_index(root)
     if clause:
         clauses = [clause]

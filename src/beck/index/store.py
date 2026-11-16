@@ -19,7 +19,7 @@ CREATE TABLE node (
 CREATE TABLE edge (
   src  TEXT NOT NULL REFERENCES node(id),
   dst  TEXT NOT NULL REFERENCES node(id),
-  kind TEXT NOT NULL,      -- contains | depends_on | realizes | uses | binds | anchored_to | tests
+  kind TEXT NOT NULL,      -- contains | depends_on | implements | uses | binds | anchored_to | tests
   PRIMARY KEY (src, dst, kind)
 );
 CREATE INDEX edge_dst ON edge(dst, kind);

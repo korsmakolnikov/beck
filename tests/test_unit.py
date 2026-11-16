@@ -115,10 +115,10 @@ class Agents:
 def plan(exclusive=False, waits=False):
     planned = {"units": [
         {"id": "store", "groups": [{"id": "entity:Store", "clauses": ["store-adds"]}], "depends_on": [],
-         "realizes": ["store-adds"], "exclusive_with": ["cart"] if exclusive else []},
+         "implements": ["store-adds"], "exclusive_with": ["cart"] if exclusive else []},
         {"id": "cart", "groups": [{"id": "operation:totals", "clauses": ["cart-totals"]},
                                   {"id": "operation:empties", "clauses": ["cart-empties"]}],
-         "depends_on": ["store"], "realizes": ["cart-totals", "cart-empties"],
+         "depends_on": ["store"], "implements": ["cart-totals", "cart-empties"],
          "exclusive_with": ["store"] if exclusive else []},
     ]}
     if waits:   # cart's tests use the real store (boundary: concrete)
@@ -249,7 +249,7 @@ def without(clause):
     for u in planned["units"]:
         u["groups"] = [g for g in ({**g, "clauses": [c for c in g["clauses"] if c != clause]} for g in u["groups"])
                        if g["clauses"]]
-        u["realizes"] = [c for c in u["realizes"] if c != clause]
+        u["implements"] = [c for c in u["implements"] if c != clause]
     return planned
 
 

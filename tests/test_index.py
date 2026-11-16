@@ -96,8 +96,8 @@ def test_invalid_dsls_build_no_index(project):
 
 def test_an_operation_brings_its_clauses(index):
     conn, _ = index
-    realized = {dst for src, dst in edges(conn, "realizes") if src == "bookmark-tagger"}
-    assert realized == {"tag-bookmark", "tagged-bookmark-carries-the-requested-tags", "tag-missing-bookmark",
+    implemented = {dst for src, dst in edges(conn, "implements") if src == "bookmark-tagger"}
+    assert implemented == {"tag-bookmark", "tagged-bookmark-carries-the-requested-tags", "tag-missing-bookmark",
                         "tagging-twice-equals-tagging-once", "tag-belongs-to-the-same-user"}
 
 

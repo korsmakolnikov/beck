@@ -8,7 +8,7 @@ Two YAML files in `.beck/`, one system of ids:
 | File | Says | Written by | Schema |
 |---|---|---|---|
 | `.beck/domain.yaml` | what the domain is and must guarantee | kent, domain state | [`schemas/domain.schema.yaml`](../src/beck/dsl/schemas/domain.schema.yaml) |
-| `.beck/architecture.yaml` | which components realize those guarantees, how they depend on each other, and the rules the structure obeys | kent, architecture state | [`schemas/architecture.schema.yaml`](../src/beck/dsl/schemas/architecture.schema.yaml) |
+| `.beck/architecture.yaml` | which components implement those guarantees, how they depend on each other, and the rules the structure obeys | kent, architecture state | [`schemas/architecture.schema.yaml`](../src/beck/dsl/schemas/architecture.schema.yaml) |
 
 The domain names no component and reads no code. The architecture names the
 domain's ids, never restates them. The tests cite the ids (`spec: <id>`).
@@ -33,7 +33,7 @@ abridged from it.
   `FOREACH`), but its assertions are structured, so the fitness functions
   are generated, not written; the free-text assertion is the only one an
   agent translates.
-* The components map is gone: `realizes` lives in the architecture, the
+* The components map is gone: `implements` lives in the architecture, the
   rest is the index's job.
 
 ## The domain (`.beck/domain.yaml`)
@@ -144,13 +144,13 @@ elements:
         physical: bookmark_tagger
         boundary: interface          # interface | concrete (components only)
         depends_on: [tag-store]
-        realizes: [tag-bookmark, archived-bookmark-has-a-tag, tag-belongs-to-the-same-user]
+        implements: [tag-bookmark, archived-bookmark-has-a-tag, tag-belongs-to-the-same-user]
       - kind: component
         id: tag-store
         name: Tag Store
         physical: tag_store
         boundary: interface
-        realizes: [tag-name-is-1-to-40-characters]
+        implements: [tag-name-is-1-to-40-characters]
 
 constants:
   - {id: max-tags, name: MAX_TAGS, value: 20}
@@ -171,7 +171,7 @@ assertions:
     rule: Every write of a tagging component is recorded in the audit log.
 
 integration:
-  realizes: [tagging-is-atomic]
+  implements: [tagging-is-atomic]
 ```
 
 ### Elements
@@ -180,9 +180,9 @@ integration:
   the system down gives the namespace (Elixir `Bookmarks.Tagging.BookmarkTagger`,
   Python `bookmarks.tagging.bookmark_tagger`, C `src/tagging/bookmark_tagger/`).
 * Only a `component` (a leaf) has `boundary`, `supervised`, `depends_on`
-  and `realizes`; only a `library` has `package` and `version`.
+  and `implements`; only a `library` has `package` and `version`.
   A `service` is a separately deployed unit; a `library` a shared or
-  third-party one, which may be a `depends_on` target and realizes nothing.
+  third-party one, which may be a `depends_on` target and implements nothing.
 * **`boundary: interface`**: callers depend on an abstraction (an Elixir
   behaviour, a Python `Protocol`); a caller's test may replace it with a
   double, and one contract test runs on the double and on the real
@@ -201,16 +201,16 @@ integration:
   enforced: beck generates one implicit assertion per component
   (`<id>-declared-dependencies`, "depends only on its `depends_on`").
 
-### Realization
+### Implementation
 
-* **An operation** is realized by the component that offers it, and its
+* **An operation** is implemented by the component that offers it, and its
   `post`, its errors and the properties that name only that operation come
   with it: they are never listed.
 * **Every other clause** (an invariant, a relation rule, a constraint, a
   property over several operations or none) is listed in exactly one
-  `realizes`: the component that enforces it, or `integration` when it spans
+  `implements`: the component that enforces it, or `integration` when it spans
   components and no single component can hold it.
-* Every operation and every clause ends realized exactly once.
+* Every operation and every clause ends implemented exactly once.
 
 ### Assertions
 
@@ -276,9 +276,9 @@ never edited.
      owner;
    * architecture: ids unique across both files; every `depends_on`, `from`,
      `to`, `within` and `except` names an element of the right kind; no
-     cycle in `depends_on`; every `realizes` names a domain id that is not
+     cycle in `depends_on`; every `implements` names a domain id that is not
      an operation's `post`, error or single-operation property; every
-     operation and every clause realized exactly once; `$var` used only
+     operation and every clause implemented exactly once; `$var` used only
      inside its `foreach`.
 
 The architecture's checks need the domain, so it is validated only once the
@@ -295,7 +295,7 @@ tables:
  edge(src, dst, kind)
    contains     container → element               (architecture: the tree)
    depends_on   component → component | library     (architecture)
-   realizes     component → operation | clause      (architecture, or inherited)
+   implements     component → operation | clause      (architecture, or inherited)
    uses         operation → entity                  (domain)
    binds        clause    → operation | entity      (domain: where the clause sits;
                                                      about, from and to for the others)
@@ -327,7 +327,7 @@ deterministic.
   landing order); they are developed in parallel, trusting the interfaces.
   The integration unit comes last.
 * **Groups**, inside a unit, from the particular to the general: one per
-  entity whose clauses the component realizes, then one per operation (its
+  entity whose clauses the component implements, then one per operation (its
   `post`, errors, single-operation properties), then one `model` group for
   the properties over several operations.
 * **The context of a group**, one recursive query from its owner node: the

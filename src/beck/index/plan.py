@@ -42,7 +42,7 @@ def units(conn: sqlite3.Connection) -> list[str]:
 
     for c in components:
         visit(c)
-    if _realized(conn, INTEGRATION):
+    if _implemented(conn, INTEGRATION):
         ordered.append(INTEGRATION)
     return ordered
 
@@ -52,7 +52,7 @@ def shared_files(conn: sqlite3.Connection) -> dict[str, list[str]]:
     rows = conn.execute(
         "SELECT DISTINCT json_extract(s.data, '$.file') AS file, r.src AS component "
         "FROM node s JOIN edge a ON a.dst = s.id AND a.kind = 'anchored_to' "
-        "JOIN edge r ON r.dst = a.src AND r.kind = 'realizes' "
+        "JOIN edge r ON r.dst = a.src AND r.kind = 'implements' "
         "WHERE s.kind = 'symbol' ORDER BY file, component").fetchall()
     owners: dict[str, list[str]] = {}
     for row in rows:
@@ -68,10 +68,10 @@ def exclusive(conn: sqlite3.Connection) -> set[frozenset[str]]:
     return pairs
 
 
-def _realized(conn: sqlite3.Connection, unit: str) -> list[sqlite3.Row]:
+def _implemented(conn: sqlite3.Connection, unit: str) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT n.* FROM edge e JOIN node n ON n.id = e.dst "
-        "WHERE e.src = ? AND e.kind = 'realizes' ORDER BY n.rowid", (unit,)).fetchall()
+        "WHERE e.src = ? AND e.kind = 'implements' ORDER BY n.rowid", (unit,)).fetchall()
 
 
 def _sorted(rows: list[sqlite3.Row]) -> tuple[str, ...]:
@@ -79,9 +79,9 @@ def _sorted(rows: list[sqlite3.Row]) -> tuple[str, ...]:
 
 
 def groups(conn: sqlite3.Connection, unit: str) -> list[Group]:
-    realized = _realized(conn, unit)
-    clauses = [r for r in realized if r["kind"] == "clause"]
-    operations = [r["id"] for r in realized if r["kind"] == "operation"]
+    implemented = _implemented(conn, unit)
+    clauses = [r for r in implemented if r["kind"] == "clause"]
+    operations = [r["id"] for r in implemented if r["kind"] == "operation"]
     out: list[Group] = []
     entities = [r["id"] for r in conn.execute("SELECT id FROM node WHERE kind = 'entity' ORDER BY rowid")]
     for entity in entities:
@@ -159,7 +159,7 @@ def context(conn: sqlite3.Connection, unit: str, group_id: str) -> dict[str, Any
                           "WHERE e.src = ? AND e.kind = 'depends_on' ORDER BY n.rowid", (unit,)):
         info = data(r)
         ops = [{"id": o["id"], "description": o["text"], "symbols": _symbols(conn, o["id"])}
-               for o in _realized(conn, r["id"]) if o["kind"] == "operation"]
+               for o in _implemented(conn, r["id"]) if o["kind"] == "operation"]
         dependencies.append({"id": r["id"], "kind": r["kind"], "namespace": info["namespace"],
                              "boundary": info.get("boundary"), "operations": ops})
 

@@ -126,7 +126,7 @@ $defs:
     additionalProperties: false
     properties:
       drift:
-        description: The files whose change altered the behaviour of code realizing spec ids.
+        description: The files whose change altered the behaviour of code implementing spec ids.
         type: array
         items:
           type: object
