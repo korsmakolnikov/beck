@@ -68,8 +68,9 @@ def full_suite(event: Event, ctx: Ctx) -> list[Command]:
 
 @closing.handler("RunFullSuite")
 def handle_full_suite(command: Event, ctx: Ctx) -> list[Result]:
-    result = run_tests(ctx.project, load(ctx.project), [], actor="beck", cause_id=command.id,
-                       iteration=ctx.iteration)
+    toolchain = load(ctx.project)
+    result = run_tests(ctx.project, toolchain, toolchain.suite_paths(ctx.project), actor="beck",
+                       cause_id=command.id, iteration=ctx.iteration)
     report = None
     if "report" in result.event.payload:
         try:

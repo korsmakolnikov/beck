@@ -10,7 +10,7 @@ import pytest
 
 from beck.cli import main
 from beck.events.project import Project
-from beck.testrun import worktree_tree
+from beck.testrun import run, worktree_tree
 from beck.toolchain import DEFAULT_CHECKS, DEFAULTS, Toolchain, ToolchainError, load
 
 PYTEST = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--junitxml={report}", "{tests}"]
@@ -168,3 +168,27 @@ def test_a_test_that_hangs_is_stopped_at_the_timeout(project, capsys):
     assert capsys.readouterr().out.startswith("TIMEOUT after 2 s: a test does not end")
     e = p.open(it.id).last()
     assert e.type == "TestsRun" and e.payload["timed_out"] is True
+
+
+def test_the_doctests_of_the_sources_run_with_the_tests(tmp_path):
+    # the user, 2026-11-16: an example of use in every docstring, a doctest for a pure function where the stack
+    # has them; they run with the unit's tests and the suite, though no cycle cites them
+    (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\npythonpath = ['src']\n")
+    (tmp_path / "src/pkg").mkdir(parents=True)
+    (tmp_path / "src/pkg/__init__.py").write_text("")
+    (tmp_path / "src/pkg/mod.py").write_text('def double(x):\n    """Twice x.\n\n    >>> double(2)\n    5\n    """\n'
+                                             '    return 2 * x\n')
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests/test_mod.py").write_text("from pkg.mod import double\n\n\ndef test_double():\n"
+                                                "    assert double(2) == 4\n")
+    toolchain = Toolchain("python", PYTEST)
+    assert toolchain.doctests and toolchain.doctest_paths(tmp_path, ["src/pkg"]) == ["--doctest-modules", "src/pkg"]
+    assert toolchain.suite_paths(tmp_path) == ["--doctest-modules", "src", "tests"]
+    git(tmp_path, "init", "-q")
+    git(tmp_path, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "start")
+    Project(tmp_path).start_iteration()[1].close()
+    result = run(tmp_path, toolchain, toolchain.suite_paths(tmp_path), actor="beck")
+    assert result.event.payload["counts"]["tests"] == 2
+    assert result.event.payload["not_passed"] == ["src/pkg/mod.py::pkg.mod.double"]
+    assert Toolchain("python", PYTEST, doctests=False).suite_paths(tmp_path) == []
+    assert Toolchain("elixir", ["mix", "test"]).doctest_paths(tmp_path, ["lib/a"]) == []   # in ExUnit's test files

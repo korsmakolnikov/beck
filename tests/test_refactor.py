@@ -241,10 +241,11 @@ def test_a_line_no_clause_names_never_stops_the_unit_and_goes_to_martin(repo):
     reactor, store = setup(repo, team, toolchain_extra=COVERAGE)
     run(reactor)
     measured = [e for e in store.read(types_=("CoverageMeasured",)) if e.payload["unit"] == "store"]
-    assert measured[-1].payload["gaps"] == {"src/shop/store/unused.py": [1, 2]}
+    # the doctest collection imports the module: its def line runs, its body does not
+    assert measured[-1].payload["gaps"] == {"src/shop/store/unused.py": [2]}
     assert not list(store.read(types_=("CoverageGapsFound",)))
     review = next(e for a, e in team.calls if a == "martin" and e["context"]["unit"]["id"] == "store")
-    assert review["context"]["uncovered"] == {"src/shop/store/unused.py": [1, 2]}
+    assert review["context"]["uncovered"] == {"src/shop/store/unused.py": [2]}
     assert unit_events(store, "store")[-1] == "UnitClosed"
 
 

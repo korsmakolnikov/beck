@@ -85,8 +85,10 @@ def _run_unit(ctx: Ctx, unit: str, command: Event, extra: list[str] | None = Non
     tree = ctx.workspace.worktree(unit)
     planned = {c for g in plan(ctx)[unit]["groups"] for c in g["clauses"]}
     declared = [t for t, c in _declared_tests(ctx, unit).items() if c in planned]   # a dropped clause's test is gone
-    selectors = list(dict.fromkeys([*declared, *(extra or [])])) + _fitness(tree)
-    result = run_tests(tree, load(ctx.project), selectors, actor="beck", unit=unit, store_root=ctx.project,
+    toolchain = load(ctx.project)
+    selectors = (list(dict.fromkeys([*declared, *(extra or [])])) + _fitness(tree)
+                 + toolchain.doctest_paths(tree, ctx.workspace.scope(unit)))
+    result = run_tests(tree, toolchain, selectors, actor="beck", unit=unit, store_root=ctx.project,
                        cause_id=command.id, iteration=ctx.iteration, coverage_of=ctx.workspace.scope(unit))
     report = None
     if "report" in result.event.payload:

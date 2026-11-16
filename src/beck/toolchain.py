@@ -8,6 +8,7 @@
     build: [uv, run, python, -m, compileall, -q, src]   # optional: does the code compile
     deps: [mix, deps.get]            # optional: installs the dependencies (python: none, uv run syncs)
     timeout: 300                     # optional: seconds a test run may take before beck stops it
+    doctests: true                   # optional: run the sources' doctests with the unit's tests and the suite
     coverage:                        # optional: how to measure the coverage
       format: coverage.py            # coverage.py | excoveralls | lcov: how beck reads the report
       args: ["--cov={path}", "--cov-report=json:{coverage}"]   # added to the test command
@@ -105,6 +106,7 @@ class Toolchain:
     complexity: str = "lizard"
     deps: list[str] = field(default_factory=list)
     timeout: float = 300                # a test run that takes longer is stopped: a test that hangs
+    doctests: bool = True               # the sources' examples of use run with the tests (Python; ExUnit's own)
 
     @staticmethod
     def _expand(parts: list[str], paths: list[str], report: str) -> list[str]:
@@ -154,6 +156,18 @@ class Toolchain:
             candidates = [str(Path("lib", *namespace)), str(Path("lib", *namespace[:-1], namespace[-1] + ".ex"))]
         return [c for c in candidates if (root / c).exists()]
 
+    def doctest_paths(self, root: Path, paths: list[str]) -> list[str]:
+        """The arguments that add the doctests of these paths to a run: Python's; Elixir's live in the test files."""
+        found = [p for p in paths if (root / p).exists()]
+        return ["--doctest-modules", *found] if self.doctests and self.language == "python" and found else []
+
+    def suite_paths(self, root: Path) -> list[str]:
+        """The full suite's arguments with the doctests: the sources and the test directories, since naming one
+        path narrows pytest's collection to it."""
+        tests = [d for d in ("tests", "test") if (root / d).is_dir()]
+        doctests = self.doctest_paths(root, self.source_roots(root))
+        return [*doctests, *tests] if doctests else []
+
     def selector(self, file: str, name: str, line: int) -> str:
         """How the runner names one test of the index."""
         if self.language == "python":
@@ -193,7 +207,8 @@ def load(root: Path) -> Toolchain:
                      [str(p) for p in config.get("build", DEFAULT_BUILD[language])],
                      _complexity(path, (config.get("measures") or {}).get("complexity", DEFAULT_COMPLEXITY[language])),
                      [str(p) for p in config.get("deps", DEFAULT_DEPS[language])],
-                     _timeout(path, config.get("timeout", 300)))
+                     _timeout(path, config.get("timeout", 300)),
+                     bool(config.get("doctests", True)))
 
 
 def _timeout(path: Path, value: Any) -> float:
