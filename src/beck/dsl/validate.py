@@ -6,6 +6,7 @@ a document that matches its schema, since they rely on its shape.
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from functools import cache
@@ -236,12 +237,27 @@ def _cycles(graph: dict[str, list[str]], paths: dict[str, str]) -> Iterator[Prob
             yield from visit(node)
 
 
+RENAMED = {"realizes": "implements"}   # the keys of earlier versions of the DSLs, and their names now
+
+
+def migrate(text: str) -> str:
+    """The text of a DSL file with the keys of earlier versions renamed, its layout kept.
+
+    >>> migrate("  realizes: [start-game]\n")
+    '  implements: [start-game]\n'
+    """
+    for old, new in RENAMED.items():
+        text = re.sub(rf"(?m)^(\s*(?:-\s+)?){old}:", rf"\g<1>{new}:", text)
+    return text
+
+
 def _renamed(doc: Any, path: str = "") -> list[Problem]:
     """The keys of an earlier version of the DSL, named with their new name rather than as unknown properties."""
     found: list[Problem] = []
     if isinstance(doc, dict):
-        if "realizes" in doc:
-            found.append(Problem(path, "`realizes` is now `implements`: rename the key"))
+        for old, new in RENAMED.items():
+            if old in doc:
+                found.append(Problem(path, f"`{old}` is now `{new}`: rename the key"))
         for k, v in doc.items():
             found += _renamed(v, f"{path}.{k}" if path else str(k))
     elif isinstance(doc, list):

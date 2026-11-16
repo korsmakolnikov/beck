@@ -214,6 +214,16 @@ Implemented: `src/beck/events/`, with `beck sessions`, `beck events` and
   The verdict is statistical (errors, complexity, tokens, compared across the
   runs). The replays also tune what can only be tuned on real data, such as
   the normalisation of the failure signatures.
+* **Replay of an iteration** (implemented, `src/beck/replay.py`, `beck
+  replay <iteration> [--into DIR] [--live]`): a new iteration in an empty
+  folder, beck's steps run by the current code, each agent turn answered
+  from the recording (its JSON answer and its Write, Edit, `git rm` and
+  `beck` commands, read from the agent's Claude Code transcript, the paths
+  moved to the new folder), each decision of the user with the recorded
+  answer. It stops where the new code asks for a turn the recording lacks
+  (with `--live` that turn goes to the real agent) or a decision it lacks
+  (answered with `beck answer`, `--resume <replay>` goes on), and compares the events of
+  the two runs. The DSL files are migrated, so an old recording replays.
 * The flow log stays, only as a human-readable log.
 
 ## Parallelism and commits
@@ -466,6 +476,7 @@ beck start [--batch]                  start an iteration in the current project
 beck attach <iteration> [--batch]     resume it from its events (Ctrl-C is safe)
 beck pending <iteration>              the decisions of the user it waits for
 beck answer <iteration> <id> <words>  answer one: yes, or the words
+beck replay <iteration> [--live]      run it again with the current code, the answers as recorded
 ```
 
 On a terminal beck asks each decision and goes on; with `--batch` (or

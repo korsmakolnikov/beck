@@ -317,6 +317,15 @@ def _audit(args: argparse.Namespace) -> int:
     return 0
 
 
+def _replay(args: argparse.Namespace) -> int:
+    from beck import replay
+    try:
+        return replay.run(Path(args.project), args.iteration, Path(args.into) if args.into else None,
+                           live=args.live, resume=args.resume)
+    except KeyError as error:
+        sys.exit(str(error.args[0]))
+
+
 def _contrib(args: argparse.Namespace) -> int:
     from beck import config as beck_config
     from beck import contrib
@@ -423,6 +432,14 @@ def main(argv: list[str] | None = None) -> int:
     au.add_argument("--by", default="argyris")
     au.add_argument("--project", default=".", help="the project's root (default: .)")
     au.set_defaults(run=_audit)
+
+    rp = sub.add_parser("replay", help="run an iteration again with the current code, the answers as recorded")
+    rp.add_argument("iteration")
+    rp.add_argument("--into", help="an empty folder for the replay (default: a new one in the temporary folder)")
+    rp.add_argument("--live", action="store_true", help="the turns the recording lacks go to the real agents")
+    rp.add_argument("--resume", metavar="REPLAY", help="go on with a replay stopped at a decision (in --into)")
+    rp.add_argument("--project", default=".", help="the recorded project's root (default: .)")
+    rp.set_defaults(run=_replay)
 
     co = sub.add_parser("contrib", help="argyris's changes to beck, as pull requests")
     co_sub = co.add_subparsers(dest="contrib_command", required=True)
