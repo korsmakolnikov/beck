@@ -219,9 +219,13 @@ def handle_branch_fixes(command: Event, ctx: Ctx) -> list[Result]:
     root = ctx.project
     tracked = _git(root, "diff", "--name-only", "HEAD", "--", ".", ":!.beck").stdout.split()
     new = _git(root, "ls-files", "--others", "--exclude-standard", "--", ".", ":!.beck").stdout.split()
+    base = squash_base(ctx)
+    branch = _git(root, "rev-list", "--reverse", "HEAD" if base == "--root" else f"{base}..HEAD").stdout.split()
     fixups = []
     for file in tracked + new:
         target = blame_target(root, file) if file in tracked else _head(root)
+        if branch and target not in branch:   # a line older than the branch: its first commit, the model's, folds it
+            target = branch[0]
         _git(root, "add", "--", file)
         _git(root, "commit", "-q", "--fixup", target)
         fixups.append(f"{file} → {target[:8]}")

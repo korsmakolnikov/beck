@@ -209,3 +209,24 @@ def test_the_branch_autosquash_folds_a_fixup_of_the_model_s_commit(repo):
     handle_autosquash_branch(command, Ctx(store, repo, "it", None))
     assert git(repo, "log", "-1", "--format=%s") == subject
     assert (repo / "src/shop/store/fixed.py").is_file()
+
+
+def test_a_static_fix_of_a_line_older_than_the_branch_fixes_up_the_model_s_commit(repo):
+    # the session of 2026-11-16: martin fixed pyproject.toml at the close; git blame named the scaffold's commit,
+    # older than the branch, and the fixup of it could never fold
+    from beck.machine.closing import handle_branch_fixes
+    (repo / "pyproject.toml").write_text((repo / "pyproject.toml").read_text() + "# scaffold\n")
+    git(repo, "commit", "-qam", "chore: scaffold the project")
+    (repo / "model.txt").write_text("the model\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "feat: the interfaces")
+    model = git(repo, "rev-parse", "HEAD")
+    store = Project(repo).start_iteration()[1]
+    store.append("ModelCommitted", {"sha": model})
+    store.append("UnitStarted", {"unit": "store", "worktree": str(repo), "branch": "b", "base": model},
+                 stream="unit:store")
+    (repo / "pyproject.toml").write_text((repo / "pyproject.toml").read_text().replace("# scaffold", "# fixed"))
+    command = store.append("CommandIssued", {"command": "CommitBranchFixes", "target": "beck", "args": {}},
+                           stream="branch")
+    handle_branch_fixes(command, Ctx(store, repo, "it", None))
+    assert git(repo, "log", "-1", "--format=%s") == "fixup! feat: the interfaces"
