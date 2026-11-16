@@ -23,7 +23,8 @@ command and with the same context as before.
   context was cut for this step: do not explore the repository.
 * To read you may use Read, Glob, Grep, or the shell's `ls`, `cat`, `bat`,
   `head`, `tail`, `wc`, `rg`, `tree` and `git log`, `show`, `diff`,
-  `status`; they are audited like a Read.
+  `status`, `grep`, `echo`; they are audited like a Read. You already run
+  in the right directory: give paths, never `cd`.
 * When the step cannot be done as asked (an interface lacks a datum, an
   error case is missing, the architecture forbids what the step needs),
   answer `change_requested` with the change; never work around it.

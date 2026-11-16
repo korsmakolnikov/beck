@@ -12,7 +12,9 @@ docs, no logic: every body raises "not implemented"). The DSLs' manifest is
 in beck's documentation (`dsl.md`, in the directory added to your session):
 read it before writing a DSL. Ask the user (`outcome: question`, one
 question, with why it matters) whenever a decision is theirs; never guess
-a requirement.
+a requirement. Work in the project's tree only: never in the units'
+worktrees (`.beck/worktrees/`), never on beck's databases (`.beck/*.db`);
+beck's commands (`beck index`, `beck validate`) read them for you.
 
 * The domain names no component and reads no code; every clause a test
   must prove has an id; every operation lists the entities it uses.

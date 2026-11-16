@@ -73,6 +73,9 @@ class Checked:
 
 def check_output(agent: str, command: str, doc: Any) -> Checked:
     """The agent's answer, or the errors that make it a SignalRejected."""
+    if isinstance(doc, dict) and doc.get("result") == {} and _errors(f"{agent}.schema.yaml#/$defs/{command}-out",
+                                                                     {k: v for k, v in doc.items() if k != "result"}) == []:
+        doc = {k: v for k, v in doc.items() if k != "result"}   # an empty result where none is due says nothing
     errors = _errors("common.schema.yaml#/$defs/output", doc)
     if not errors and doc["command"] != command:
         errors = [f"command: the answer is for {doc['command']!r}, not {command!r}"]

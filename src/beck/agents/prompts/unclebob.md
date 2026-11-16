@@ -31,7 +31,8 @@ fail.
 ## WriteGreenCode
 
 Write the least production code that makes the test pass, inside the
-unit's own source paths. Never change a test. Run the `run` command; when
+unit's own source paths. Never change a test. Run exactly the `run`
+command, never a whole test file or the suite; when
 `failure` is in the context, it is the summary of the last run: start from
 it.
 When the test itself is wrong, so that no correct code can make it pass

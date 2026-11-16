@@ -21,6 +21,7 @@ from beck.events.project import Project
 from beck.events.store import Event
 from beck.index.anchor import is_test_file
 from beck.machine.core import Command, Ctx, Machine, Result
+from beck.machine.unit import plan
 
 audit = Machine()
 A = "audit"
@@ -32,7 +33,30 @@ def audit_the_turn(event: Event, ctx: Ctx) -> list[Command]:
     return [Command("AuditTurn", "beck", {"event": event.id}, A)]
 
 
+_OPERATORS = re.compile(r"\s*(?:&&|\|\||;|\|)\s*")
+_HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?")
+
+
+def parts(command: str) -> list[str]:
+    """The simple commands of a shell line, as the CLI checks them: split on && || ; | and newlines, a
+    heredoc's body left out (it is data, not commands)."""
+    out: list[str] = []
+    ending: str | None = None
+    for line in command.splitlines():
+        if ending is not None:
+            if line.strip() == ending:
+                ending = None
+            continue
+        heredoc = _HEREDOC.search(line)
+        if heredoc:
+            ending = heredoc.group(1)
+        out += [p for p in _OPERATORS.split(line) if p.strip()]
+    return out
+
+
 def _allowed(agent: str, tool: str, tool_input: dict[str, Any]) -> bool:
+    if tool == "Bash" and len(parts(str(tool_input.get("command", "")))) > 1:
+        return all(_allowed(agent, tool, {**tool_input, "command": p}) for p in parts(str(tool_input["command"])))
     for rule in allowed_tools(agent):
         name, _, pattern = rule.partition("(")
         if name != tool:
@@ -58,7 +82,14 @@ def _read_paths(root: Path, tool: dict[str, Any]) -> list[str]:
         return [p] if p else []
     if tool["tool"] != "Bash":
         return []
-    words = str(tool["input"].get("command", "")).split()
+    found: list[str] = []
+    for part in parts(str(tool["input"].get("command", ""))):
+        found += _shell_reads(root, part)
+    return found
+
+
+def _shell_reads(root: Path, command: str) -> list[str]:
+    words = command.split()
     if not words or words[0] not in READERS:
         return []
     files = []
@@ -103,8 +134,9 @@ def violations(ctx: Ctx, event: Event) -> list[tuple[str, dict[str, Any]]]:
             found.append((kind, {"command": command, "tool": t["tool"], "input": t["input"]}))
     unit = args.get("unit")
     root = ctx.workspace.worktree(unit) if unit and agent in ("unclebob", "martin") else ctx.project
-    if agent == "unclebob" and unit:
-        scope = ctx.workspace.scope(unit)
+    if agent == "unclebob" and unit:   # its own scope, and the code of the units it depends on
+        scope = ctx.workspace.scope(unit) + [p for d in plan(ctx).get(unit, {}).get("depends_on", [])
+                                             for p in ctx.workspace.scope(d)]
         for t in tools:
             for p in _read_paths(root, t):
                 if not is_test_file(Path(p)) and not any(p == s or p.startswith(s.rstrip("/") + "/") for s in scope):

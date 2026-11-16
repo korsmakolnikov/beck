@@ -27,7 +27,10 @@ def run(repo, tools):
     agent = Audited(repo, {"WriteRedTest": [red()], "WriteGreenCode": [green()]}, tools)
     project = Project(repo)
     it, store, _ = project.start_iteration()
-    workspace = Workspace({"u": repo}, {"u": ["src/pkg"]}, {("u", "operation:double"): {
+    store.append("UnitsPlanned", {"units": [
+        {"id": "dep", "groups": [], "depends_on": [], "implements": [], "exclusive_with": []},
+        {"id": "u", "groups": [], "depends_on": ["dep"], "implements": [], "exclusive_with": []}]})
+    workspace = Workspace({"u": repo, "dep": repo}, {"u": ["src/pkg"], "dep": ["src/dep"]}, {("u", "operation:double"): {
         "unit": {"id": "u"}, "group": "operation:double", "clauses": [], "entities": [], "dependencies": [],
         "files": {"source": [], "tests": []}}})
     store.append("CycleOpened", {"unit": "u", "clause": "doubles", "group": "operation:double", "first": True},
@@ -74,6 +77,19 @@ def test_the_read_only_commands_are_allowed_and_audited_like_a_read(repo):
         {"tool": "Bash", "input": {"command": "cat src/pkg/mod.py | head -5"}},
     ]})
     assert [(r.kind, r.payload.get("path")) for r in project.pending()] == [("explored", "docs/design.md")]
+
+
+def test_compound_commands_are_audited_part_by_part(repo):
+    # the sessions of 2026-11-15 and 16: `cd <tree> && cat x`, grep and echo made most of the 600 forbidden
+    # commands; unclebob reading the code of a unit it depends on made most of the explored
+    project, _ = run(repo, {"WriteRedTest": [
+        {"tool": "Bash", "input": {"command": f"cd {repo} && cat src/pkg/mod.py | grep double"}},
+        {"tool": "Bash", "input": {"command": "grep -rn double src/pkg; echo done"}},
+        {"tool": "Bash", "input": {"command": "cat src/dep/store.py"}},
+        {"tool": "Bash", "input": {"command": "cd src && rm -rf pkg"}},
+    ]})
+    assert [(r.kind, r.payload.get("input", {}).get("command")) for r in project.pending()] == [
+        ("forbidden-command", "cd src && rm -rf pkg")]
 
 
 def test_the_outbox_from_the_cli(repo, capsys):
