@@ -25,7 +25,7 @@ How they were:
 
 To rethink: argyris gets the signals that interest it like the dashboard,
 through the socket, or better runs inside beck as a policy's side effect,
-with no socket at all. The pending/handled state of a violation is a read
+with no socket and no outbox at all. The pending/handled state of a violation is a read
 model of `ViolationLogged` and `ViolationSettled`, not an outbox.
 
 ## One socket for every session
@@ -41,10 +41,10 @@ it the day one view over several projects is wanted.
 An outbox is a queue (a Kafka topic, in a table): a projector writes its
 records, a worker reads them after its cursor (one per policy, in a cursors
 table outside the event store) and issues a command for each. Nothing in
-today's domain needs one: the dashboard's signal is a plain policy and the
-agents' turns in flight are known from the state. They come back with the
-first policy whose side effect must survive a crash on its own (argyris
-inside beck, a notification to an external system, a budget alert).
+today's domain needs one: the dashboard's signal is a plain policy, the
+agents' turns in flight are known from the state, and argyris inside beck
+would be a plain policy's side effect too. They come back only if a side
+effect must survive a crash on its own and the state cannot tell it.
 
 ## Others
 

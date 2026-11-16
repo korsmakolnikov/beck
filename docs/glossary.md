@@ -23,7 +23,8 @@ events, the DSLs and the prompts change with it.
 * **Requirement**: a node a test proves.
   * **functional**: a requirement of a domain spec: an invariant, a
     relation's rule, a constraint, a morphism's `post`, an error, a property.
-    A TDD cycle proves it.
+    A TDD cycle proves it. A **property** is an invariant: of its entity, or,
+    when it spans several entities, of the component.
   * **non-functional**: an assertion of the architecture. A fitness
     function proves it.
 
@@ -38,18 +39,16 @@ events, the DSLs and the prompts change with it.
 * **Iteration**: one piece of work on one branch, from the shopping list to
   the landing; one event store, `.beck/events/<id>.db`. `beck attach`
   resumes it.
-* **Execution** (`UnitsExecuted`): what beck derives, deterministically,
+* **Execution** (`ExecutionDerived`): what beck derives, deterministically,
   from the graph: for each component its units, and their order. kent never
   writes it; kent writes the DSLs and the interfaces.
 * **Component** (in the work): implemented in its own worktree, landed as
   one; it holds N units.
 * **Unit**: what one unclebob session implements inside a component:
   * a **model**: an entity and its requirements;
-  * a **morphism**: a morphism and its requirements (`post`, errors, its
-    own properties);
-  * a **law**: a property over several morphisms (e.g. untagging a tag just
-    added leaves the bookmark as it was: `tag-bookmark` and
-    `untag-bookmark`).
+  * a **morphism**: a morphism and its requirements (`post`, errors);
+  * a **component**: the component's own properties, those spanning several
+    entities (e.g. untagging a tag just added leaves the bookmark as it was).
 * **Cycle**: the TDD of one requirement: a red test, the green code, the
   commits.
 * **Interfaces**: the files kent writes before any cycle: signatures, types,
@@ -88,6 +87,10 @@ events, the DSLs and the prompts change with it.
   side input, distilled into a new command.
 * **Read model**: a table derived from the events, dropped and projected
   again at will (e.g. `usage_turns`, `usage`, `usage_window`).
+* **Evidence**: what proves a phase of a cycle (a `TestsRun`, a commit).
+  beck produces it: when an agent's output says a test is red, the command
+  handler runs the test itself. The `beck test` an agent runs in its turn
+  only shows the result and writes nothing.
 * **Recovery**: after a crash beck rebuilds its state from the events
   (`apply`), without running the policies again. A turn started
   (`AgentTurnStarted`) whose output never came back is in flight: beck puts
