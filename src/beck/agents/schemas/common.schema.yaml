@@ -103,6 +103,9 @@ $defs:
     additionalProperties: false
     properties:
       kind: {enum: [interface, architecture, test]}
-      target: {$ref: "#/$defs/id"}
+      target:
+        description: What the change is about - a unit's id, a DSL id, or a file of the project.
+        type: string
+        minLength: 1
       problem: {$ref: "#/$defs/text"}
       proposal: {$ref: "#/$defs/text"}

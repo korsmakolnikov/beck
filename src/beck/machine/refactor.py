@@ -579,6 +579,11 @@ def handle_verify_refactor(command: Event, ctx: Ctx) -> list[Result]:
             payload["failure"] = failure
         return [Result("RefactorRejected", payload)]
 
+    if phase == "none":   # the finding is already met at HEAD: nothing to commit, the next item
+        if changed:
+            return rejected(f"phase none changes nothing; changed: {', '.join(changed)}", changed)
+        return [Result("RefactorCommitted", {"unit": unit, "sha": _git(tree, "rev-parse", "HEAD").stdout.strip(),
+                                             "addressed": a["addressed"]})]
     if not changed:
         return rejected("nothing changed", ["nothing"])
     if phase == "tests" and sources:

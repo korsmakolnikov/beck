@@ -195,6 +195,29 @@ def change(target):
     return step
 
 
+def change_of(kind, target):
+    def step(agents, envelope, cwd):
+        return {"protocol": 1, "command": envelope["command"], "outcome": "change_requested",
+                "change": {"kind": kind, "target": target, "problem": "p", "proposal": "q"}}
+    return step
+
+
+def test_a_change_of_a_test_stops_only_its_unit(repo):
+    # the replay of 2026-11-16: martin asked to change a test of randomness, and the four units using it stopped
+    from beck.machine.unit import _affected
+    reactor, _ = setup(repo, Agents(repo, {}))
+    assert _affected(reactor.ctx, "store", "store", "test") == ["store"]
+    assert _affected(reactor.ctx, "store", "store", "interface") == ["store", "cart"]
+
+
+def test_a_change_aimed_at_a_file_finds_the_unit_that_holds_it(repo):
+    from beck.machine.unit import _owner
+    reactor, _ = setup(repo, Agents(repo, {}))
+    reactor.ctx.workspace.scope = lambda unit: [f"src/shop/{unit}"]   # as the index gives it, before any worktree
+    assert _owner(reactor.ctx, "src/shop/store/store.py") == "store"
+    assert _owner(reactor.ctx, "SystemRandomness.chance") is None
+
+
 def pending_of_user(reactor):
     return [c for c in reactor.pending() if c.payload["target"] == "user"]
 

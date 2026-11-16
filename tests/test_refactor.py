@@ -119,6 +119,20 @@ def test_a_refactor_that_breaks_its_phase_is_reverted_and_sent_back(repo):
     assert unit_events(store, "store")[-1] == "UnitClosed"
 
 
+def test_a_finding_already_met_closes_with_no_commit(repo):
+    # the replay of 2026-11-16: martin found F1 already fixed and had no way to say so, seven times
+    team = Team(repo, {("ReviewUnit", "store"): [
+        lambda t, e, c: out("ReviewUnit", result={"findings": [finding("store", "store-adds")], "weak_tests": []})],
+        ("RefactorUnit", "store"): [lambda t, e, c: out("RefactorUnit", result={
+            "phase": "none", "addressed": ["F1"], "why": "HEAD already names the number."})]})
+    reactor, store = setup(repo, team)
+    run(reactor)
+    assert not list(store.read(types_=("RefactorRejected",)))
+    [committed] = store.read(types_=("RefactorCommitted",))
+    assert committed.payload["addressed"] == ["F1"]
+    assert unit_events(store, "store")[-1] == "UnitClosed"
+
+
 def test_a_worsened_measure_waits_for_the_user(repo):
     def branches(team, envelope, cwd):
         (cwd / "src/shop/store/store_adds.py").write_text(

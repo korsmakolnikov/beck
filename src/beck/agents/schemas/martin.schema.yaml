@@ -128,13 +128,18 @@ $defs:
         additionalProperties: false
         properties:
           phase:
-            description: tests or code for a refactor (the other side unchanged); strengthen for weak tests.
-            enum: [tests, code, strengthen]
+            description: >-
+              tests or code for a refactor (the other side unchanged); strengthen for weak tests; none when
+              the code at HEAD already meets the finding, nothing changed (say why).
+            enum: [tests, code, strengthen, none]
           addressed:
             description: The finding ids, or the tests strengthened.
             type: array
             minItems: 1
             items: {type: string, minLength: 1}
+          why: {$ref: "common.schema.yaml#/$defs/text"}
+        if: {properties: {phase: {const: none}}}
+        then: {required: [why]}
     if: {properties: {outcome: {const: done}}}
     then: {required: [result]}
 

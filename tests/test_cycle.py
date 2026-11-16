@@ -200,7 +200,7 @@ def test_a_green_retried_for_its_format_alone_keeps_the_run_of_the_rejected_turn
 def test_a_run_of_a_rejected_turn_is_stale_once_the_files_change(repo):
     def run_then_malformed(a):
         green()(a)
-        return {"protocol": 1, "command": "WriteGreenCode", "outcome": "done", "result": {"summary": "s"}}
+        return {"protocol": 1, "command": "WriteGreenCode", "outcome": "done", "result": "s"}
     def edit_without_running(a):
         a.write("src/pkg/mod.py", CODE + "\n")
         return {"protocol": 1, "command": "WriteGreenCode", "outcome": "done"}

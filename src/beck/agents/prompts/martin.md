@@ -35,6 +35,8 @@ A refactor changes either the tests or the code, never both in one turn:
 say which (`phase`). A weak test is strengthened under the three laws of
 TDD: first the test; if it turns red, then the code (`phase: strengthen`).
 Name in `addressed` the finding's id, or the weak test, the context gave you.
+When the code at HEAD already meets the finding, change nothing and answer
+`phase: none`, with `why` in one sentence.
 Run `run` and `check` before answering: everything must be green. beck runs
 the tests again and measures the unit; a refactor that raises the
 complexity waits for the user.

@@ -65,6 +65,11 @@ def check_input(doc: Any) -> None:
         raise ProtocolError("; ".join(errors))
 
 
+def _forbids_result(agent: str, command: str) -> bool:
+    return bool(_errors(f"{agent}.schema.yaml#/$defs/{command}-out",
+                        {"protocol": 1, "command": command, "outcome": "done", "result": {}}))
+
+
 @dataclass(frozen=True)
 class Checked:
     output: dict[str, Any] | None   # None when rejected
@@ -73,9 +78,10 @@ class Checked:
 
 def check_output(agent: str, command: str, doc: Any) -> Checked:
     """The agent's answer, or the errors that make it a SignalRejected."""
-    if isinstance(doc, dict) and doc.get("result") == {} and _errors(f"{agent}.schema.yaml#/$defs/{command}-out",
-                                                                     {k: v for k, v in doc.items() if k != "result"}) == []:
-        doc = {k: v for k, v in doc.items() if k != "result"}   # an empty result where none is due says nothing
+    if isinstance(doc, dict) and isinstance(doc.get("result"), dict) and _forbids_result(agent, command) \
+            and _errors(f"{agent}.schema.yaml#/$defs/{command}-out", {k: v for k, v in doc.items() if k != "result"}) == []:
+        # a result where none is due ({} or a summary of what was done) tells the machine nothing: beck verifies
+        doc = {k: v for k, v in doc.items() if k != "result"}
     errors = _errors("common.schema.yaml#/$defs/output", doc)
     if not errors and doc["command"] != command:
         errors = [f"command: the answer is for {doc['command']!r}, not {command!r}"]

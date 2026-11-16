@@ -236,18 +236,32 @@ def finish_unit(command: Event, ctx: Ctx) -> list[Result]:
 
 
 def _owner(ctx: Ctx, target: str) -> str | None:
-    """The unit a change's target belongs to: a unit's id, or the unit that implements the operation."""
+    """The unit a change's target belongs to: a unit's id, the unit that implements the id, or whose scope holds
+    the file."""
     planned = plan(ctx)
     if target in planned:
         return target
-    return next((u for u, p in planned.items() if target in p["implements"]), None)
+    owner = next((u for u, p in planned.items() if target in p["implements"]), None)
+    if owner is None and "/" in target:
+        owner = next((u for u in planned if any(target == s or target.startswith(s.rstrip("/") + "/")
+                                                for s in _scope(ctx, u))), None)
+    return owner
 
 
-def _affected(ctx: Ctx, requester: str, target: str | None) -> list[str]:
+def _scope(ctx: Ctx, unit: str) -> list[str]:
+    try:
+        return list(ctx.workspace.scope(unit))
+    except KeyError:   # a unit not started yet has no scope in the cycle's workspace
+        return []
+
+
+def _affected(ctx: Ctx, requester: str, target: str | None, kind: str | None = None) -> list[str]:
+    """The units a change stops: the requester, the target's owner and, unless only a test changes, its dependents."""
     planned = plan(ctx)
     owner = _owner(ctx, target) if target else None
     hit = {requester} | ({owner} if owner else set())
-    hit |= {u for u, p in planned.items() if owner and owner in p["depends_on"]}
+    if kind != "test":   # a test is no unit's interface: the dependents go on
+        hit |= {u for u, p in planned.items() if owner and owner in p["depends_on"]}
     return [u for u in planned if u in hit and state(ctx, u) not in ("closed", "parked")]
 
 
@@ -257,7 +271,7 @@ def park_for_a_change(event: Event, ctx: Ctx) -> list[Command]:
     if green_stuck(ctx, event):
         return []  # the cycle goes back to red (cycle.rewind_red): no unit waits for a resolution
     details = {k: p[k] for k in ("agent", "unit", "target", "problem", "proposal")}
-    return _park_and_propose(ctx, event, _affected(ctx, p["unit"], p["target"]), p["kind"], details,
+    return _park_and_propose(ctx, event, _affected(ctx, p["unit"], p["target"], p["kind"]), p["kind"], details,
                              f"{p['kind']} change requested by {p['agent']}")
 
 

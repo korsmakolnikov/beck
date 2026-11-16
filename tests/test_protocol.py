@@ -49,7 +49,7 @@ def test_beck_never_sends_a_wrong_input(agent, command, context, message):
 @pytest.mark.parametrize("agent, command, body, message", [
     ("unclebob", "WriteRedTest", {"outcome": "done"}, "'result' is a required property"),
     ("unclebob", "WriteRedTest", {"outcome": "question", "question": {"text": "t", "why": "w"}}, "is not one of"),
-    ("unclebob", "WriteGreenCode", {"outcome": "done", "result": {"summary": "s"}}, "should not be valid"),
+    ("unclebob", "WriteGreenCode", {"outcome": "done", "result": "s"}, "is not of type"),
     ("kent", "AnchorIds", {"outcome": "change_requested",
                            "change": {"kind": "interface", "target": "x", "problem": "p", "proposal": "q"}},
      "'done' was expected"),
@@ -136,6 +136,13 @@ def test_an_empty_result_of_a_command_with_none_is_dropped():
     # the sessions of 2026-11-15 and 16: unclebob closed 29 greens with "result": {}, each refused and asked again
     checked = protocol.check_output("unclebob", "WriteGreenCode", out("WriteGreenCode", {"outcome": "done",
                                                                                         "result": {}}))
+    assert checked.errors == [] and "result" not in checked.output
+
+
+def test_a_summary_of_a_command_with_no_result_is_dropped():
+    # the replay of 2026-11-16: "the test passes already" as a result of WriteGreenCode, refused and asked again
+    checked = protocol.check_output("unclebob", "WriteGreenCode", out("WriteGreenCode", {
+        "outcome": "done", "result": {"summary": "The test passes already: no code to write."}}))
     assert checked.errors == [] and "result" not in checked.output
 
 
