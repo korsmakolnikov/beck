@@ -25,6 +25,8 @@ command and with the same context as before.
   `head`, `tail`, `wc`, `rg`, `tree` and `git log`, `show`, `diff`,
   `status`, `grep`, `echo`; they are audited like a Read. You already run
   in the right directory: give paths, never `cd`.
+* Change files only with Edit and Write: never with the shell (`sed -i`, a
+  heredoc, `python -`, `rm`); beck audits the changes the tools make.
 * When the step cannot be done as asked (an interface lacks a datum, an
   error case is missing, the architecture forbids what the step needs),
   answer `change_requested` with the change; never work around it.

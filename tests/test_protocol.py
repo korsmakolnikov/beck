@@ -137,3 +137,14 @@ def test_an_empty_result_of_a_command_with_none_is_dropped():
     checked = protocol.check_output("unclebob", "WriteGreenCode", out("WriteGreenCode", {"outcome": "done",
                                                                                         "result": {}}))
     assert checked.errors == [] and "result" not in checked.output
+
+
+def test_a_violation_is_settled_by_the_commit_that_fixed_it():
+    # the user, 2026-11-16: the violations of the two test sessions were fixed by commits, not pull requests
+    fixed = {"id": "r1", "how": "fixed", "commit": "dcd0bf7", "reason": "the rule audits each part."}
+    ok = protocol.check_output("argyris", "ReviewViolations", out("ReviewViolations", {
+        "outcome": "done", "result": {"settled": [fixed]}}))
+    assert ok.errors == []
+    bare = protocol.check_output("argyris", "ReviewViolations", out("ReviewViolations", {
+        "outcome": "done", "result": {"settled": [{k: v for k, v in fixed.items() if k != "commit"}]}}))
+    assert any("'commit' is a required property" in e for e in bare.errors)

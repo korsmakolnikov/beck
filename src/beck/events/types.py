@@ -40,7 +40,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
                             "error": _STRING, "traceback": _STRING, "signature": _STRING}),
     "ViolationLogged": _object({"kind": _STRING, "agent": _STRING, "outbox": _STRING}),
     "ViolationSettled": _object({"outbox": _STRING, "how": _STRING, "reason": _STRING},
-                                {"files": {"type": "array", "items": _STRING}, "pr": _STRING}),
+                                {"files": {"type": "array", "items": _STRING}, "pr": _STRING, "commit": _STRING}),
     "ToolCalled": _object({"agent": _STRING, "tool": _STRING, "input": {"type": "object"}}),
     "SignalRejected": _object({"agent": _STRING, "errors": {"type": "array", "items": _STRING}},
                               {"command": _STRING, "signature": _STRING}),

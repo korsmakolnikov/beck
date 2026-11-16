@@ -64,7 +64,11 @@ $defs:
               additionalProperties: false
               properties:
                 id: {type: string, minLength: 1}
-                how: {enum: [proposed, no-change, duplicate]}
+                how: {enum: [proposed, fixed, no-change, duplicate]}
+                commit:
+                  description: The commit that fixed it, when the change was made outside a pull request.
+                  type: string
+                  pattern: "^[0-9a-f]{7,40}$"
                 pr:
                   description: The pull request that proposes the change (`beck contrib submit`).
                   type: string
@@ -74,6 +78,9 @@ $defs:
                   type: array
                   items: {$ref: "common.schema.yaml#/$defs/path"}
                 reason: {$ref: "common.schema.yaml#/$defs/text"}
-              if: {properties: {how: {const: proposed}}}
-              then: {required: [pr, files]}
+              allOf:
+                - if: {properties: {how: {const: proposed}}}
+                  then: {required: [pr, files]}
+                - if: {properties: {how: {const: fixed}}}
+                  then: {required: [commit]}
     required: [result]
