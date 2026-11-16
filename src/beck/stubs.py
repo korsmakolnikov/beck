@@ -10,12 +10,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from beck.index.anchor import ids_at, is_test_file
-from beck.toolchain import STUBS, load
+from beck.toolchain import STUBS, Toolchain, load
 
 
-def stubs(root: Path) -> list[tuple[str, int]]:
-    """Every stub body left in the project's sources, as (file, line)."""
-    toolchain = load(root)
+def stubs(root: Path, toolchain: Toolchain | None = None) -> list[tuple[str, int]]:
+    """Every stub body left in the sources under root (the project, or a unit's worktree with the project's
+    toolchain), as (file, line)."""
+    toolchain = toolchain or load(root)
     marker, suffix = STUBS[toolchain.language]
     found = []
     for base in toolchain.source_roots(root):

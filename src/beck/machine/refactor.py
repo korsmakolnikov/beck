@@ -37,6 +37,7 @@ from beck.machine.unit import _park_and_propose, implementation, plan, stream
 from beck.machine.verify import changed_files
 from beck.measures import coverage_gaps, files_in, measure, ratchet, totals, worsened
 from beck.measures.coverage import READERS, FileCoverage
+from beck.stubs import stubs
 from beck.testrun import run as run_tests
 from beck.toolchain import load
 
@@ -132,6 +133,26 @@ def reopen_regressions(event: Event, ctx: Ctx) -> list[Command]:
     return [Command("ReopenRegressions", "beck", dict(p), event.stream)]
 
 
+def _doctest_clauses(ctx: Ctx, unit: str, failing: list[str]) -> list[str]:
+    """The planned clauses a failing doctest of the unit's sources hands back to unclebob: those that cite the
+    stubs left in its file (an example kent wrote, on a body no green has written yet)."""
+    files = {t.split("::")[0] for t in failing if "::" in t and not is_test_file(Path(t.split("::")[0]))}
+    if not files:
+        return []
+    tree = ctx.workspace.worktree(unit)
+    groups = plan(ctx)[unit]["groups"]
+    planned = {c for g in groups for c in g["clauses"]}
+    of_operation = {g["id"].split(":", 1)[1]: g["clauses"] for g in groups if g["id"].startswith("operation:")}
+    left = [(f, n) for f, n in stubs(tree, load(ctx.project)) if f in files]
+    found: list[str] = []
+    for file in files:
+        lines = {n for f, n in left if f == file}
+        for ids in ids_at(tree, Path(file), lines).values():
+            for i in ids:
+                found += [i] if i in planned else of_operation.get(i, [])[:1]
+    return list(dict.fromkeys(found))
+
+
 @refactor.handler("ReopenRegressions")
 def handle_reopen(command: Event, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
@@ -140,6 +161,7 @@ def handle_reopen(command: Event, ctx: Ctx) -> list[Result]:
               if e.payload["unit"] == unit}
     planned = {c for g in plan(ctx)[unit]["groups"] for c in g["clauses"]}
     clauses = sorted({tests[t] for t in a["tests"] if t in tests and tests[t] in planned})  # no dropped clause
+    clauses = sorted({*clauses, *_doctest_clauses(ctx, unit, [t for t in a["tests"] if t not in tests])})
     if not clauses:  # a fitness function, or no report: nothing to hand to unclebob
         return [Result("RegressionUnassigned", {"unit": unit, "failure": a["failure"][:2000]})]
     return [Result("CycleReopened", {"unit": unit, "clause": c, "group": groups[c], "phase": "green",

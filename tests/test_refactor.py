@@ -339,3 +339,26 @@ def test_a_unit_with_no_commit_of_its_own_squashes_into_an_empty_one(repo):
     [squashed] = handle_squash(command, Ctx(store, repo, "it", workspace))
     assert git(repo, "log", "-1", "--format=%s") == "feat(clock): implement clock"
     assert git(repo, "rev-parse", "HEAD~1") == base and squashed.payload["sha"] == git(repo, "rev-parse", "HEAD")
+
+
+TOTAL = ('def total(prices):\n    """The sum of the prices.\n\n    spec: store-adds\n\n    >>> total([1, 2])\n    3\n'
+         '    """\n    raise NotImplementedError\n')
+
+
+def test_a_doctest_on_a_stub_reopens_the_cycle_of_the_clause_that_cites_it(repo):
+    # the session of 2026-11-16: kent's doctests found Score.add and Cannon.y still stubs once the unit was
+    # implemented; the failure went to kent, who writes no code, as a regression no cycle owned
+    (repo / "src/shop/store/total.py").write_text(TOTAL)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "the interface of total")
+    def implements_total(team, envelope, cwd):
+        (cwd / "src/shop/store/total.py").write_text(TOTAL.replace("raise NotImplementedError", "return sum(prices)"))
+        return team.WriteGreenCode(envelope, cwd)
+    team = Team(repo, {("WriteGreenCode", "store-adds"): [None, implements_total]})
+    reactor, store = setup(repo, team)
+    run(reactor)
+    [reopened] = [e for e in store.read(types_=("CycleReopened",)) if e.payload["unit"] == "store"]
+    assert reopened.payload["clause"] == "store-adds" and reopened.payload["phase"] == "green"
+    assert "src/shop/store/total.py::shop.store.total.total" in reopened.payload["reason"]
+    assert not list(store.read(types_=("RegressionUnassigned",)))
+    assert unit_events(store, "store")[-1] == "UnitClosed"
