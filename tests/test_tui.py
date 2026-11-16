@@ -15,7 +15,7 @@ def test_the_views_of_a_whole_iteration(project):
     drive(reactor, ANSWERS)
     rows = {t.agent: t for t in views.tokens(store)}
     assert set(rows) == {"kent", "unclebob", "martin"} and rows["unclebob"].turns == 2
-    assert views.units(store) == [("adder", "done")]
+    assert views.components(store) == [("adder", "done")]
     assert views.graph(store) == ["■ adder                done        "]
     assert views.phase(store) == "closed" and views.running(store) == []
     assert any("IterationClosed" in line for line in views.activity(store))

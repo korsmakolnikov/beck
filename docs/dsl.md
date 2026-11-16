@@ -11,7 +11,7 @@ Two YAML files in `.beck/`, one system of ids:
 | `.beck/architecture.yaml` | which components implement those guarantees, how they depend on each other, and the rules the structure obeys | kent, architecture state | [`schemas/architecture.schema.yaml`](../src/beck/dsl/schemas/architecture.schema.yaml) |
 
 The domain names no component and reads no code. The architecture names the
-domain's ids, never restates them. The tests cite the ids (`spec: <id>`).
+domain's ids, never restates them. The tests reference the ids (`spec: <id>`).
 Both files are design decisions: kent proposes their changes, the user
 approves them. The index (`.beck/index.db`) is derived from them and from
 the code, never the other way round.
@@ -23,8 +23,8 @@ abridged from it.
 ## Why two DSLs and not ADL plus a spec
 
 * They are a **graph**, not prose: beck cuts each agent's context out of it
-  with a query, and plans the units, the groups and the cycles from it
-  without an LLM. Every element and every clause that a test must prove has
+  with a query, and plans the components, the units and the cycles from it
+  without an LLM. Every element and every requirement that a test must prove has
   an id; every edge the graph needs is written, never inferred.
 * They are **validated twice**, deterministically: the schema checks the
   shape, the semantic checks (below) the ids and the references between the
@@ -39,8 +39,8 @@ abridged from it.
 ## The domain (`.beck/domain.yaml`)
 
 Derived from minime's spec version 2, with two changes the graph needs:
-every clause a test proves has an id (the `post` clauses had none), and
-every operation lists the entities it `uses`. A constraint lists the
+every requirement a test proves has an id (the `post` requirements had none), and
+every morphism lists the entities it `uses`. A constraint lists the
 entities it is `about`.
 
 ```yaml
@@ -78,7 +78,7 @@ constraints:
     about: [Bookmark, Tag]
     rule: Either every tag of a request is applied or none is.
 
-operations:
+morphisms:
   - id: tag-bookmark
     description: A user tags one of their bookmarks.
     uses: [Bookmark, Tag, TagName]
@@ -95,7 +95,7 @@ operations:
 
 properties:
   - id: tagging-twice-equals-tagging-once
-    operations: [tag-bookmark]       # one: the operation's group; several or none: the model group
+    morphisms: [tag-bookmark]       # one: the morphism's unit; several or none: the model unit
     kind: idempotence
     forall:
       - {name: bookmark, generator: an existing bookmark}
@@ -110,7 +110,7 @@ properties:
   function returns.
 * A `pre` has no id: it is not proved by a test of its own; the error that
   covers its violation is.
-* The **clauses** are what a test proves, one cycle each: an invariant, a
+* The **requirements** are what a test proves, one cycle each: an invariant, a
   relation rule, a constraint, a `post`, an error, a property.
 
 ### Property kinds
@@ -181,20 +181,20 @@ integration:
   Python `bookmarks.tagging.bookmark_tagger`, C `src/tagging/bookmark_tagger/`).
 * Only a `component` (a leaf) has `boundary`, `supervised`, `depends_on`
   and `implements`; only a `library` has `package` and `version`.
-  A `service` is a separately deployed unit; a `library` a shared or
+  A `service` is a separately deployed component; a `library` a shared or
   third-party one, which may be a `depends_on` target and implements nothing.
 * **`boundary: interface`**: callers depend on an abstraction (an Elixir
   behaviour, a Python `Protocol`); a caller's test may replace it with a
   double, and one contract test runs on the double and on the real
   implementation. **`concrete`**: callers are tested with the real module.
-* **The shared files are the model's, not the units'.** The dependency
+* **The shared files are the model's, not the components'.** The dependency
   manifest (`mix.exs`, `pyproject.toml`) and the supervision tree are
   structure: kent writes them with the interfaces, from the architecture,
-  before any unit starts. An external `library` names its `package` (and
+  before any component starts. An external `library` names its `package` (and
   its `version`) for the manifest, and lives outside the system: its
   namespace is its `physical` name alone (`jason`, in Elixir `Jason`), it
   gets no existence case and `contained_in` does not count it; a `supervised: true` component is a
-  child of the supervision tree. A unit that still needs to change a file
+  child of the supervision tree. A component that still needs to change a file
   shared with other components requests an architecture change.
 * **`depends_on`** is the complete list of what the component may call. It
   orders the landings, cuts the signatures handed to unclebob, and is
@@ -203,14 +203,14 @@ integration:
 
 ### Implementation
 
-* **An operation** is implemented by the component that offers it, and its
-  `post`, its errors and the properties that name only that operation come
+* **A morphism** is implemented by the component that offers it, and its
+  `post`, its errors and the properties that name only that morphism come
   with it: they are never listed.
-* **Every other clause** (an invariant, a relation rule, a constraint, a
-  property over several operations or none) is listed in exactly one
+* **Every other requirement** (an invariant, a relation rule, a constraint, a
+  property over several morphisms or none) is listed in exactly one
   `implements`: the component that enforces it, or `integration` when it spans
   components and no single component can hold it.
-* Every operation and every clause ends implemented exactly once.
+* Every morphism and every requirement ends implemented exactly once.
 
 ### Assertions
 
@@ -260,7 +260,7 @@ never edited.
   package's `__init__`, an Elixir namespace module).
 * `only_depends_on` judges only the modules of the system: the standard
   library and the third parties are free.
-* A `rule` is reported as untranslated until kent's rules file cites it
+* A `rule` is reported as untranslated until kent's rules file references it
   (`spec: <id>`).
 * C is not supported yet.
 
@@ -272,13 +272,13 @@ never edited.
    YAML).
 2. **Semantic checks**, which a schema cannot express:
    * domain: ids unique; every name in `uses`, `about`, `from`, `to`,
-     `emits` and `operations` exists; `fields` names unique within their
+     `emits` and `morphisms` exists; `fields` names unique within their
      owner;
    * architecture: ids unique across both files; every `depends_on`, `from`,
      `to`, `within` and `except` names an element of the right kind; no
      cycle in `depends_on`; every `implements` names a domain id that is not
-     an operation's `post`, error or single-operation property; every
-     operation and every clause implemented exactly once; `$var` used only
+     a morphism's `post`, error or single-morphism property; every
+     morphism and every requirement implemented exactly once; `$var` used only
      inside its `foreach`.
 
 The architecture's checks need the domain, so it is validated only once the
@@ -291,46 +291,46 @@ tables:
 
 ```
  node(id, kind, file, hash)
-   kind: component | library | container | operation | entity | event | clause | symbol | test
+   kind: component | library | container | morphism | entity | event | requirement | symbol | test
  edge(src, dst, kind)
    contains     container → element               (architecture: the tree)
    depends_on   component → component | library     (architecture)
-   implements     component → operation | clause      (architecture, or inherited)
-   uses         operation → entity                  (domain)
-   binds        clause    → operation | entity      (domain: where the clause sits;
+   implements     component → morphism | requirement      (architecture, or inherited)
+   uses         morphism → entity                  (domain)
+   binds        requirement    → morphism | entity      (domain: where the requirement sits;
                                                      about, from and to for the others)
-   anchored_to  operation | clause → symbol         (the interfaces' docs: spec: <id>)
-   tests        test      → clause                  (the tests' comments: spec: <id>)
+   anchored_to  morphism | requirement → symbol         (the interfaces' docs: spec: <id>)
+   tests        test      → requirement                  (the tests' comments: spec: <id>)
 ```
 
-The integration unit is the node `@integration` (`@` keeps it out of the
+The integration component is the node `@integration` (`@` keeps it out of the
 DSL's ids). A `spec: <id>` marker anchors to the innermost definition that
 holds it, or, when it stands in a comment, an attribute (`@doc`) or a
 decorator right before a definition, to that definition; in a test file it
 marks a test. A file that holds symbols of several components is **shared**:
-`beck index plan` lists these files, and the scheduler never runs in
-parallel two units that share one (it matters mostly in brownfield). An
-operation that no symbol cites goes to kent (`AnchorIds`),
-and a marker citing an id the DSLs lack is reported; everything else is
+`beck index execution` lists these files, and the scheduler never runs in
+parallel two components that share one (it matters mostly in brownfield). An
+morphism that no symbol references goes to kent (`AnchorIds`),
+and a marker referencing an id the DSLs lack is reported; everything else is
 deterministic.
 
 ## From the graph to the sessions
 
 ```
  graph
-  └─ unit  = a component (+ the integration unit)   → one worktree, then martin
-      └─ group = an owner node with its clauses       → one unclebob session
-          └─ cycle = one clause                       → one test, one red, one green
+  └─ component  = a component (+ the integration component)   → one worktree, then martin
+      └─ unit = an owner node with its requirements       → one unclebob session
+          └─ cycle = one requirement                       → one test, one red, one green
 ```
 
-* **Units**: the components in topological order of `depends_on` (the
+* **Components**: the components in topological order of `depends_on` (the
   landing order); they are developed in parallel, trusting the interfaces.
-  The integration unit comes last.
-* **Groups**, inside a unit, from the particular to the general: one per
-  entity whose clauses the component implements, then one per operation (its
-  `post`, errors, single-operation properties), then one `model` group for
-  the properties over several operations.
-* **The context of a group**, one recursive query from its owner node: the
-  text of its clauses; the types of the entities it uses; the signature of
-  the operation; the signatures of the dependencies' interfaces; the paths of
+  The integration component comes last.
+* **Units**, inside a component, from the particular to the general: one per
+  entity whose requirements the component implements, then one per morphism (its
+  `post`, errors, single-morphism properties), then one `model` unit for
+  the properties over several morphisms.
+* **The context of a unit**, one recursive query from its owner node: the
+  text of its requirements; the types of the entities it uses; the signature of
+  the morphism; the signatures of the dependencies' interfaces; the paths of
   the source and of the tests. Nothing else.

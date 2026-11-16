@@ -96,13 +96,13 @@ def test_cli_all_runs_the_project_checks_too(project, capsys):
     assert [c["name"] for c in p.open(p.iterations()[0].id).last().payload["checks"]] == ["fake", "whole"]
 
 
-def test_cli_needs_paths_a_unit_or_all(project):
+def test_cli_needs_paths_a_component_or_all(project):
     with pytest.raises(SystemExit, match="--all"):
         main(["check", "--project", str(project)])
 
 
-def test_a_unit_s_checks_from_its_worktree_read_the_project_s_index(project, capsys, monkeypatch):
-    # the session of 2026-11-15: martin ran `beck check --unit match-rules` in the unit's worktree, which has no
+def test_a_component_s_checks_from_its_worktree_read_the_project_s_index(project, capsys, monkeypatch):
+    # the session of 2026-11-15: martin ran `beck check --component match-rules` in the component's worktree, which has no
     # .beck/, and beck found no index; the index, like the toolchain, is the project's ($BECK_PROJECT)
     from beck.index.store import add_node, create
     conn = create(project / ".beck/index.db")
@@ -114,5 +114,5 @@ def test_a_unit_s_checks_from_its_worktree_read_the_project_s_index(project, cap
     (worktree / "src/shop/__init__.py").write_text("")
     (worktree / "fake.py").write_text(FAKE)
     monkeypatch.setenv("BECK_PROJECT", str(project))
-    assert main(["check", "--unit", "shop", "--project", str(worktree)]) == 0
+    assert main(["check", "--component", "shop", "--project", str(worktree)]) == 0
     assert capsys.readouterr().out.startswith("ALL_OK (fake)")

@@ -43,7 +43,7 @@ properties:
     type: array
     items: {$ref: "#/$defs/assertion"}
   integration:
-    description: The clauses that span components, implemented by the integration unit.
+    description: The requirements that span components, implemented by the integration component.
     type: object
     required: [implements]
     additionalProperties: false

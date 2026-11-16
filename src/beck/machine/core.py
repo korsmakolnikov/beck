@@ -10,7 +10,7 @@
 * A policy never reacts twice to the same event: the CommandIssued it wrote
   is the anchor (`store.issued`). A policy reads the state as it was at its
   event (`Ctx.upto`), so a replay issues exactly what the first run did;
-  the scheduler alone reads the present (`unit.schedule`).
+  the scheduler alone reads the present (`component.schedule`).
 * A command without its CommandDone is pending: `run_until_idle` executes
   it, also after a Ctrl-C (`beck attach`). Handlers must tolerate running
   again after a crash between their side effect and their events.
@@ -123,9 +123,9 @@ class Ctx:
     store: EventStore
     project: Path                       # where .beck/ is
     iteration: str
-    workspace: Any                      # worktrees, scopes, group contexts (beck.machine.workspace)
+    workspace: Any                      # worktrees, scopes, unit contexts (beck.machine.workspace)
     limits: tuple[int, int] = (3, 30)   # the repetition rule: times, attempts
-    units_in_parallel: int = 4
+    components_in_parallel: int = 4
     upto: int | None = None             # policies see the events up to their own
     flakiness: tuple[int, int] = (3, 5)  # the flakiness detector: the window, the runs of each hunt
 
@@ -235,8 +235,8 @@ def retry_a_failed_turn(event: Event, ctx: Ctx) -> list[Command]:
     why = blocked(failures, *ctx.limits)
     if why:
         actions = [action("retry", "Run the agent's turn again, as it was.")]
-        if turn.payload["args"].get("unit"):
-            actions.append(action("park-unit", "Park the turn's unit; the other units go on."))
+        if turn.payload["args"].get("component"):
+            actions.append(action("park-component", "Park the turn's component; the other components go on."))
         return [ask_routed(f"{event.payload['agent']}'s {event.payload['command']} fails ({why}): "
                            f"{event.payload['error']}", "The CLI cannot complete the turn.", "turn-failed", actions,
                            event.stream, event.id)]
@@ -245,7 +245,7 @@ def retry_a_failed_turn(event: Event, ctx: Ctx) -> list[Command]:
 
 # the machines that retry these themselves, under their own loop rule (beck.machine.cycle, beck.machine.refactor);
 # FixStaticFindings of the feature branch (args.branch) is retried here
-OWN_RETRIES = {"WriteRedTest", "WriteGreenCode", "CoverLines", "RefactorUnit", "ReviewUnit", "ResolveConflict",
+OWN_RETRIES = {"WriteRedTest", "WriteGreenCode", "CoverLines", "RefactorComponent", "ReviewComponent", "ResolveConflict",
                "FixStaticFindings"}
 
 
@@ -260,17 +260,17 @@ def retry_a_rejected_turn(event: Event, ctx: Ctx) -> list[Command]:
         return []
     later = [e for e in ctx.store.read(stream=event.stream, types_=("CommandIssued",))
              if e.seq > event.seq and e.payload["command"] == name]
-    unit = turn.payload["args"].get("unit")
-    closed = bool(unit) and bool(list(ctx.store.read(stream=f"unit:{unit}", types_=("UnitClosed",))))
-    if later or closed:   # stale: a later turn took it over, or its unit closed (an attach replays old rejections)
+    component = turn.payload["args"].get("component")
+    closed = bool(component) and bool(list(ctx.store.read(stream=f"component:{component}", types_=("ComponentClosed",))))
+    if later or closed:   # stale: a later turn took it over, or its component closed (an attach replays old rejections)
         return []
     rejected = [e.payload["signature"] for e in ctx.events(stream=event.stream, types=("SignalRejected",))
                 if e.payload["command"] == name]
     why = blocked(rejected, *ctx.limits)
     if why:
         actions = [action("retry", "Run the agent's turn again, as it was.")]
-        if turn.payload["args"].get("unit"):
-            actions.append(action("park-unit", "Park the turn's unit; the other units go on."))
+        if turn.payload["args"].get("component"):
+            actions.append(action("park-component", "Park the turn's component; the other components go on."))
         return [ask_routed(f"{event.payload['agent']}'s {name} answers wrong ({why}): "
                            f"{'; '.join(event.payload['errors'])[:500]}", "The answer does not match its schema.",
                            "turn-failed", actions, event.stream, event.id)]
@@ -286,9 +286,9 @@ def after_turn_failed(event: Event, ctx: Ctx) -> list[Command]:
     turn = ctx.store.get(failed.causation_id or "")
     if event.payload["action"] == "retry":
         return [Command(turn.payload["command"], turn.payload["target"], dict(turn.payload["args"]), turn.stream)]
-    unit = turn.payload["args"]["unit"]
-    return [Command("ParkUnits", "beck", {"units": [unit], "reason": f"the user parked it: {event.payload['why']}",
-                                          "because_of": event.id}, f"unit:{unit}")]
+    component = turn.payload["args"]["component"]
+    return [Command("ParkComponents", "beck", {"components": [component], "reason": f"the user parked it: {event.payload['why']}",
+                                          "because_of": event.id}, f"component:{component}")]
 
 
 def snapshot(folder: Path) -> str | None:
@@ -407,7 +407,7 @@ class Reactor:
                                          tuple(args["retry"]) if args.get("retry") else None)  # type: ignore[arg-type]
         env = {"BECK_CAUSE": command.id, "BECK_ITERATION": self.ctx.iteration, "BECK_ACTOR": agent,
                "BECK_PROJECT": str(self.ctx.project)}
-        cwd = self.ctx.workspace.worktree(args["unit"]) if args.get("unit") and agent != "kent" else self.ctx.project
+        cwd = self.ctx.workspace.worktree(args["component"]) if args.get("component") and agent != "kent" else self.ctx.project
         before = await asyncio.to_thread(snapshot, cwd)
         started = time.monotonic()
         try:

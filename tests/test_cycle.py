@@ -49,8 +49,8 @@ def repo(tmp_path, monkeypatch):
 class Agent:
     """Plays unclebob from a script: per command, one step per attempt (the last one repeats)."""
 
-    def __init__(self, root, script, unit="u"):
-        self.root, self.script, self.calls, self.unit = root, script, [], unit
+    def __init__(self, root, script, component="u"):
+        self.root, self.script, self.calls, self.component = root, script, [], component
 
     async def turn(self, agent, session, envelope, env, cwd):
         self.calls.append(envelope)
@@ -71,7 +71,7 @@ class Agent:
         (self.root / path).write_text(text)
 
     def test(self, selector=TEST):
-        run_tests(self.root, load(self.root), [selector], actor="unclebob", unit=self.unit, clause="doubles")
+        run_tests(self.root, load(self.root), [selector], actor="unclebob", component=self.component, requirement="doubles")
 
 
 def red(test_text=RED_TEST, run=True, answer=TEST):
@@ -93,15 +93,15 @@ def green(code=CODE, also=None):
     return step
 
 
-def machine(repo, agent, unit="u", met=()):
+def machine(repo, agent, component="u", met=()):
     project = Project(repo)
     it, store, _ = project.start_iteration()
-    workspace = Workspace({unit: repo}, {unit: ["src/pkg"]}, {(unit, "operation:double"): {
-        "unit": {"id": unit}, "group": "operation:double", "clauses": [], "entities": [], "dependencies": [],
+    workspace = Workspace({component: repo}, {component: ["src/pkg"]}, {(component, "morphism:double"): {
+        "component": {"id": component}, "unit": "morphism:double", "requirements": [], "entities": [], "dependencies": [],
         "files": {"source": [], "tests": []}}}, set(met))
     ctx = Ctx(store, repo, it.id, workspace)
-    opened = store.append("CycleOpened", {"unit": unit, "clause": "doubles", "group": "operation:double",
-                                          "first": True}, stream=f"cycle:{unit}/doubles")
+    opened = store.append("CycleOpened", {"component": component, "requirement": "doubles", "unit": "morphism:double",
+                                          "first": True}, stream=f"cycle:{component}/doubles")
     return Reactor(ctx, cycle, agent), store, opened
 
 
@@ -119,8 +119,8 @@ def test_a_cycle_goes_red_then_green_and_commits_both(repo):
     assert git(repo, "log", "--format=%s").splitlines() == ["feat(u): doubles", "test(u): doubles", "start"]
     assert all(e.correlation_id == opened.id for e in store.read() if e.seq >= opened.seq)
     first = agent.calls[0]
-    assert first["context"]["group"]["group"] == "operation:double"
-    assert "group" not in agent.calls[1]["context"] and agent.calls[1]["context"]["test"] == TEST
+    assert first["context"]["unit"]["unit"] == "morphism:double"
+    assert "unit" not in agent.calls[1]["context"] and agent.calls[1]["context"]["test"] == TEST
     runs = [e for e in store.read(types_=("TestsRun",))]
     assert [store.get(r.causation_id).payload["command"] for r in runs] == ["WriteRedTest", "WriteGreenCode"]
 
@@ -160,7 +160,7 @@ def test_a_green_that_changes_a_test_or_leaves_its_scope_is_rejected(repo):
     asyncio.run(reactor.run_until_idle())
     reasons = [e.payload["reason"] for e in store.read(types_=("GreenRejected",))]
     assert reasons == ["a green changes no test; changed: tests/test_other.py",
-                       "outside the unit's scope: docs/notes.md"]
+                       "outside the component's scope: docs/notes.md"]
     assert types(store)[-1] == "CycleClosed"
 
 
@@ -220,8 +220,8 @@ def wrong_test(a):
 
 
 def test_a_green_that_finds_the_red_test_wrong_takes_the_cycle_back_to_red(repo):
-    # the session of 2026-11-15: a committed red test became wrong after a resolution; a green may not change a
-    # test, kent found nothing to change in the model, and the unit went round asking for a change
+    # the session of 2026-11-15: a committed red test became wrong after a restart; a green may not change a
+    # test, kent found nothing to change in the model, and the component went round asking for a change
     agent = Agent(repo, {"WriteRedTest": [red(), red()], "WriteGreenCode": [wrong_test, green()]})
     reactor, store, _ = machine(repo, agent)
     asyncio.run(reactor.run_until_idle())
@@ -296,8 +296,8 @@ def test_thirty_attempts_block_too():
     assert blocked([str(i) for i in range(29)]) is None
 
 
-def test_undoing_a_red_leaves_a_greened_clause_and_a_conflict_alone(repo):
-    # the session of 2026-11-15: the dropped clause had its green too, later cycles built on its test, and the
+def test_undoing_a_red_leaves_a_greened_requirement_and_a_conflict_alone(repo):
+    # the session of 2026-11-15: the dropped requirement had its green too, later cycles built on its test, and the
     # revert of its red stopped in a conflict inside the handler
     from beck.machine.cycle import undo_red
     def commit(message, text):
@@ -316,13 +316,13 @@ def test_undoing_a_red_leaves_a_greened_clause_and_a_conflict_alone(repo):
     assert git(repo, "rev-parse", "HEAD") == head and git(repo, "status", "--short") == ""
 
 
-def test_an_integration_test_that_passes_at_once_proves_the_clause(repo):
+def test_an_integration_test_that_passes_at_once_proves_the_requirement(repo):
     # the session of 2026-11-15: every component landed, so the integration test of every-match-ends-with-a-winner
     # passed on its first run, faithful to the property; beck refused it as a red that passes
     (repo / "src/pkg/mod.py").write_text(CODE)
     git(repo, "commit", "-qam", "the components landed")
-    agent = Agent(repo, {"WriteRedTest": [red()], "WriteGreenCode": [green()]}, unit="@integration")
-    reactor, store, _ = machine(repo, agent, unit="@integration")
+    agent = Agent(repo, {"WriteRedTest": [red()], "WriteGreenCode": [green()]}, component="@integration")
+    reactor, store, _ = machine(repo, agent, component="@integration")
     asyncio.run(reactor.run_until_idle())
     assert types(store) == ["SessionStarted", "CycleOpened", "RedDeclared", "RedVerified", "RedCommitted",
                             "GreenCommitted", "CycleClosed"]
@@ -332,7 +332,7 @@ def test_an_integration_test_that_passes_at_once_proves_the_clause(repo):
 
 
 def test_a_red_that_passes_on_code_the_index_shows_implemented_closes_with_an_empty_green(repo):
-    # the user, 2026-11-16: a clause an earlier green already met is covered by the index; the cycle keeps the TDD
+    # the user, 2026-11-16: a requirement an earlier green already met is covered by the index; the cycle keeps the TDD
     # order of the commits with an empty green, as the old workflow did
     (repo / "src/pkg/mod.py").write_text(CODE)
     git(repo, "commit", "-qam", "an earlier green")

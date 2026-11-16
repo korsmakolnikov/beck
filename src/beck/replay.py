@@ -436,8 +436,8 @@ async def _drive(reactor: Any, recording: Recording, store: EventStore, outcome:
 
 
 COMPARED = ("CommandIssued", "SignalRejected", "BeckCrashed", "AgentTurnFailed", "RedRewound", "CycleReopened",
-            "CycleDropped", "UnitParked", "RefactorRejected", "ResolutionProposed", "RegressionFound",
-            "GreenCommitted", "UnitLanded")
+            "CycleDropped", "ComponentParked", "RefactorRejected", "RestartProposed", "RegressionFound",
+            "GreenCommitted", "ComponentLanded")
 
 
 def _counts(store: EventStore) -> Counter[str]:

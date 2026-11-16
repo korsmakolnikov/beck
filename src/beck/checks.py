@@ -7,8 +7,8 @@ NO_PARSE and its log (the summary by Haiku comes with the drivers). The run
 is recorded as a ChecksRun event.
 
 A check has a scope: `paths` checks (a linter, a type checker on files) run
-on the paths asked, a unit's directory by default; `project` checks
-(dialyzer) run only with --all, since they cost too much to run per unit.
+on the paths asked, a component's directory by default; `project` checks
+(dialyzer) run only with --all, since they cost too much to run per component.
 """
 
 from __future__ import annotations
@@ -159,9 +159,9 @@ class ChecksRun:
 
 
 def run(root: Path, toolchain: Toolchain, paths: list[str], *, whole_project: bool, actor: str,
-        unit: str | None = None, store_root: Path | None = None, cause_id: str | None = None,
+        component: str | None = None, store_root: Path | None = None, cause_id: str | None = None,
         iteration: str | None = None) -> ChecksRun:
-    """Runs in root (a unit's worktree); the logs and the event go to store_root's .beck/ (default: root)."""
+    """Runs in root (a component's worktree); the logs and the event go to store_root's .beck/ (default: root)."""
     store_root = store_root or root
     checks = [c for c in toolchain.check if whole_project or c.scope == "paths"]
     project = Project(store_root)
@@ -181,9 +181,9 @@ def run(root: Path, toolchain: Toolchain, paths: list[str], *, whole_project: bo
         tree = worktree_tree(root)
         if tree:
             payload["tree"] = tree
-        if unit:
-            payload["unit"] = unit
-        event = store.append("ChecksRun", payload, stream=f"unit:{unit}" if unit else "session", actor=actor,
+        if component:
+            payload["component"] = component
+        event = store.append("ChecksRun", payload, stream=f"component:{component}" if component else "session", actor=actor,
                              cause=cause, sha=git(root, "rev-parse", "HEAD"))
         return ChecksRun(event, results, summary(results))
     finally:

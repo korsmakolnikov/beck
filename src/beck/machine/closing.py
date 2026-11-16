@@ -1,16 +1,16 @@
 """The machine of phase 6: integration and closing (README, phase 6).
 
-    UnitClosed [every unit closed] → RunFullSuite (beck, on the feature branch) → SuiteGreen | SuiteFailed
-    SuiteFailed → ReopenUnits (each failing test's unit: a new worktree, its cycle reopened at green) ⟲ phases 4 and 5
+    ComponentClosed [every component closed] → RunFullSuite (beck, on the feature branch) → SuiteGreen | SuiteFailed
+    SuiteFailed → ReopenComponents (each failing test's component: a new worktree, its cycle reopened at green) ⟲ phases 4 and 5
     SuiteGreen → RunStaticChecks (beck, the whole project) → StaticChecksPassed | StaticChecksFailed
     StaticChecksFailed → FixStaticFindings (martin, on the feature branch) → BranchFixesDeclared
       → CommitBranchFixes (fixups of the commits that wrote the lines, by git blame) ⟲ RunStaticChecks
     StaticChecksPassed [first round] → AutosquashBranch → BranchSquashed → PresentForReview (the user)
     StaticChecksPassed [later round] → PresentForReview (the user's corrections stay as fixups)
-    CorrectionsRequested → PlanCorrections (kent) → CorrectionsPlanned → CorrectUnits ⟲ phases 4 and 5
+    CorrectionsRequested → PlanCorrections (kent) → CorrectionsPlanned → CorrectComponents ⟲ phases 4 and 5
     IterationClosed (the user) → AutosquashBranch, the catalog's end: the pull request is presentable
 
-The units reopened after their landing commit fixups of their own commit;
+The components reopened after their landing commit fixups of their own commit;
 their autosquash cannot fold them (the target is below the worktree's base),
 so they land as fixups and the branch's autosquash folds them, except the
 user's corrections, which the next review shows.
@@ -26,27 +26,27 @@ from beck import checks as static_checks
 from beck.events.project import Project
 from beck.events.store import Event
 from beck.junit import UnreadableReport, parse, summary
+from beck.machine.component import execution, state, stream
 from beck.machine.core import Command, Ctx, Machine, Result, action, ask_routed
 from beck.machine.cycle import stream as cycle_stream
-from beck.machine.refactor import _declared_tests, _git, _head, autosquash_onto, units_machine
+from beck.machine.refactor import _declared_tests, _git, _head, autosquash_onto, components_machine
 from beck.machine.signatures import blocked, signature
-from beck.machine.unit import plan, state, stream
-from beck.stubs import stubs
 from beck.testrun import run as run_tests
 from beck.toolchain import load
+from beck.unimplemented import unimplemented
 
 closing = Machine()
 BRANCH = "branch"
 
 
 def iteration_base(ctx: Ctx) -> str:
-    """The feature branch's commit the iteration's units started from."""
-    started = list(ctx.store.read(types_=("UnitStarted",)))
+    """The feature branch's commit the iteration's components started from."""
+    started = list(ctx.store.read(types_=("ComponentStarted",)))
     return started[0].payload["base"]
 
 
 def squash_base(ctx: Ctx) -> str:
-    """Where the branch's autosquash starts: before the model's commit, which the units start from, so that its
+    """Where the branch's autosquash starts: before the model's commit, which the components start from, so that its
     fixups (a static finding fixed in an interface) fold into it; the root when the model is the first commit."""
     model = ctx.events(types=("ModelCommitted",))
     if not model:
@@ -56,11 +56,11 @@ def squash_base(ctx: Ctx) -> str:
 
 
 def _all_closed(ctx: Ctx) -> bool:
-    planned = plan(ctx)
-    return bool(planned) and all(state(ctx, u) == "closed" for u in planned)
+    scheduled = execution(ctx)
+    return bool(scheduled) and all(state(ctx, u) == "closed" for u in scheduled)
 
 
-@closing.policy("UnitClosed")
+@closing.policy("ComponentClosed")
 def full_suite(event: Event, ctx: Ctx) -> list[Command]:
     if not _all_closed(ctx):
         return []
@@ -89,43 +89,45 @@ def handle_full_suite(command: Event, ctx: Ctx) -> list[Result]:
 def reopen_failing(event: Event, ctx: Ctx) -> list[Command]:
     tests: dict[str, tuple[str, str]] = {}
     for e in ctx.events(types=("RedVerified",)):
-        tests[e.payload["test"]] = (e.payload["unit"], e.payload["clause"])
-    planned = {(u, c) for u, p in plan(ctx).items() for g in p["groups"] for c in g["clauses"]}
-    by_unit: dict[str, list[str]] = {}
+        tests[e.payload["test"]] = (e.payload["component"], e.payload["requirement"])
+    scheduled = {(u, c) for u, p in execution(ctx).items() for g in p["units"] for c in g["requirements"]}
+    by_component: dict[str, list[str]] = {}
     orphans: list[str] = []
     for t in event.payload["tests"]:
-        if t in tests and tests[t] in planned:
-            unit, clause = tests[t]
-            by_unit.setdefault(unit, []).append(clause)
-        elif t in tests:   # its clause left the domain: no cycle of it to reopen
+        if t in tests and tests[t] in scheduled:
+            component, requirement = tests[t]
+            by_component.setdefault(component, []).append(requirement)
+        elif t in tests:   # its requirement left the domain: no cycle of it to reopen
             orphans.append(t)
-    if not by_unit:  # a test no cycle declared, or one of a dropped clause: the user decides
-        dropped = f" Tests of clauses no longer in the domain: {', '.join(orphans)}." if orphans else ""
-        return [ask_routed(f"The full suite fails outside the units' tests: {event.payload['failure'][:500]}{dropped}",
-                           "No unit's cycle declared the failing tests.", "suite-outside-units",
-                           [action("reopen-unit", "Reopen a unit on one of its clauses, so that unclebob fixes it.",
-                                   unit="the unit's id", clause="the clause's id"),
+    if not by_component:  # a test no cycle declared, or one of a dropped requirement: the user decides
+        dropped = f" Tests of requirements no longer in the domain: {', '.join(orphans)}." if orphans else ""
+        return [ask_routed(f"The full suite fails outside the components' tests: {event.payload['failure'][:500]}{dropped}",
+                           "No component's cycle declared the failing tests.", "suite-outside-components",
+                           [action("reopen-component",
+                                   "Reopen a component on one of its requirements, so that unclebob fixes it.",
+                                   component="the component's id", requirement="the requirement's id"),
                             action("run-again", "Run the full suite again (the user fixed it, or it was transient)."),
                             action("go-on", "Go on to the static checks: the failing tests stay as they are.")],
                            BRANCH, event.id)]
-    return [Command("ReopenUnit", "beck", {"unit": u, "clauses": sorted(set(cs)), "phase": "green",
+    return [Command("ReopenComponent", "beck", {"component": u, "requirements": sorted(set(cs)), "phase": "green",
                                            "reason": f"the full suite fails: {event.payload['failure'][:500]}"},
-                    stream(u)) for u, cs in by_unit.items()]
+                    stream(u)) for u, cs in by_component.items()]
 
 
 @closing.policy("DecisionRouted")
 def after_a_closing_question(event: Event, ctx: Ctx) -> list[Command]:
     situation, chosen, args = event.payload["situation"], event.payload["action"], event.payload["args"]
-    if situation == "suite-outside-units":
-        if chosen == "reopen-unit":
-            clauses = {e.payload["clause"] for e in ctx.events(types=("CycleOpened",))
-                       if e.payload["unit"] == args["unit"]}
-            if args["clause"] not in clauses:   # kent named what the units do not have: the user again
+    if situation == "suite-outside-components":
+        if chosen == "reopen-component":
+            requirements = {e.payload["requirement"] for e in ctx.events(types=("CycleOpened",))
+                       if e.payload["component"] == args["component"]}
+            if args["requirement"] not in requirements:   # kent named what the components do not have: the user again
                 ask = ctx.store.get(event.payload["ask"])
                 return [Command("Ask", "user", dict(ask.payload["args"]), ask.stream)]
-            return [Command("ReopenUnit", "beck", {"unit": args["unit"], "clauses": [args["clause"]], "phase": "green",
+            return [Command("ReopenComponent", "beck", {"component": args["component"], "requirements": [args["requirement"]],
+                                                        "phase": "green",
                                                    "reason": f"the user's decision: {event.payload['why']}"},
-                            stream(args["unit"]))]
+                            stream(args["component"]))]
         if chosen == "run-again":
             return [Command("RunFullSuite", "beck", {}, BRANCH)]
         return [Command("GoOn", "beck", {"as": "SuiteGreen", "payload": {}}, BRANCH)]
@@ -136,24 +138,25 @@ def after_a_closing_question(event: Event, ctx: Ctx) -> list[Command]:
     return []
 
 
-@closing.handler("ReopenUnit")
-def handle_reopen_unit(command: Event, ctx: Ctx) -> list[Result]:
+@closing.handler("ReopenComponent")
+def handle_reopen_component(command: Event, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
-    unit = a["unit"]
-    n = len([e for e in ctx.store.read(stream=stream(unit), types_=("UnitReopened",))]) + 2
-    path = ctx.project / ".beck" / "worktrees" / unit
-    branch = f"beck/{ctx.iteration[:8]}/{unit}-{n}"
+    component = a["component"]
+    n = len([e for e in ctx.store.read(stream=stream(component), types_=("ComponentReopened",))]) + 2
+    path = ctx.project / ".beck" / "worktrees" / component
+    branch = f"beck/{ctx.iteration[:8]}/{component}-{n}"
     base = _head(ctx.project)
     if not path.exists():
         _git(ctx.project, "worktree", "add", "-q", "-b", branch, str(path), base)
-    groups = {e.payload["clause"]: e.payload["group"] for e in ctx.store.read(types_=("CycleOpened",))
-              if e.payload["unit"] == unit}
-    results = [Result("UnitReopened", {"unit": unit, "worktree": str(path), "branch": branch, "base": base,
+    units = {e.payload["requirement"]: e.payload["unit"] for e in ctx.store.read(types_=("CycleOpened",))
+              if e.payload["component"] == component}
+    results = [Result("ComponentReopened", {"component": component, "worktree": str(path), "branch": branch, "base": base,
                                        "reason": a["reason"]})]
-    for clause in a["clauses"]:
-        results.append(Result("CycleReopened", {"unit": unit, "clause": clause, "group": groups.get(clause, "model"),
+    for requirement in a["requirements"]:
+        results.append(Result("CycleReopened", {"component": component, "requirement": requirement,
+                                                "unit": units.get(requirement, "component"),
                                                 "phase": a["phase"], "reason": a["reason"]},
-                              stream=cycle_stream(unit, clause)))
+                              stream=cycle_stream(component, requirement)))
     return results
 
 
@@ -251,22 +254,23 @@ def present_or_squash(event: Event, ctx: Ctx) -> list[Command]:
 def _present(ctx: Ctx) -> Command:
     log = _git(ctx.project, "log", "--format=%h %s", f"{iteration_base(ctx)}..HEAD").stdout.splitlines()
     args: dict[str, Any] = {"commits": log, "round": _rounds(ctx) + 1}
-    notes = [f"{e.payload['unit']}: the project's coverage {e.payload['before']} % → {e.payload['after']} %"
+    notes = [f"{e.payload['component']}: the project's coverage {e.payload['before']} % → {e.payload['after']} %"
              for e in ctx.events(types=("CoverageDecreased",))]
-    notes += [f"{e.payload['unit']}: lines no test runs, {_lines(e.payload['gaps'])}"
+    notes += [f"{e.payload['component']}: lines no test runs, {_lines(e.payload['gaps'])}"
               for e in _last_coverage(ctx) if e.payload["gaps"]]
     notes += [f"flaky: {e.payload['test']} ({e.payload['evidence']})" for e in ctx.events(types=("FlakyTestFound",))]
-    notes += [f"a stub no cycle implemented: {file}:{line}" for file, line in stubs(ctx.project)]
-    notes += [f"a clause no cycle proved: {c}" for c in unproved(ctx)]
+    notes += [f"an unimplemented no cycle implemented: {file}:{line}" for file, line in unimplemented(ctx.project)]
+    notes += [f"a requirement no cycle proved: {c}" for c in unproved(ctx)]
     if notes:
         args["notes"] = notes
     return Command("PresentForReview", "user", args, BRANCH)
 
 
 def unproved(ctx: Ctx) -> list[str]:
-    """The planned clauses no cycle closed, as unit/clause: a resolution may add one to a unit that has landed."""
-    done = {(e.payload["unit"], e.payload["clause"]) for e in ctx.events(types=("CycleClosed", "CycleDropped"))}
-    return [f"{u}/{c}" for u, p in plan(ctx).items() for g in p["groups"] for c in g["clauses"] if (u, c) not in done]
+    """The scheduled requirements no cycle closed, as component/requirement: a restart may add one to a component that has
+    landed."""
+    done = {(e.payload["component"], e.payload["requirement"]) for e in ctx.events(types=("CycleClosed", "CycleDropped"))}
+    return [f"{u}/{c}" for u, p in execution(ctx).items() for g in p["units"] for c in g["requirements"] if (u, c) not in done]
 
 
 def _lines(gaps: dict[str, list[int]]) -> str:
@@ -276,8 +280,8 @@ def _lines(gaps: dict[str, list[int]]) -> str:
 def _last_coverage(ctx: Ctx) -> list[Event]:
     last: dict[str, Event] = {}
     for e in ctx.events(types=("CoverageMeasured",)):
-        if "unit" in e.payload:
-            last[e.payload["unit"]] = e
+        if "component" in e.payload:
+            last[e.payload["component"]] = e
     return list(last.values())
 
 
@@ -311,34 +315,35 @@ def corrections_planned(command: Event, output: dict[str, Any], ctx: Ctx) -> lis
 
 
 @closing.policy("CorrectionsPlanned")
-def correct_units(event: Event, ctx: Ctx) -> list[Command]:
+def correct_components(event: Event, ctx: Ctx) -> list[Command]:
     commands = []
     for i, item in enumerate(event.payload["plan"], 1):
         reason = f"the user's correction: {item['description']}"
         if item["agent"] == "unclebob":
-            clauses = item.get("clauses") or sorted({c for t, c in _declared_tests(ctx, item["unit"]).items()})[:1]
-            commands.append(Command("ReopenUnit", "beck", {"unit": item["unit"], "clauses": clauses, "phase": "red",
-                                                           "reason": reason}, stream(item["unit"])))
+            requirements = item.get("requirements") or sorted({c for t, c in _declared_tests(ctx, item["component"]).items()})[:1]
+            commands.append(Command("ReopenComponent", "beck", {"component": item["component"], "requirements": requirements,
+                                                                "phase": "red",
+                                                           "reason": reason}, stream(item["component"])))
         else:
-            commands.append(Command("ReopenForMartin", "beck", {"unit": item["unit"], "id": f"C{i}",
+            commands.append(Command("ReopenForMartin", "beck", {"component": item["component"], "id": f"C{i}",
                                                                 "description": item["description"]},
-                                    stream(item["unit"])))
+                                    stream(item["component"])))
     return commands
 
 
 @closing.handler("ReopenForMartin")
 def handle_reopen_for_martin(command: Event, ctx: Ctx) -> list[Result]:
-    """A correction for martin: the unit reopens with a review holding one finding, the correction."""
+    """A correction for martin: the component reopens with a review holding one finding, the correction."""
     a = command.payload["args"]
-    reopened = handle_reopen_unit(Event(**{**command.__dict__, "payload": {
-        **command.payload, "args": {"unit": a["unit"], "clauses": [], "phase": "green",
+    reopened = handle_reopen_component(Event(**{**command.__dict__, "payload": {
+        **command.payload, "args": {"component": a["component"], "requirements": [], "phase": "green",
                                     "reason": f"the user's correction: {a['description']}"}}}), ctx)
     tree = Path(reopened[0].payload["worktree"])
-    files = _git(tree, "ls-files", "--", *ctx.workspace.scope(a["unit"])).stdout.split()
+    files = _git(tree, "ls-files", "--", *ctx.workspace.scope(a["component"])).stdout.split()
     files.sort(key=lambda f: (tree / f).stat().st_size if (tree / f).is_file() else 0, reverse=True)
     finding = {"id": a["id"], "kind": "readability", "file": files[0] if files else ".",  # a hint: the largest
                "description": a["description"], "proposal": a["description"]}
-    return reopened + [Result("UnitReviewed", {"unit": a["unit"], "findings": [finding], "weak_tests": []})]
+    return reopened + [Result("ComponentReviewed", {"component": a["component"], "findings": [finding], "weak_tests": []})]
 
 
 @closing.policy("ReviewAccepted")
@@ -346,4 +351,4 @@ def close(event: Event, ctx: Ctx) -> list[Command]:
     return [Command("AutosquashBranch", "beck", {"then": "close"}, BRANCH)]
 
 
-workflow = units_machine.merge(closing)
+workflow = components_machine.merge(closing)

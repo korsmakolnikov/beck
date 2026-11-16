@@ -11,9 +11,10 @@ from beck.events.project import Project
 from beck.usage import NUMBERS, Usage, window_of
 
 
-def turn(store, started, agent, command, tokens=(10, 5), ms=2000, model="sonnet", unit="u"):
+def turn(store, started, agent, command, tokens=(10, 5), ms=2000, model="sonnet", component="u"):
     c = store.append("CommandIssued", {"command": command, "target": agent,
-                                       "args": {"session": "s", "context": {}, "unit": unit}}, cause=started, policy="p")
+                                       "args": {"session": "s", "context": {},
+                                                "component": component}}, cause=started, policy="p")
     store.append("AgentTurnEnded", {"agent": agent, "model": model, "duration_ms": ms,
                                     "tokens": {"input": tokens[0], "output": tokens[1], "cache_read": 100}}, cause=c)
     return c
@@ -24,8 +25,8 @@ def recorded(tmp_path):
     project = Project(tmp_path)
     it, store, started = project.start_iteration()
     turn(store, started, "unclebob", "WriteRedTest")
-    c = turn(store, started, "martin", "ReviewUnit", tokens=(1, 2), model="opus")
-    store.append("SignalRejected", {"agent": "martin", "command": "ReviewUnit", "errors": ["e"], "signature": "x"},
+    c = turn(store, started, "martin", "ReviewComponent", tokens=(1, 2), model="opus")
+    store.append("SignalRejected", {"agent": "martin", "command": "ReviewComponent", "errors": ["e"], "signature": "x"},
                  cause=c)
     c = store.append("CommandIssued", {"command": "WriteGreenCode", "target": "unclebob",
                                        "args": {"session": "s", "context": {}}}, cause=started, policy="q")
@@ -40,7 +41,7 @@ def test_the_turns_are_projected_per_agent_model_and_command(recorded):
     assert usage.catch_up(store, it) == 4
     rows = {(r["agent"], r["command"]): r for r in usage.by(it, "command")}
     assert rows[("unclebob", "WriteRedTest")]["input"] == 10 and rows[("unclebob", "WriteRedTest")]["ms"] == 2000
-    assert rows[("martin", "ReviewUnit")]["turns"] == 1 and rows[("martin", "ReviewUnit")]["rejected"] == 1
+    assert rows[("martin", "ReviewComponent")]["turns"] == 1 and rows[("martin", "ReviewComponent")]["rejected"] == 1
     assert rows[("unclebob", "WriteGreenCode")]["failed"] == 1
     models = {(r["agent"], r["model"]) for r in usage.by(it, "agent")}
     assert models == {("unclebob", "sonnet"), ("martin", "opus")}   # a rejected or failed turn: its agent's model

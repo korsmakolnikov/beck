@@ -53,8 +53,8 @@ def _the_run(root: Path, runs: list[Event], test: str) -> tuple[Event | None, Ve
 
 def verify_red(root: Path, runs: list[Event], test: str, store_root: Path | None = None,
                accept_pass: bool = False) -> Verdict:
-    """root: the unit's worktree; store_root: where the reports are (default: root). accept_pass: a test that
-    passes proves the clause (the integration unit's, over components already implemented)."""
+    """root: the component's worktree; store_root: where the reports are (default: root). accept_pass: a test that
+    passes proves the requirement (the integration component's, over components already implemented)."""
     run, refused = _the_run(root, runs, test)
     if refused:
         return refused
@@ -87,7 +87,7 @@ def _collection_error(message: str) -> bool:
 
 def verify_green(root: Path, runs: list[Event], test: str, scope: list[str],
                  store_root: Path | None = None) -> Verdict:
-    """scope: the paths the unit may change (its component's directories); tests may not change."""
+    """scope: the paths the component may change (its component's directories); tests may not change."""
     run, refused = _the_run(root, runs, test)
     if refused:
         return refused
@@ -107,6 +107,6 @@ def verify_green(root: Path, runs: list[Event], test: str, scope: list[str],
                        tuple(f"test changed {f}" for f in tests), run=run.id)
     outside = [f for f in changed if not any(f == s or f.startswith(s.rstrip("/") + "/") for s in scope)]
     if outside:
-        return Verdict(False, f"outside the unit's scope: {', '.join(outside)}",
+        return Verdict(False, f"outside the component's scope: {', '.join(outside)}",
                        tuple(f"outside {f}" for f in outside), run=run.id)
     return Verdict(True, "green", run=run.id)

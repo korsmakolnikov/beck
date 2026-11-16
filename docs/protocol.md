@@ -40,7 +40,7 @@ schemas, is in [`src/beck/agents/examples.yaml`](../src/beck/agents/examples.yam
   agent never reports the files it changed (git knows), whether the tests
   passed (the `TestsRun` knows), or a narrative of its work. The output
   carries only the decisions beck cannot derive: which test proves a
-  clause, which findings a refactor addresses, what to ask the user.
+  requirement, which findings a refactor addresses, what to ask the user.
 * `run` and `check` in a context are the exact commands to run the tests
   and the checks of the step; the agent uses them as they are.
 
@@ -49,8 +49,8 @@ schemas, is in [`src/beck/agents/examples.yaml`](../src/beck/agents/examples.yam
 | Agent | Session | First turn | Later turns |
 |---|---|---|---|
 | kent | one per state of the model (fresh context each) and per proposal | the state's context | the answers to its questions |
-| unclebob | one per group | the group's context (`beck index context`) | only the clause of the next cycle |
-| martin | one per unit, from `ReviewUnit` to the landing | the unit | the next command |
+| unclebob | one per unit | the unit's context (`beck index context`) | only the requirement of the next cycle |
+| martin | one per component, from `ReviewComponent` to the landing | the component | the next command |
 | reader | one per summary | the log | none |
 | argyris | its own, interactive, with the user (`beck audit --wake`) | the outbox's pending records | none: the user talks to it; the answer goes to `beck audit --settle` |
 
@@ -68,29 +68,29 @@ schemas, is in [`src/beck/agents/examples.yaml`](../src/beck/agents/examples.yam
 | kent | `WriteArchitecture` | `DomainApproved`, `ArchitectureInvalid`, `ArchitectureRevised` (3) | done, question |
 | kent | `WriteInterfaces` | `ArchitectureValidated`, `InterfacesBroken`, `FitnessFunctionsFailed` (3) | done, question |
 | kent | `WriteFitnessFunctions` | untranslated rules (3) | done |
-| kent | `AnchorIds` | unanchored operations (3) | done |
+| kent | `AnchorIds` | unanchored morphisms (3) | done |
 | kent | `VerifyIndex` | `IndexMarkedDirty` (cross-cutting) | done |
-| kent | `ProposeResolution` (makes the changes in the feature branch's tree, uncommitted) | `DependentsParked`, `ResolutionRejected` (4) | done, question |
+| kent | `ProposeRestart` (makes the changes in the feature branch's tree, uncommitted) | `DependentsParked`, `RestartRejected` (4) | done, question |
 | kent | `PlanCorrections` | `CorrectionsRequested` (6) | done, question |
 | kent | `WireCoverage` (finds or adds the coverage tool, wires the toolchain) | `CoverageUnwired`, once (2) | done, question |
 | kent | `RouteDecision` (the user's words to one action of beck's menu) | `QuestionAnswered` of beck's own question (2, 6, any failing turn) | done, question |
-| unclebob | `WriteRedTest` | `GroupOpened`, `CycleClosed`, `RedRejected` (4) | done, change_requested |
+| unclebob | `WriteRedTest` | `UnitOpened`, `CycleClosed`, `RedRejected` (4) | done, change_requested |
 | unclebob | `WriteGreenCode` | `RedCommitted`, `FailureSummarised` (4) | done, change_requested |
-| unclebob | `CoverLines` (tests that run the lines a clause names, passing at once) | `CoverageGapsFound`, once per unit (5) | done, change_requested |
-| martin | `ReviewUnit` | `UnitMeasured` (5) | done, change_requested |
-| martin | `RefactorUnit` (findings, or weak tests to strengthen) | `UnitReviewed`, `RefactorCommitted`, `RefactorRejected` (5) | done, change_requested |
+| unclebob | `CoverLines` (tests that run the lines a requirement names, passing at once) | `CoverageGapsFound`, once per component (5) | done, change_requested |
+| martin | `ReviewComponent` | `ComponentMeasured` (5) | done, change_requested |
+| martin | `RefactorComponent` (findings, or weak tests to strengthen) | `ComponentReviewed`, `RefactorCommitted`, `RefactorRejected` (5) | done, change_requested |
 | martin | `ResolveConflict` | `LandingConflicted` (5) | done, change_requested |
-| martin | `FixStaticFindings` | `StaticChecksFailed` (6), and a unit's `ChecksRun` (5) | done, change_requested |
+| martin | `FixStaticFindings` | `StaticChecksFailed` (6), and a component's `ChecksRun` (5) | done, change_requested |
 | reader | `SummariseOutput` | a `TestsRun` or `ChecksRun` beck could not read | done |
 | argyris | `ReviewViolations` (each with the files of the rule it breaks) | the outbox's reader (`beck audit --wake`), not a policy: argyris needs the user | done |
 
 ## Decided in review (2026-11-13)
 
 * **beck runs a step's tests itself when a policy asks for them** (the
-  unit's tests, the full suite): beck is deterministic and does nothing of
+  component's tests, the full suite): beck is deterministic and does nothing of
   its own accord, so a turn of martin only to run a command is waste.
   unclebob still runs its cycle's test, through `beck test`.
-* **A weak test is martin's to fix** (`RefactorUnit` with `weak_tests`,
+* **A weak test is martin's to fix** (`RefactorComponent` with `weak_tests`,
   phase `strengthen`), under the three laws of TDD: the test first; if it
   turns red, then the code. No state machine for it; smart_audit checks the
   order from the tool calls.

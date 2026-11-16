@@ -9,19 +9,19 @@ from beck.machine import user
 
 def test_the_project_overrides_the_global_file_which_overrides_the_defaults(tmp_path):
     g = tmp_path / "global.yml"
-    g.write_text("units_in_parallel: 8\nmodels: {kent: sonnet}\n")
+    g.write_text("components_in_parallel: 8\nmodels: {kent: sonnet}\n")
     (tmp_path / ".beck").mkdir()
-    (tmp_path / ".beck/config.yml").write_text("units_in_parallel: 2\n")
+    (tmp_path / ".beck/config.yml").write_text("components_in_parallel: 2\n")
     c = config.load(tmp_path, g)
-    assert c["units_in_parallel"] == 2
+    assert c["components_in_parallel"] == 2
     assert c["models"] == {"kent": "sonnet", "unclebob": "sonnet", "martin": "sonnet", "reader": "haiku"}
     assert c["limits"] == {"times": 3, "attempts": 30}
 
 
 @pytest.mark.parametrize("text, message", [
-    ("units_in_parallel: many\n", "`units_in_parallel` must be a int"),
+    ("components_in_parallel: many\n", "`components_in_parallel` must be a int"),
     ("colour: red\n", "unknown setting `colour`"),
-    ("units_in_parallel: 0\n", "at least 1"),
+    ("components_in_parallel: 0\n", "at least 1"),
     ("- a list\n", "a mapping is expected"),
 ])
 def test_a_wrong_configuration_is_refused(tmp_path, text, message):
@@ -52,13 +52,13 @@ def test_an_approval_is_yes_or_instructions(store):
 
 
 def test_the_review_shows_its_notes_before_the_commits(store):
-    # the session of 2026-11-16: the notes named three stubs left, after a long list of commits the TUI's main
+    # the session of 2026-11-16: the notes named three unimplemented left, after a long list of commits the TUI's main
     # panel cut: the review looked clean
     review = command(store, "PresentForReview", commits=[f"c{i} commit" for i in range(20)],
-                     notes=["a stub no cycle implemented: src/a.py:3"])
+                     notes=["an unimplemented no cycle implemented: src/a.py:3"])
     lines = user.prompt(review).splitlines()
     assert lines[:3] == ["Review the branch (yes to close the iteration, or the corrections):", "To look at:",
-                         "- a stub no cycle implemented: src/a.py:3"]
+                         "- an unimplemented no cycle implemented: src/a.py:3"]
     assert lines[3] == "c0 commit"
 
 

@@ -88,9 +88,16 @@ events, the DSLs and the prompts change with it.
 * **Read model**: a table derived from the events, dropped and projected
   again at will (e.g. `usage_turns`, `usage`, `usage_window`).
 * **Evidence**: what proves a phase of a cycle (a `TestsRun`, a commit).
-  beck produces it: when an agent's output says a test is red, the command
-  handler runs the test itself. The `beck test` an agent runs in its turn
-  only shows the result and writes nothing.
+  beck produces it, and the tests run once: an agent's `beck test` (or
+  `beck check`) is a client of the session's socket. It sends the command
+  to the session running in its folder; beck runs the tests inside, records
+  the `TestsRun`, reads the result (the JUnit summary, haiku when it cannot)
+  and sends it back through the socket; the agent goes on with it.
+* **Socket**: `.beck/beck.sock`, served by the session running in the
+  folder. The dashboard attaches to it (an handshake names the read models'
+  database and the log; then a signal says "read again"); the agents send
+  their commands through it (`beck send`). A step towards one daemon for
+  every session.
 * **Recovery**: after a crash beck rebuilds its state from the events
   (`apply`), without running the policies again. A turn started
   (`AgentTurnStarted`) whose output never came back is in flight: beck puts

@@ -29,7 +29,7 @@ command and with the same context as before.
 * Change files only with Edit and Write: never with the shell (`sed -i`, a
   heredoc, `python -`, `rm`); beck records the changes of every turn. To
   delete a file, `git rm` it when your tools allow it (kent in a
-  resolution, martin in a refactor).
+  restart, martin in a refactor).
 * When the step cannot be done as asked (an interface lacks a datum, an
   error case is missing, the architecture forbids what the step needs),
   answer `change_requested` with the change; never work around it.
@@ -43,7 +43,7 @@ Every text you write is short: the user reads hundreds of them.
   beck refuses a longer one.
 * A docstring, for a module, a class, a function: first what it does, in
   one sentence, two at most; then why it exists, in one sentence, two at
-  most. A domain requirement is cited by its id and its name in the DSL
+  most. A domain requirement is referenced by its id and its name in the DSL
   (`spec: <id>`, the name, a few words): the DSLs are the documentation,
   never restate them. Then an example of use: a doctest for a pure
   function where the stack has them (Python, Elixir), a plain example

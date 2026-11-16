@@ -34,14 +34,14 @@ def test_the_example_is_valid(domain, arch):
 @pytest.mark.parametrize(
     "mutate, expected",
     [
-        (lambda d: d["operations"][0]["post"].__setitem__(0, "The bookmark carries tags."), "operations[0].post[0]"),
-        (lambda d: d["operations"][0].pop("uses"), "'uses' is a required property"),
-        (lambda d: d["operations"][0]["uses"].append("Ghost"), "operations[0].uses[3]: no entity named 'Ghost'"),
-        (lambda d: d["operations"][0]["emits"].append("Ghost"), "no event named 'Ghost'"),
+        (lambda d: d["morphisms"][0]["post"].__setitem__(0, "The bookmark carries tags."), "morphisms[0].post[0]"),
+        (lambda d: d["morphisms"][0].pop("uses"), "'uses' is a required property"),
+        (lambda d: d["morphisms"][0]["uses"].append("Ghost"), "morphisms[0].uses[3]: no entity named 'Ghost'"),
+        (lambda d: d["morphisms"][0]["emits"].append("Ghost"), "no event named 'Ghost'"),
         (lambda d: d["constraints"][0]["about"].append("Ghost"), "constraints[0].about[2]: no entity named 'Ghost'"),
         (lambda d: d["relations"][0].__setitem__("to", "Ghost"), "relations[0].to: no entity named 'Ghost'"),
-        (lambda d: d["properties"][0]["operations"].append("ghost"), "no operation named 'ghost'"),
-        (lambda d: d["operations"][1]["post"][0].__setitem__("id", "tag-bookmark"), "id 'tag-bookmark' is not unique"),
+        (lambda d: d["properties"][0]["morphisms"].append("ghost"), "no morphism named 'ghost'"),
+        (lambda d: d["morphisms"][1]["post"][0].__setitem__("id", "tag-bookmark"), "id 'tag-bookmark' is not unique"),
         (lambda d: d["events"][0].__setitem__("name", "Bookmark"), "name 'Bookmark' is not unique"),
         (lambda d: d["entities"][0]["fields"].append({"name": "id", "type": "integer"}), "field 'id' is not unique"),
     ],
@@ -73,7 +73,7 @@ def store(arch):
         (lambda a: a["assertions"][0]["no_dependency"].__setitem__("to", "ghost"), "no element with id 'ghost'"),
         (lambda a: a["assertions"][0]["no_dependency"].__setitem__("to", "$c"), "$c is not a variable"),
         (lambda a: a["assertions"][2]["foreach"].__setitem__("within", "storage"), "contains no elements"),
-        (lambda a: tagger(a)["implements"].append("tag-missing-bookmark"), "comes with its operation"),
+        (lambda a: tagger(a)["implements"].append("tag-missing-bookmark"), "comes with its morphism"),
         (lambda a: tagger(a)["implements"].append("ghost"), "no domain id 'ghost'"),
         (lambda a: store(a)["implements"].append("tag-bookmark"), "implemented id 'tag-bookmark' is not unique"),
         (lambda a: a.pop("integration"), "'tagging-is-atomic' is implemented by no component"),
@@ -88,7 +88,7 @@ def test_architecture_problems(domain, arch, mutate, expected):
 
 
 def test_an_invalid_domain_stops_the_architecture(domain, arch):
-    domain["operations"][0]["uses"].append("Ghost")
+    domain["morphisms"][0]["uses"].append("Ghost")
     assert messages(validate_architecture(arch, domain)) == ["<root>: the domain is not valid: validate it first"]
 
 

@@ -8,7 +8,7 @@
     build: [uv, run, python, -m, compileall, -q, src]   # optional: does the code compile
     deps: [mix, deps.get]            # optional: installs the dependencies (python: none, uv run syncs)
     timeout: 300                     # optional: seconds a test run may take before beck stops it
-    doctests: true                   # optional: run the sources' doctests with the unit's tests and the suite
+    doctests: true                   # optional: run the sources' doctests with the component's tests and the suite
     coverage:                        # optional: how to measure the coverage
       format: coverage.py            # coverage.py | excoveralls | lcov: how beck reads the report
       args: ["--cov={path}", "--cov-report=json:{coverage}"]   # added to the test command
@@ -20,7 +20,7 @@
       - name: ruff
         command: [uv, run, ruff, check, --output-format, json, "{paths}"]
         format: ruff                 # ruff | mypy | credo | text: how beck reads the output
-        scope: paths                 # paths (per unit) | project (only with beck check --all)
+        scope: paths                 # paths (per component) | project (only with beck check --all)
 
 A list as `coverage` is its `args`, with the coverage.py format. In the
 coverage's args and command, "{path}" expands to one argument per path
@@ -176,7 +176,7 @@ class Toolchain:
 
 
 # the body kent gives every interface ("no logic: every body raises not implemented"), per language
-STUBS = {"python": ("raise NotImplementedError", ".py"), "elixir": ('raise "not implemented"', ".ex")}
+UNIMPLEMENTED = {"python": ("raise NotImplementedError", ".py"), "elixir": ('raise "not implemented"', ".ex")}
 
 
 def load(root: Path) -> Toolchain:

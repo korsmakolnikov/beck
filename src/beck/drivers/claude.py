@@ -3,7 +3,7 @@
 * Every beck session (an agent and a session key, in an iteration) is one
   Claude Code session, with a stable uuid: the first turn starts it
   (`--session-id`), the next ones resume it (`--resume`), so unclebob keeps
-  its group's context and martin its unit's.
+  its unit's context and martin its component's.
 * The agent's definition is built from its file (`beck/agents/prompts/`), the
   common protocol and the examples of its commands' outputs
   (`beck/agents/examples.yaml`): the prompt cannot drift from the schemas.
@@ -117,7 +117,7 @@ class ClaudeCode:
     docs: Path | None = None              # beck's documentation, added to the sessions (the DSLs' manifest)
 
     def __post_init__(self) -> None:
-        self.project = self.project.resolve()  # the turns run in the units' worktrees: no path relative to the root
+        self.project = self.project.resolve()  # the turns run in the components' worktrees: no path relative to the root
 
     def _agents_file(self) -> Path:
         path = self.project / ".beck" / "agents.json"

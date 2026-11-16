@@ -4,7 +4,7 @@
     │ turns · failed · rejected · tokens in/out · cache · time · tokens per turn         │
     │ per agent and model: the same numbers                                              │
     │ tokens per window (usage.window_minutes), a bar per window, a colour per agent     │
-    │ the ledger's last rows: time, event, agent, command, unit, tokens, s, event id     │
+    │ the ledger's last rows: time, event, agent, command, component, tokens, s, event id     │
     └────────────────────────────────────────────────────────────────────────────────────┘
 
 It wakes on the ledger, the projection's outbox: every tick it projects what beck appended (so it works on
@@ -90,12 +90,12 @@ def _feed(usage: Usage, iteration: str, colour: dict[str, str]) -> RenderableTyp
     rows = list(usage.events(iteration))[-FEED:]
     table = Table(expand=True, box=None, header_style="bold", title_justify="left",
                   title=f"the last turns (the ledger); what made one: beck trace {iteration[:8]} <event id>")
-    for col in ("time", "event", "agent", "command", "unit", "tokens", "s", "event id"):
+    for col in ("time", "event", "agent", "command", "component", "tokens", "s", "event id"):
         table.add_column(col)
     for r in reversed(rows):
         kind = {"AgentTurnEnded": "ended", "AgentTurnFailed": "failed", "SignalRejected": "rejected"}[r["kind"]]
         table.add_row(r["at"][11:19], Text(kind, style="red" if kind != "ended" else ""),
-                      Text(r["agent"], style=colour.get(r["agent"], "")), r["command"], r["unit"] or "-",
+                      Text(r["agent"], style=colour.get(r["agent"], "")), r["command"], r["component"] or "-",
                       f"{tokens(r):,}" if r["turns"] else "-", str(r["ms"] // 1000) if r["turns"] else "-",
                       r["event_id"][:8])
     return table

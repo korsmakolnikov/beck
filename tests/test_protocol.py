@@ -37,8 +37,8 @@ def test_a_retry_carries_the_reason():
 
 @pytest.mark.parametrize("agent, command, context, message", [
     ("unclebob", "Nope", {}, "unclebob has no command 'Nope'"),
-    ("unclebob", "WriteRedTest", {"clause": "c"}, "context.<root>: 'run' is a required property"),
-    ("unclebob", "WriteRedTest", {"clause": "c", "run": "r", "extra": 1}, "Additional properties"),
+    ("unclebob", "WriteRedTest", {"requirement": "c"}, "context.<root>: 'run' is a required property"),
+    ("unclebob", "WriteRedTest", {"requirement": "c", "run": "r", "extra": 1}, "Additional properties"),
     ("ghost", "WriteRedTest", {}, "agent"),
 ])
 def test_beck_never_sends_a_wrong_input(agent, command, context, message):
@@ -53,7 +53,7 @@ def test_beck_never_sends_a_wrong_input(agent, command, context, message):
     ("kent", "AnchorIds", {"outcome": "change_requested",
                            "change": {"kind": "interface", "target": "x", "problem": "p", "proposal": "q"}},
      "'done' was expected"),
-    ("martin", "RefactorUnit", {"outcome": "done", "result": {"phase": "blue", "addressed": ["F1"]}}, "'blue'"),
+    ("martin", "RefactorComponent", {"outcome": "done", "result": {"phase": "blue", "addressed": ["F1"]}}, "'blue'"),
     ("kent", "WriteDomain", {"outcome": "question"}, "'question' is a required property"),
     ("kent", "WriteDomain", {"outcome": "done", "question": {"text": "t", "why": "w"}}, "should not be valid"),
     ("kent", "AskFollowUps", {"outcome": "done", "result": {"questions": []}, "chat": "hi"}, "Additional properties"),
@@ -65,8 +65,8 @@ def test_a_wrong_output_is_rejected_with_its_errors(agent, command, body, messag
 
 
 def test_an_answer_to_another_command_is_rejected():
-    checked = protocol.check_output("martin", "ResolveConflict", out("ReviewUnit", {"outcome": "done"}))
-    assert checked.errors == ["command: the answer is for 'ReviewUnit', not 'ResolveConflict'"]
+    checked = protocol.check_output("martin", "ResolveConflict", out("ReviewComponent", {"outcome": "done"}))
+    assert checked.errors == ["command: the answer is for 'ReviewComponent', not 'ResolveConflict'"]
 
 
 def test_only_kent_asks_the_user(monkeypatch):
@@ -91,11 +91,11 @@ def test_an_answer_does_not_resend_the_context():
 
 
 def test_martin_strengthens_weak_tests_or_addresses_findings():
-    weak = {"test": "test/a_test.exs:3", "clause": "c", "why": "It asserts nothing."}
-    protocol.envelope("martin", "RefactorUnit", *CAUSE, {"weak_tests": [weak], "run": "r", "check": "c"})
+    weak = {"test": "test/a_test.exs:3", "requirement": "c", "why": "It asserts nothing."}
+    protocol.envelope("martin", "RefactorComponent", *CAUSE, {"weak_tests": [weak], "run": "r", "check": "c"})
     with pytest.raises(protocol.ProtocolError, match="minProperties|does not have enough properties"):
-        protocol.envelope("martin", "RefactorUnit", *CAUSE, {"run": "r", "check": "c"})
-    checked = protocol.check_output("martin", "RefactorUnit", out("RefactorUnit", {
+        protocol.envelope("martin", "RefactorComponent", *CAUSE, {"run": "r", "check": "c"})
+    checked = protocol.check_output("martin", "RefactorComponent", out("RefactorComponent", {
         "outcome": "done", "result": {"phase": "strengthen", "addressed": ["test/a_test.exs:3"]}}))
     assert checked.errors == []
 
@@ -104,13 +104,13 @@ LONG = "One. Two. Three."
 
 
 @pytest.mark.parametrize("agent, command, body, message", [
-    ("kent", "ProposeResolution", {"outcome": "done", "result": {
-        "subject": "s", "summary": LONG, "changes": "c", "units": []}}, "result.summary: at most 2 sentences"),
-    ("kent", "ProposeResolution", {"outcome": "done", "result": {
-        "subject": "x" * 73, "summary": "s.", "changes": "c", "units": []}}, "result.subject: at most 72 characters"),
-    ("kent", "ProposeResolution", {"outcome": "done", "result": {
-        "subject": "One. Two.", "summary": "s.", "changes": "c", "units": []}}, "result.subject: one sentence"),
-    ("kent", "ProposeResolution", {"outcome": "done", "result": {"summary": "s.", "changes": "c", "units": []}},
+    ("kent", "ProposeRestart", {"outcome": "done", "result": {
+        "subject": "s", "summary": LONG, "changes": "c", "components": []}}, "result.summary: at most 2 sentences"),
+    ("kent", "ProposeRestart", {"outcome": "done", "result": {
+        "subject": "x" * 73, "summary": "s.", "changes": "c", "components": []}}, "result.subject: at most 72 characters"),
+    ("kent", "ProposeRestart", {"outcome": "done", "result": {
+        "subject": "One. Two.", "summary": "s.", "changes": "c", "components": []}}, "result.subject: one sentence"),
+    ("kent", "ProposeRestart", {"outcome": "done", "result": {"summary": "s.", "changes": "c", "components": []}},
      "'subject' is a required property"),
     ("unclebob", "WriteGreenCode", {"outcome": "change_requested", "change": {
         "kind": "test", "target": "x", "problem": LONG, "proposal": "q"}}, "change.problem: at most 2 sentences"),
@@ -123,11 +123,11 @@ def test_free_text_is_brief(agent, command, body, message):
     assert checked.output is None and any(message in e for e in checked.errors), checked.errors
 
 
-def test_a_resolution_can_be_about_a_test(monkeypatch):
-    # the session of 2026-11-16: martin asked for a change of kind test, and the ProposeResolution beck sent kent
+def test_a_restart_can_be_about_a_test(monkeypatch):
+    # the session of 2026-11-16: martin asked for a change of kind test, and the ProposeRestart beck sent kent
     # broke kent's input schema
-    doc = protocol.envelope("kent", "ProposeResolution", *CAUSE,
-                            {"kind": "test", "details": {"agent": "martin", "unit": "u", "target": "t",
+    doc = protocol.envelope("kent", "ProposeRestart", *CAUSE,
+                            {"kind": "test", "details": {"agent": "martin", "component": "u", "target": "t",
                                                          "problem": "p", "proposal": "q"}})
     assert doc["context"]["kind"] == "test"
 
@@ -150,6 +150,6 @@ def test_a_duplication_is_a_finding():
     # the session of 2026-11-15: martin found duplicated code, a kind its schema did not have
     finding = {"id": "F1", "kind": "duplication", "file": "src/a.py", "line": 1, "description": "d.",
                "proposal": "p."}
-    checked = protocol.check_output("martin", "ReviewUnit", out("ReviewUnit", {
+    checked = protocol.check_output("martin", "ReviewComponent", out("ReviewComponent", {
         "outcome": "done", "result": {"findings": [finding], "weak_tests": []}}))
     assert checked.errors == []

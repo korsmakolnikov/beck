@@ -32,7 +32,7 @@ def start(repo, runs=2):
     project = Project(repo)
     it, store, _ = project.start_iteration()
     for _ in range(runs):   # the agent's runs and beck's verification, on the same tree
-        run_tests(repo, load(repo), [TEST, STEADY], actor="unclebob", unit="u", iteration=it.id)
+        run_tests(repo, load(repo), [TEST, STEADY], actor="unclebob", component="u", iteration=it.id)
     ctx = Ctx(store, repo, it.id, Workspace({"u": repo}, {"u": ["src/pkg"]}, {}), flakiness=(3, 4))
     return Reactor(ctx, flaky, None), store
 
@@ -42,19 +42,19 @@ def test_mixed_results_on_one_tree_are_hunted_alone_and_found(repo):
     reactor, store = start(repo)
     asyncio.run(reactor.run_until_idle())
     [found] = store.read(types_=("FlakyTestFound",))
-    assert found.payload == {"test": TEST, "stage": "alone", "unit": "u",
+    assert found.payload == {"test": TEST, "stage": "alone", "component": "u",
                              "evidence": "alone: 3 of 4 runs passed, on one tree"}
     hunts = [e.payload["args"]["test"] for e in store.read(types_=("CommandIssued",))]
     assert hunts == [TEST]                       # the steady test is not hunted, nor the hunt's own runs
     assert not (repo / ".beck/worktrees").exists() or not any((repo / ".beck/worktrees").iterdir())
 
 
-def test_steady_results_escalate_to_the_unit_then_ask_for_the_suite(repo):
+def test_steady_results_escalate_to_the_component_then_ask_for_the_suite(repo):
     scheduled(repo, "PF" + "PPPP" + "PPPP" + "PPFP")
     reactor, store = start(repo)
-    store.append("RedVerified", {"unit": "u", "clause": "c", "test": TEST, "run": "r"})
+    store.append("RedVerified", {"component": "u", "requirement": "c", "test": TEST, "run": "r"})
     asyncio.run(reactor.run_until_idle())
-    assert [e.payload["stage"] for e in store.read(types_=("FlakinessUnsure",))] == ["alone", "unit"]
+    assert [e.payload["stage"] for e in store.read(types_=("FlakinessUnsure",))] == ["alone", "component"]
     [ask] = [c for c in reactor.pending() if c.payload["target"] == "user"]
     assert ask.payload["command"] == "ApproveSuiteRuns" and "run the whole suite 4 times" in user.prompt(ask)
     reactor.answer(ask.id, user.answer(ask, "yes"))
@@ -68,7 +68,7 @@ def test_a_refused_suite_leaves_it_unresolved(repo):
     reactor, store = start(repo)
     asyncio.run(reactor.run_until_idle())
     assert [e.payload["stage"] for e in store.read(types_=("FlakinessUnsure",))] == ["alone"]
-    [ask] = [c for c in reactor.pending() if c.payload["target"] == "user"]   # no unit tests: straight to the user
+    [ask] = [c for c in reactor.pending() if c.payload["target"] == "user"]   # no component tests: straight to the user
     reactor.answer(ask.id, user.answer(ask, "no"))
     asyncio.run(reactor.run_until_idle())
     assert [e.type for e in store.read(types_=("FlakinessUnresolved", "FlakyTestFound"))] == ["FlakinessUnresolved"]
@@ -78,6 +78,6 @@ def test_a_failure_after_a_change_is_no_flakiness(repo):
     scheduled(repo, "P")
     reactor, store = start(repo, runs=1)
     (repo / "tests/test_flaky.py").write_text((repo / "tests/test_flaky.py").read_text().replace("== 'P'", "== 'X'"))
-    run_tests(repo, load(repo), [TEST], actor="unclebob", unit="u", iteration=reactor.ctx.iteration)
+    run_tests(repo, load(repo), [TEST], actor="unclebob", component="u", iteration=reactor.ctx.iteration)
     asyncio.run(reactor.run_until_idle())
     assert not [e for e in store.read(types_=("CommandIssued",))]

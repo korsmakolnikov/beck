@@ -1,7 +1,7 @@
 """From the graph to the sessions (docs/dsl.md, "From the graph to the sessions").
 
-unit = a component (+ the integration unit); group = an owner with its clauses,
-one unclebob session; cycle = one clause.
+component = a component (+ the integration component); unit = an owner with its requirements,
+one unclebob session; cycle = one requirement.
 """
 
 from __future__ import annotations
@@ -12,19 +12,19 @@ from typing import Any
 
 from beck.index.store import INTEGRATION, data
 
-# inside a group, from the particular to the general
-_CLAUSE_ORDER = {"invariant": 0, "rule": 1, "post": 2, "error": 3, "property": 4, "constraint": 5}
+# inside a unit, from the particular to the general
+_REQUIREMENT_ORDER = {"invariant": 0, "rule": 1, "post": 2, "error": 3, "property": 4, "constraint": 5}
 
 
 @dataclass(frozen=True)
-class Group:
-    id: str            # entity:<Name> | operation:<id> | model
-    owner: str | None  # the entity or the operation; None for the model group
-    clauses: tuple[str, ...]
+class Unit:
+    id: str            # model:<Name> | morphism:<id> | model
+    owner: str | None  # the entity or the morphism; None for the component unit
+    requirements: tuple[str, ...]
 
 
-def units(conn: sqlite3.Connection) -> list[str]:
-    """The components in landing order (dependencies first); the integration unit last, when it has work."""
+def components(conn: sqlite3.Connection) -> list[str]:
+    """The components in landing order (dependencies first); the integration component last, when it has work."""
     components = [r["id"] for r in conn.execute(
         "SELECT id FROM node WHERE kind = 'component' AND id != ? ORDER BY rowid", (INTEGRATION,))]
     deps = {c: [r["dst"] for r in conn.execute(
@@ -61,48 +61,48 @@ def shared_files(conn: sqlite3.Connection) -> dict[str, list[str]]:
 
 
 def exclusive(conn: sqlite3.Connection) -> set[frozenset[str]]:
-    """The pairs of units that must not run in parallel: they share a file."""
+    """The pairs of components that must not run in parallel: they share a file."""
     pairs: set[frozenset[str]] = set()
     for components in shared_files(conn).values():
         pairs |= {frozenset((a, b)) for i, a in enumerate(components) for b in components[i + 1:]}
     return pairs
 
 
-def _implemented(conn: sqlite3.Connection, unit: str) -> list[sqlite3.Row]:
+def _implemented(conn: sqlite3.Connection, component: str) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT n.* FROM edge e JOIN node n ON n.id = e.dst "
-        "WHERE e.src = ? AND e.kind = 'implements' ORDER BY n.rowid", (unit,)).fetchall()
+        "WHERE e.src = ? AND e.kind = 'implements' ORDER BY n.rowid", (component,)).fetchall()
 
 
 def _sorted(rows: list[sqlite3.Row]) -> tuple[str, ...]:
-    return tuple(r["id"] for r in sorted(rows, key=lambda r: _CLAUSE_ORDER[r["subkind"]]))
+    return tuple(r["id"] for r in sorted(rows, key=lambda r: _REQUIREMENT_ORDER[r["subkind"]]))
 
 
-def groups(conn: sqlite3.Connection, unit: str) -> list[Group]:
-    implemented = _implemented(conn, unit)
-    clauses = [r for r in implemented if r["kind"] == "clause"]
-    operations = [r["id"] for r in implemented if r["kind"] == "operation"]
-    out: list[Group] = []
+def units(conn: sqlite3.Connection, component: str) -> list[Unit]:
+    implemented = _implemented(conn, component)
+    requirements = [r for r in implemented if r["kind"] == "requirement"]
+    morphisms = [r["id"] for r in implemented if r["kind"] == "morphism"]
+    out: list[Unit] = []
     entities = [r["id"] for r in conn.execute("SELECT id FROM node WHERE kind = 'entity' ORDER BY rowid")]
     for entity in entities:
-        mine = [c for c in clauses if c["owner"] == entity]
+        mine = [c for c in requirements if c["owner"] == entity]
         if mine:
-            out.append(Group(f"entity:{entity}", entity, _sorted(mine)))
-    for op in operations:
-        mine = [c for c in clauses if c["owner"] == op]
+            out.append(Unit(f"model:{entity}", entity, _sorted(mine)))
+    for op in morphisms:
+        mine = [c for c in requirements if c["owner"] == op]
         if mine:
-            out.append(Group(f"operation:{op}", op, _sorted(mine)))
-    model = [c for c in clauses if c["owner"] is None]
-    if model:
-        out.append(Group("model", None, _sorted(model)))
+            out.append(Unit(f"morphism:{op}", op, _sorted(mine)))
+    own = [c for c in requirements if c["owner"] is None]   # the component's own: spanning several entities
+    if own:
+        out.append(Unit("component", None, _sorted(own)))
     return out
 
 
-def group(conn: sqlite3.Connection, unit: str, group_id: str) -> Group:
-    for g in groups(conn, unit):
-        if g.id == group_id:
+def unit(conn: sqlite3.Connection, component: str, unit_id: str) -> Unit:
+    for g in units(conn, component):
+        if g.id == unit_id:
             return g
-    raise KeyError(f"unit {unit!r} has no group {group_id!r}")
+    raise KeyError(f"component {component!r} has no unit {unit_id!r}")
 
 
 def _node(conn: sqlite3.Connection, id_: str) -> sqlite3.Row:
@@ -121,27 +121,27 @@ def _tests(conn: sqlite3.Connection, id_: str) -> list[dict[str, Any]]:
         "WHERE e.dst = ? AND e.kind = 'tests' ORDER BY n.id", (id_,))]
 
 
-def context(conn: sqlite3.Connection, unit: str, group_id: str) -> dict[str, Any]:
-    """Everything an unclebob session gets for one group, and nothing else."""
-    g = group(conn, unit, group_id)
-    unit_row = _node(conn, unit)
-    clauses = []
+def context(conn: sqlite3.Connection, component: str, unit_id: str) -> dict[str, Any]:
+    """Everything an unclebob session gets for one unit, and nothing else."""
+    g = unit(conn, component, unit_id)
+    component_row = _node(conn, component)
+    requirements = []
     entity_names: list[str] = []
-    for cid in g.clauses:
+    for cid in g.requirements:
         row = _node(conn, cid)
-        clauses.append({"id": cid, "kind": row["subkind"], "text": row["text"], **data(row),
+        requirements.append({"id": cid, "kind": row["subkind"], "text": row["text"], **data(row),
                         "symbols": _symbols(conn, cid), "tests": _tests(conn, cid)})
         entity_names += [r["dst"] for r in conn.execute(
             "SELECT e.dst FROM edge e JOIN node n ON n.id = e.dst "
             "WHERE e.src = ? AND e.kind = 'binds' AND n.kind = 'entity'", (cid,))]
 
-    operation = None
-    if g.id.startswith("operation:") and g.owner is not None:
+    morphism = None
+    if g.id.startswith("morphism:") and g.owner is not None:
         op = _node(conn, g.owner)
         entity_names += [r["dst"] for r in conn.execute(
             "SELECT dst FROM edge WHERE src = ? AND kind = 'uses'", (op["id"],))]
         info = data(op)
-        operation = {"id": op["id"], "description": op["text"], "pre": info["pre"],
+        morphism = {"id": op["id"], "description": op["text"], "pre": info["pre"],
                      "emits": [_event(conn, name) for name in info["emits"]],
                      "symbols": _symbols(conn, op["id"])}
     elif g.owner is not None:
@@ -156,21 +156,21 @@ def context(conn: sqlite3.Connection, unit: str, group_id: str) -> dict[str, Any
 
     dependencies = []
     for r in conn.execute("SELECT n.* FROM edge e JOIN node n ON n.id = e.dst "
-                          "WHERE e.src = ? AND e.kind = 'depends_on' ORDER BY n.rowid", (unit,)):
+                          "WHERE e.src = ? AND e.kind = 'depends_on' ORDER BY n.rowid", (component,)):
         info = data(r)
         ops = [{"id": o["id"], "description": o["text"], "symbols": _symbols(conn, o["id"])}
-               for o in _implemented(conn, r["id"]) if o["kind"] == "operation"]
+               for o in _implemented(conn, r["id"]) if o["kind"] == "morphism"]
         dependencies.append({"id": r["id"], "kind": r["kind"], "namespace": info["namespace"],
-                             "boundary": info.get("boundary"), "operations": ops})
+                             "boundary": info.get("boundary"), "morphisms": ops})
 
-    unit_info = data(unit_row)
-    sources = sorted({s["file"] for c in [operation or {}] + clauses for s in c.get("symbols", [])})
-    tests = sorted({t["file"] for c in clauses for t in c["tests"]})
+    component_info = data(component_row)
+    sources = sorted({s["file"] for c in [morphism or {}] + requirements for s in c.get("symbols", [])})
+    tests = sorted({t["file"] for c in requirements for t in c["tests"]})
     return {
-        "unit": {"id": unit, "namespace": unit_info["namespace"], "boundary": unit_info.get("boundary")},
-        "group": g.id,
-        "operation": operation,
-        "clauses": clauses,
+        "component": {"id": component, "namespace": component_info["namespace"], "boundary": component_info.get("boundary")},
+        "unit": g.id,
+        "morphism": morphism,
+        "requirements": requirements,
         "entities": entities,
         "dependencies": dependencies,
         "files": {"source": sources, "tests": tests},

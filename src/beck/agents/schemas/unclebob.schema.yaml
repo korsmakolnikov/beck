@@ -2,15 +2,15 @@ $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://beck.local/agents/unclebob.schema.yaml
 title: unclebob's commands
 description: >-
-  One session per group; its first turn carries the group's context (the
-  output of beck index context), the later turns only the clause of the
+  One session per unit; its first turn carries the unit's context (the
+  output of beck index context), the later turns only the requirement of the
   cycle. unclebob writes files and runs `beck test`; beck commits.
 
 $defs:
-  group:
-    description: The group's context, from the index (beck.index.plan.context).
+  unit:
+    description: The unit's context, from the index (beck.index.execution.context).
     type: object
-    required: [unit, group, clauses, entities, dependencies, files]
+    required: [component, unit, requirements, entities, dependencies, files]
 
   test:
     description: A runner selector of one test (pytest's path::name, ExUnit's path:line).
@@ -19,15 +19,15 @@ $defs:
 
   WriteRedTest-in:
     type: object
-    required: [clause, run]
+    required: [requirement, run]
     additionalProperties: false
     properties:
-      clause: {$ref: "common.schema.yaml#/$defs/id"}
+      requirement: {$ref: "common.schema.yaml#/$defs/id"}
       run:
         description: The command that runs the cycle's test, to use as is.
         type: string
         minLength: 1
-      group: {$ref: "#/$defs/group"}
+      unit: {$ref: "#/$defs/unit"}
   WriteRedTest-out:
     properties:
       outcome: {enum: [done, change_requested]}
@@ -42,10 +42,10 @@ $defs:
 
   WriteGreenCode-in:
     type: object
-    required: [clause, test, run]
+    required: [requirement, test, run]
     additionalProperties: false
     properties:
-      clause: {$ref: "common.schema.yaml#/$defs/id"}
+      requirement: {$ref: "common.schema.yaml#/$defs/id"}
       test: {$ref: "#/$defs/test"}
       run: {type: string, minLength: 1}
       failure:
@@ -68,14 +68,14 @@ $defs:
 
   CoverLines-in:
     description: >-
-      After the unit's cycles: code the clauses name that no test runs. Write
-      the tests that run it, one or more per clause, each citing its clause;
+      After the component's cycles: code the requirements name that no test runs. Write
+      the tests that run it, one or more per requirement, each referencing its requirement;
       no source file changes. The tests pass at once: that is expected here.
     type: object
-    required: [clauses, run]
+    required: [requirements, run]
     additionalProperties: false
     properties:
-      clauses:
+      requirements:
         type: array
         minItems: 1
         items:
@@ -86,7 +86,7 @@ $defs:
             id: {$ref: "common.schema.yaml#/$defs/id"}
             text: {$ref: "common.schema.yaml#/$defs/text"}
             tests:
-              description: The tests the clause already has.
+              description: The tests the requirement already has.
               type: array
               items: {$ref: "#/$defs/test"}
             lines: {$ref: "#/$defs/lines"}
@@ -100,15 +100,15 @@ $defs:
         additionalProperties: false
         properties:
           tests:
-            description: The tests written, each with the clause it cites.
+            description: The tests written, each with the requirement it references.
             type: array
             minItems: 1
             items:
               type: object
-              required: [test, clause]
+              required: [test, requirement]
               additionalProperties: false
               properties:
                 test: {$ref: "#/$defs/test"}
-                clause: {$ref: "common.schema.yaml#/$defs/id"}
+                requirement: {$ref: "common.schema.yaml#/$defs/id"}
     if: {properties: {outcome: {const: done}}}
     then: {required: [result]}

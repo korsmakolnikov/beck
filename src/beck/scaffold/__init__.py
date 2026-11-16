@@ -60,18 +60,18 @@ def _plan(root: Path, values: dict[str, str]) -> list[tuple[str, str]]:
 def python(project: Path, name: str, python_version: str = "3.12") -> list[str]:
     values = {"PROJECT_NAME": name, "PACKAGE": identifier(name), "PYTHON": python_version,
               "PYTHON_TAG": "py" + python_version.replace(".", ""), "CI_BADGE": ""}
-    planned = _plan(Path(str(TEMPLATES / "python")), values)
-    clash = [d for d, _ in planned if (project / d).exists()]
+    scheduled = _plan(Path(str(TEMPLATES / "python")), values)
+    clash = [d for d, _ in scheduled if (project / d).exists()]
     if clash:
         raise ScaffoldError(f"the scaffold would overwrite {', '.join(clash)}")
-    for dest, text in planned:
+    for dest, text in scheduled:
         (project / dest).parent.mkdir(parents=True, exist_ok=True)
         (project / dest).write_text(text)
     toolchain = project / ".beck" / "toolchain.yml"
     if not toolchain.exists():
         toolchain.parent.mkdir(exist_ok=True)
         toolchain.write_text(PYTHON_TOOLCHAIN)
-    return [d for d, _ in planned]
+    return [d for d, _ in scheduled]
 
 
 def elixir(project: Path, name: str) -> list[str]:
@@ -83,14 +83,14 @@ def elixir(project: Path, name: str) -> list[str]:
         if done.returncode != 0:
             raise ScaffoldError(f"mix new failed: {done.stderr or done.stdout}")
         made = Path(tmp) / app
-        planned = sorted(str(p.relative_to(made)) for p in made.rglob("*") if p.is_file())
-        clash = [d for d in planned if (project / d).exists()]
+        scheduled = sorted(str(p.relative_to(made)) for p in made.rglob("*") if p.is_file())
+        clash = [d for d in scheduled if (project / d).exists()]
         if clash:
             raise ScaffoldError(f"the scaffold would overwrite {', '.join(clash)}")
-        for dest in planned:
+        for dest in scheduled:
             (project / dest).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(made / dest, project / dest)
-    return planned
+    return scheduled
 
 
 def scaffold(project: Path, language: str, name: str) -> list[str]:

@@ -45,26 +45,26 @@ def running(store: EventStore) -> list[Event]:
             if e.id not in done and e.payload["target"] not in ("beck", "user")]
 
 
-def units(store: EventStore) -> list[tuple[str, str]]:
-    """Every planned unit and its state, in the landing order."""
-    planned = list(store.read(types_=("UnitsPlanned",)))
-    if not planned:
+def components(store: EventStore) -> list[tuple[str, str]]:
+    """Every scheduled component and its state, in the landing order."""
+    scheduled = list(store.read(types_=("ExecutionDerived",)))
+    if not scheduled:
         return []
-    names = [u["id"] for u in planned[-1].payload["units"]]
+    names = [u["id"] for u in scheduled[-1].payload["components"]]
     states = {u: "to do" for u in names}
-    labels = {"UnitStarted": "working", "UnitReopened": "working", "UnitResumed": "working",
-              "UnitParked": "parked", "UnitImplemented": "refactoring", "UnitReady": "ready",
-              "UnitLanded": "landed", "UnitClosed": "done"}
+    labels = {"ComponentStarted": "working", "ComponentReopened": "working", "ComponentResumed": "working",
+              "ComponentParked": "parked", "ComponentImplemented": "refactoring", "ComponentReady": "ready",
+              "ComponentLanded": "landed", "ComponentClosed": "done"}
     for e in store.read(types_=tuple(labels)):
-        if e.payload.get("unit") in states:
-            states[e.payload["unit"]] = labels[e.type]
+        if e.payload.get("component") in states:
+            states[e.payload["component"]] = labels[e.type]
     return [(u, states[u]) for u in names]
 
 
 def phase(store: EventStore) -> str:
     """Where the iteration is, from its milestones."""
     milestones = [("IterationClosed", "closed"), ("BranchSquashed", "review"), ("SuiteGreen", "closing"),
-                  ("UnitsPlanned", "units"), ("ArchitectureApproved", "index"), ("DomainApproved", "architecture"),
+                  ("ExecutionDerived", "components"), ("ArchitectureApproved", "index"), ("DomainApproved", "architecture"),
                   ("ShoppingListApproved", "domain"), ("SuiteVerified", "survey"), ("BranchCreated", "survey"),
                   ("InterviewCompleted", "branch"), ("ProjectClassified", "interview"), ("SessionStarted", "framing")]
     seen = {e.type for e in store.read(types_=tuple(m for m, _ in milestones))}
@@ -75,15 +75,15 @@ def describe(e: Event) -> str:
     p: dict[str, Any] = e.payload
     if e.type == "CommandIssued":
         args = p["args"]
-        what = args.get("unit") or args.get("clause") or ""
+        what = args.get("component") or args.get("requirement") or ""
         return f"{p['target']} ← {p['command']} {what}".rstrip()
     if e.type == "AgentTurnEnded":
         t = p["tokens"]
         return f"{p['agent']} done ({t.get('input', 0) + t.get('output', 0)} tokens)"
     if e.type == "TestsRun":
         c = p.get("counts", {})
-        return f"tests: {c.get('passed', 0)} passed, {c.get('failure', 0) + c.get('error', 0)} not ({p.get('unit', '')})"
-    detail = p.get("reason") or p.get("unit") or p.get("clause") or p.get("kind") or ""
+        return f"tests: {c.get('passed', 0)} passed, {c.get('failure', 0) + c.get('error', 0)} not ({p.get('component', '')})"
+    detail = p.get("reason") or p.get("component") or p.get("requirement") or p.get("kind") or ""
     return f"{e.type} {detail}".rstrip()
 
 
@@ -99,12 +99,12 @@ def histogram(rows: list[Tokens], width: int = 30) -> list[str]:
 
 
 def graph(store: EventStore) -> list[str]:
-    """The units in landing order with their dependencies, marked by state."""
-    planned = list(store.read(types_=("UnitsPlanned",)))
-    if not planned:
+    """The components in landing order with their dependencies, marked by state."""
+    scheduled = list(store.read(types_=("ExecutionDerived",)))
+    if not scheduled:
         return []
-    deps = {u["id"]: u["depends_on"] for u in planned[-1].payload["units"]}
+    deps = {u["id"]: u["depends_on"] for u in scheduled[-1].payload["components"]}
     marks = {"done": "■", "landed": "■", "ready": "▣", "refactoring": "▣", "working": "▢", "parked": "◇",
              "to do": "□"}
     return [f"{marks.get(s, '?')} {u:<20} {s:<12}" + (f" ← {', '.join(deps[u])}" if deps.get(u) else "")
-            for u, s in units(store)]
+            for u, s in components(store)]

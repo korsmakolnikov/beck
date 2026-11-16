@@ -23,7 +23,7 @@ entities:
     kind: value_object
     description: An integer.
     fields: [{name: value, type: integer}]
-operations:
+morphisms:
   - id: add
     description: Two numbers are added.
     uses: [Number]
@@ -145,12 +145,12 @@ class Agents:
         return done("WriteGreenCode")
 
     def _test(self, cwd):
-        run_tests(cwd, load(self.project), ["tests/test_adder.py::test_add_sums"], actor="unclebob", unit="adder",
-                  clause="add-sums", store_root=self.project)
+        run_tests(cwd, load(self.project), ["tests/test_adder.py::test_add_sums"], actor="unclebob", component="adder",
+                  requirement="add-sums", store_root=self.project)
 
     # martin
-    def ReviewUnit(self, e, cwd):
-        return done("ReviewUnit", findings=[], weak_tests=[])
+    def ReviewComponent(self, e, cwd):
+        return done("ReviewComponent", findings=[], weak_tests=[])
 
 
 ANSWERS = {"AskInterview": "Adding two numbers.", "ConfirmBranchName": "yes", "ApproveShoppingList": "yes",
@@ -192,7 +192,7 @@ def test_a_whole_iteration_from_the_interview_to_the_close(project):
                                                              "ApproveDomain", "ApproveArchitecture",
                                                              "PresentForReview"]
     assert [e.payload["tool"] for e in store.read(types_=("CoverageWired",))] == ["pytest-cov"]
-    baseline = next(e for e in store.read(types_=("CoverageMeasured",)) if "unit" not in e.payload)
+    baseline = next(e for e in store.read(types_=("CoverageMeasured",)) if "component" not in e.payload)
     assert "src/calc/__init__.py" in baseline.payload["files"]
     assert [e.type for e in store.read(types_=("IterationClosed",))] == ["IterationClosed"]
     assert p.iteration(it.id).name == "calc-add" and p.iteration(it.id).ended_at
@@ -202,8 +202,8 @@ def test_a_whole_iteration_from_the_interview_to_the_close(project):
     assert "return a + b" in (project / "src/calc/adder/__init__.py").read_text()
     assert (project / "tests/fitness/test_architecture.py").is_file()
     red = next(e for a, e in agents.calls if e["command"] == "WriteRedTest")
-    assert red["context"]["group"]["operation"]["id"] == "add"
-    assert red["context"]["group"]["operation"]["symbols"][0]["file"] == "src/calc/adder/__init__.py"
+    assert red["context"]["unit"]["morphism"]["id"] == "add"
+    assert red["context"]["unit"]["morphism"]["symbols"][0]["file"] == "src/calc/adder/__init__.py"
     # every event of the iteration descends from its SessionStarted
     started = list(store.read(types_=("SessionStarted",)))[0]
     assert all(e.correlation_id == started.id for e in store.read() if e.causation_id)
@@ -227,7 +227,7 @@ def test_an_invalid_domain_goes_back_to_kent_with_the_errors(project):
     reactor, store, *_ = start(project, agents)
     drive(reactor, ANSWERS)
     [invalid] = store.read(types_=("DomainInvalid",))
-    assert invalid.payload["errors"] == ["operations[0].uses[0]: no entity named 'Numbr'"]
+    assert invalid.payload["errors"] == ["morphisms[0].uses[0]: no entity named 'Numbr'"]
     second = [e for a, e in agents.calls if e["command"] == "WriteDomain"][1]
     assert second["context"]["errors"] == invalid.payload["errors"]
     assert list(store.read(types_=("IterationClosed",)))
@@ -276,7 +276,7 @@ def test_the_language_is_asked_open_and_one_beck_cannot_lay_is_asked_again(tmp_p
     assert [e.payload["language"] for e in store.read(types_=("ProjectScaffolded",))] == ["python"]
 
 
-def test_the_workspace_plans_the_units_again_from_the_model_of_now(project):
+def test_the_workspace_plans_the_components_again_from_the_model_of_now(project):
     (project / ".beck/domain.yaml").write_text(DOMAIN.replace("""
       - id: add-sums
         rule: The result is the sum of the two numbers.
@@ -289,15 +289,15 @@ def test_the_workspace_plans_the_units_again_from_the_model_of_now(project):
     (project / ".beck/architecture.yaml").write_text(ARCHITECTURE)
     store = Project(project).start_iteration()[1]
     workspace = IndexWorkspace(store, project)
-    clauses = lambda planned: [c for u in planned["units"] for g in u["groups"] for c in g["clauses"]]  # noqa: E731
-    assert "add-commutes" in clauses(workspace.replan())
+    requirements = lambda scheduled: [c for u in scheduled["components"] for g in u["units"] for c in g["requirements"]]  # noqa: E731
+    assert "add-commutes" in requirements(workspace.rederive())
     (project / ".beck/domain.yaml").write_text(DOMAIN)
-    assert "add-commutes" not in clauses(workspace.replan())
+    assert "add-commutes" not in requirements(workspace.rederive())
 
 
-def test_a_unit_s_tests_are_found_in_its_worktree_with_the_project_s_model(project, monkeypatch, capsys):
-    # the session of 2026-11-15: martin's `beck test --unit match-rules`, in the unit's worktree, got "the index
-    # knows no test for that": the project's index is built on the main tree, which has not the unit's tests yet
+def test_a_component_s_tests_are_found_in_its_worktree_with_the_project_s_model(project, monkeypatch, capsys):
+    # the session of 2026-11-15: martin's `beck test --component match-rules`, in the component's worktree, got "the index
+    # knows no test for that": the project's index is built on the main tree, which has not the component's tests yet
     from beck.cli import main
     (project / ".beck/domain.yaml").write_text(DOMAIN)
     (project / ".beck/architecture.yaml").write_text(ARCHITECTURE)
@@ -305,7 +305,7 @@ def test_a_unit_s_tests_are_found_in_its_worktree_with_the_project_s_model(proje
     (project / "src/calc/adder/__init__.py").write_text(INTERFACE)
     assert main(["index", "build", "--project", str(project)]) == 0
     worktree = project / ".beck/worktrees/adder"
-    git(project, "worktree", "add", "-q", "-b", "unit-adder", str(worktree), "HEAD")   # as StartUnit lays it
+    git(project, "worktree", "add", "-q", "-b", "component-adder", str(worktree), "HEAD")   # as StartComponent lays it
     (worktree / "src/calc/adder").mkdir()
     (worktree / "src/calc/adder/__init__.py").write_text(INTERFACE.replace("raise NotImplementedError", "return a + b"))
     (worktree / "tests/test_adder.py").write_text(
@@ -313,29 +313,29 @@ def test_a_unit_s_tests_are_found_in_its_worktree_with_the_project_s_model(proje
     Project(project).start_iteration()
     monkeypatch.setenv("BECK_PROJECT", str(project))
     capsys.readouterr()
-    assert main(["test", "--unit", "adder", "--project", str(worktree)]) == 0
+    assert main(["test", "--component", "adder", "--project", str(worktree)]) == 0
     assert "1 passed" in capsys.readouterr().out
 
 
-def test_the_index_tells_a_clause_an_earlier_green_implemented(project):
-    # the user, 2026-11-16: the index must say which code covers a clause; a red that passes on it is covered
+def test_the_index_tells_a_requirement_an_earlier_green_implemented(project):
+    # the user, 2026-11-16: the index must say which code covers a requirement; a red that passes on it is covered
     (project / ".beck/domain.yaml").write_text(DOMAIN)
     (project / ".beck/architecture.yaml").write_text(ARCHITECTURE)
     worktree = project / ".beck/worktrees/adder"
-    git(project, "worktree", "add", "-q", "-b", "unit-adder", str(worktree), "HEAD")
+    git(project, "worktree", "add", "-q", "-b", "component-adder", str(worktree), "HEAD")
     (worktree / "src/calc/adder").mkdir()
     (worktree / "src/calc/adder/__init__.py").write_text(INTERFACE)
     store = Project(project).start_iteration()[1]
-    store.append("UnitStarted", {"unit": "adder", "worktree": str(worktree), "branch": "unit-adder", "base": "x"},
-                 stream="unit:adder")
+    store.append("ComponentStarted", {"component": "adder", "worktree": str(worktree), "branch": "component-adder", "base": "x"},
+                 stream="component:adder")
     workspace = IndexWorkspace(store, project)
-    assert not workspace.already_met("adder", "add-sums")                  # the interface is still a stub
+    assert not workspace.already_met("adder", "add-sums")                  # the interface is still an unimplemented
     (worktree / "src/calc/adder/__init__.py").write_text(INTERFACE.replace("raise NotImplementedError", "return a + b"))
     assert workspace.already_met("adder", "add-sums")
 
 
-class Uncited(Agents):
-    """Writes, first, an interface with a stub no id cites, as kent wrote main() and SystemClock.sleep."""
+class Unreferenced(Agents):
+    """Writes, first, an interface with an unimplemented no id references, as kent wrote main() and SystemClock.sleep."""
 
     def WriteInterfaces(self, e, cwd):
         first = not [1 for a, c in self.calls if c["command"] == "WriteInterfaces"][1:]
@@ -346,14 +346,14 @@ class Uncited(Agents):
         return done_
 
 
-def test_a_stub_no_id_cites_sends_the_interfaces_back_to_kent(project):
-    # the sessions of 2026-11-15 and 16: main(), and the clock's real implementation, cited no id: no cycle
+def test_an_unimplemented_no_id_references_sends_the_interfaces_back_to_kent(project):
+    # the sessions of 2026-11-15 and 16: main(), and the clock's real implementation, referenced no id: no cycle
     # implemented them, the suite stayed green and the program did not start
-    agents = Uncited(project)
+    agents = Unreferenced(project)
     reactor, store, *_ = start(project, agents)
     drive(reactor, ANSWERS)
     [broken] = store.read(types_=("InterfacesBroken",))
-    assert broken.payload["errors"] == ["src/calc/adder/__init__.py:8: a stub no id cites"]
+    assert broken.payload["errors"] == ["src/calc/adder/__init__.py:8: an unimplemented no id references"]
     second = [e for a, e in agents.calls if e["command"] == "WriteInterfaces"][1]
     assert second["context"]["errors"] == broken.payload["errors"]
     assert list(store.read(types_=("IterationClosed",)))

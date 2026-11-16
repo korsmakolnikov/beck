@@ -111,7 +111,7 @@ def test_the_answer_is_the_json_document(text, parsed):
 
 
 def test_a_relative_project_gives_an_agent_in_a_worktree_absolute_paths(driver, tmp_path, monkeypatch):
-    # `beck tui` run in the project makes the root ".": unclebob's turn, in a unit's worktree, did not find
+    # `beck tui` run in the project makes the root ".": unclebob's turn, in a component's worktree, did not find
     # ./.beck/agents.json (the session of 2026-11-15, WriteRedTest failed three times)
     monkeypatch.chdir(tmp_path)
     relative = ClaudeCode(driver.store, Path("."), "iter-1", executable=driver.executable)

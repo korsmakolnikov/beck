@@ -28,7 +28,7 @@ def project(tmp_path, monkeypatch):
         "toolchain: 1\nlanguage: python\ntest: " + repr(PYTEST).replace("'", '"') + "\n")
     (tmp_path / "tests").mkdir()
     (tmp_path / "tests" / "test_a.py").write_text(
-        "def test_red():\n    # spec: some-clause\n    assert False\n\n\ndef test_green():\n    assert True\n")
+        "def test_red():\n    # spec: some-requirement\n    assert False\n\n\ndef test_green():\n    assert True\n")
     git(tmp_path, "init", "-q")
     git(tmp_path, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "start")
     for var in ("BECK_ITERATION", "BECK_CAUSE", "BECK_ACTOR"):
@@ -74,14 +74,14 @@ def test_a_run_is_recorded_with_its_evidence(project, capsys, monkeypatch):
     store.close()
     monkeypatch.setenv("BECK_CAUSE", started.id)
     monkeypatch.setenv("BECK_ACTOR", "unclebob")
-    code = main(["test", "tests/test_a.py::test_red", "--unit", "u", "--clause", "some-clause",
+    code = main(["test", "tests/test_a.py::test_red", "--component", "u", "--requirement", "some-requirement",
                  "--project", str(project)])
     assert code == 1
     out = capsys.readouterr().out
     assert out.startswith("NOT_OK (1 of 1 not passed)\n- tests/test_a.py::test_red [failure] at tests/test_a.py:3")
     assert "assert False" in out and "pytest" not in out.split("(TestsRun")[0]
     e = p.open(it.id).last()
-    assert e.type == "TestsRun" and e.actor == "unclebob" and e.stream == "cycle:u/some-clause"
+    assert e.type == "TestsRun" and e.actor == "unclebob" and e.stream == "cycle:u/some-requirement"
     assert e.causation_id == started.id and e.correlation_id == started.id
     assert e.payload["exit_code"] == 1 and e.payload["tests"] == ["tests/test_a.py::test_red"]
     report = project / e.payload["report"]
@@ -111,7 +111,7 @@ def test_a_run_without_report_is_still_recorded(project):
     assert e.payload["exit_code"] == 0 and "report" not in e.payload and e.stream == "session"
 
 
-def test_the_index_selects_the_tests_of_a_clause(project, capsys):
+def test_the_index_selects_the_tests_of_a_requirement(project, capsys):
     Project(project).start_iteration()[1].close()
     examples = Path(__file__).parents[1] / "docs" / "examples" / "bookmarks"
     for name in ("domain.yaml", "architecture.yaml"):
@@ -119,7 +119,7 @@ def test_the_index_selects_the_tests_of_a_clause(project, capsys):
     (project / "tests" / "test_a.py").write_text(
         "def test_name_length():\n    # spec: tag-name-is-1-to-40-characters\n    assert True\n")
     assert main(["index", "build", "--project", str(project)]) == 0
-    assert main(["test", "--clause", "tag-name-is-1-to-40-characters", "--project", str(project)]) == 0
+    assert main(["test", "--requirement", "tag-name-is-1-to-40-characters", "--project", str(project)]) == 0
     assert "ALL_OK (1 passed)" in capsys.readouterr().out
     assert Project(project).open(Project(project).iterations()[0].id).last().payload["tests"] == [
         "tests/test_a.py::test_name_length"]
@@ -144,7 +144,7 @@ def test_a_run_without_report_tells_the_agent_where_the_log_is(project, capsys):
 
 def test_a_python_component_is_its_package_or_its_module(tmp_path):
     # the session of 2026-11-15: kent wrote the component frame-renderer as src/pong/tui/renderer.py, and
-    # VerifyGreen refused unclebob's edit to it as outside the unit's scope
+    # VerifyGreen refused unclebob's edit to it as outside the component's scope
     from beck.machine.session import _component_paths
     assert _component_paths("python", ["pong", "tui", "renderer"]) == [
         "src/pong/tui/renderer", "src/pong/tui/renderer.py", "pong/tui/renderer", "pong/tui/renderer.py"]
@@ -172,7 +172,7 @@ def test_a_test_that_hangs_is_stopped_at_the_timeout(project, capsys):
 
 def test_the_doctests_of_the_sources_run_with_the_tests(tmp_path):
     # the user, 2026-11-16: an example of use in every docstring, a doctest for a pure function where the stack
-    # has them; they run with the unit's tests and the suite, though no cycle cites them
+    # has them; they run with the component's tests and the suite, though no cycle references them
     (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\npythonpath = ['src']\n")
     (tmp_path / "src/pkg").mkdir(parents=True)
     (tmp_path / "src/pkg/__init__.py").write_text("")

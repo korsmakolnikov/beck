@@ -15,7 +15,7 @@ from beck.dsl.validate import validate_architecture, validate_domain
 from beck.events.project import Project
 from beck.events.store import Event
 from beck.fitness.generate import write as write_fitness
-from beck.index import plan
+from beck.index import execution
 from beck.index.build import build
 from beck.index.store import connect, data
 from beck.testrun import TestRunError
@@ -64,8 +64,8 @@ def _index_build(args: argparse.Namespace) -> int:
     return 0
 
 
-def _unit_index(root: Path):
-    """The index a unit's command reads: in a unit's worktree, the worktree's code (its tests are there, not yet
+def _component_index(root: Path):
+    """The index a component's command reads: in a component's worktree, the worktree's code (its tests are there, not yet
     in the main tree) against the project's model ($BECK_PROJECT/.beck), built in memory; else the project's."""
     project = _toolchain_root(root)
     beck_dir = project / ".beck"
@@ -84,22 +84,22 @@ def _db(args: argparse.Namespace):
     return connect(path)
 
 
-def _index_plan(args: argparse.Namespace) -> int:
+def _index_execution(args: argparse.Namespace) -> int:
     conn = _db(args)
-    for unit in plan.units(conn):
-        print(unit)
-        for g in plan.groups(conn, unit):
+    for component in execution.components(conn):
+        print(component)
+        for g in execution.units(conn, component):
             print(f"  {g.id}")
-            for clause in g.clauses:
-                print(f"    {clause}")
-    for file, components in plan.shared_files(conn).items():
+            for requirement in g.requirements:
+                print(f"    {requirement}")
+    for file, components in execution.shared_files(conn).items():
         print(f"shared: {file}: {', '.join(components)}")
     return 0
 
 
 def _index_context(args: argparse.Namespace) -> int:
     try:
-        print(json.dumps(plan.context(_db(args), args.unit, args.group), indent=2))
+        print(json.dumps(execution.context(_db(args), args.component, args.unit), indent=2))
     except KeyError as error:
         sys.exit(str(error.args[0]))
     return 0
@@ -120,7 +120,7 @@ def _fitness_generate(args: argparse.Namespace) -> int:
     for path in written.files:
         print(f"wrote {path}")
     for id_, rule in written.pending_rules.items():
-        print(f"untranslated: {id_}: {rule} (write it in {written.rules_file}, citing spec: {id_})")
+        print(f"untranslated: {id_}: {rule} (write it in {written.rules_file}, referencing spec: {id_})")
     for note in written.notes:
         print(f"note: {note}")
     return 0
@@ -187,7 +187,7 @@ def _trace(args: argparse.Namespace) -> int:
 
 
 def _toolchain_root(root: Path) -> Path:
-    """The toolchain and the model are the project's: $BECK_PROJECT when an agent runs in a unit's worktree."""
+    """The toolchain and the model are the project's: $BECK_PROJECT when an agent runs in a component's worktree."""
     return Path(os.environ["BECK_PROJECT"]) if os.environ.get("BECK_PROJECT") else root
 
 
@@ -198,12 +198,12 @@ def _test(args: argparse.Namespace) -> int:
     except ToolchainError as error:
         sys.exit(str(error))
     tests = list(args.tests)
-    if not tests and (args.clause or args.unit):
-        tests = _indexed_tests(root, toolchain, args.unit, args.clause)
+    if not tests and (args.requirement or args.component):
+        tests = _indexed_tests(root, toolchain, args.component, args.requirement)
     try:
         store_root = Path(os.environ["BECK_PROJECT"]) if os.environ.get("BECK_PROJECT") else None
         result = run_tests(root, toolchain, tests, actor=os.environ.get("BECK_ACTOR", "user"),
-                           unit=args.unit, clause=args.clause, store_root=store_root)
+                           component=args.component, requirement=args.requirement, store_root=store_root)
     except TestRunError as error:
         sys.exit(str(error))
     print(result.summary)
@@ -218,21 +218,21 @@ def _check(args: argparse.Namespace) -> int:
     except ToolchainError as error:
         sys.exit(str(error))
     paths = list(args.paths)
-    if not paths and args.unit:
-        conn = _unit_index(root)
-        row = conn.execute("SELECT data FROM node WHERE id = ? AND kind = 'component'", (args.unit,)).fetchone()
+    if not paths and args.component:
+        conn = _component_index(root)
+        row = conn.execute("SELECT data FROM node WHERE id = ? AND kind = 'component'", (args.component,)).fetchone()
         if row is None:
-            sys.exit(f"no component {args.unit!r} in the index")
+            sys.exit(f"no component {args.component!r} in the index")
         paths = toolchain.component_paths(root, json.loads(row["data"])["namespace"])
         if not paths:
-            sys.exit(f"component {args.unit!r} has no files yet")
+            sys.exit(f"component {args.component!r} has no files yet")
     if not paths:
         if not args.all:
-            sys.exit("name the paths, a --unit, or --all")
+            sys.exit("name the paths, a --component, or --all")
         paths = ["."]
     try:
         result = static_checks.run(root, toolchain, paths, whole_project=args.all,
-                                   actor=os.environ.get("BECK_ACTOR", "user"), unit=args.unit,
+                                   actor=os.environ.get("BECK_ACTOR", "user"), component=args.component,
                                    store_root=_toolchain_root(root))
     except TestRunError as error:
         sys.exit(str(error))
@@ -241,16 +241,16 @@ def _check(args: argparse.Namespace) -> int:
     return result.exit_code
 
 
-def _indexed_tests(root: Path, toolchain, unit: str | None, clause: str | None) -> list[str]:
-    """The tests the index knows for a clause, or for every clause a unit implements."""
-    conn = _unit_index(root)
-    if clause:
-        clauses = [clause]
+def _indexed_tests(root: Path, toolchain, component: str | None, requirement: str | None) -> list[str]:
+    """The tests the index knows for a requirement, or for every requirement a component implements."""
+    conn = _component_index(root)
+    if requirement:
+        requirements = [requirement]
     else:
-        clauses = [c for g in plan.groups(conn, unit or "") for c in g.clauses]
+        requirements = [c for g in execution.units(conn, component or "") for c in g.requirements]
     rows = conn.execute(
         f"SELECT DISTINCT n.* FROM edge e JOIN node n ON n.id = e.src WHERE e.kind = 'tests' "
-        f"AND e.dst IN ({','.join('?' * len(clauses))}) ORDER BY n.id", clauses).fetchall()
+        f"AND e.dst IN ({','.join('?' * len(requirements))}) ORDER BY n.id", requirements).fetchall()
     if not rows:
         sys.exit("the index knows no test for that: name the tests")
     return [toolchain.selector(data(r)["file"], r["id"].split("::", 1)[1], data(r)["line"]) for r in rows]
@@ -300,12 +300,12 @@ def _usage(args: argparse.Namespace) -> int:
     (usage.rebuild if args.rebuild else usage.catch_up)(store, it.id)
     if args.events:
         where = {k: v for k, v in (("agent", args.agent), ("model", args.model), ("command", args.command),
-                                   ("unit", args.unit), ("kind", args.kind), ("win", args.window)) if v}
+                                   ("component", args.component), ("kind", args.kind), ("win", args.window)) if v}
         rows = list(usage.events(it.id, **where))
         for r in rows:
             print(json.dumps(r) if args.json else
                   f"{r['at'][:19]}  {r['event_id'][:8]}  {r['kind']:<16} {r['agent']:<9} {r['command']:<20} "
-                  f"{r['unit'] or '-':<14} {tokens(r):>9,} tokens {r['ms'] // 1000:>5} s  "
+                  f"{r['component'] or '-':<14} {tokens(r):>9,} tokens {r['ms'] // 1000:>5} s  "
                   f"command {(r['command_id'] or '-')[:8]}")
         return 0
     rows = usage.by(it.id, args.by)
@@ -353,14 +353,14 @@ def main(argv: list[str] | None = None) -> int:
     index = sub.add_parser("index", help="the DSL-to-code index in .beck/index.db")
     index_sub = index.add_subparsers(dest="index_command", required=True)
     for name, run, help_ in [("build", _index_build, "rebuild the index from the DSLs and the code"),
-                             ("plan", _index_plan, "print the units, their groups and cycles"),
-                             ("context", _index_context, "print the context of one group, as JSON")]:
+                             ("execution", _index_execution, "print the components, their units and cycles"),
+                             ("context", _index_context, "print the context of one unit, as JSON")]:
         cmd = index_sub.add_parser(name, help=help_)
         cmd.add_argument("--project", default=".", help="the project's root (default: .)")
         cmd.set_defaults(run=run)
         if name == "context":
-            cmd.add_argument("unit")
-            cmd.add_argument("group", help="entity:<Name>, operation:<id> or model")
+            cmd.add_argument("component")
+            cmd.add_argument("unit", help="model:<Name>, morphism:<id> or model")
 
     fitness = sub.add_parser("fitness", help="the fitness functions of .beck/architecture.yaml")
     fitness_sub = fitness.add_subparsers(dest="fitness_command", required=True)
@@ -385,15 +385,16 @@ def main(argv: list[str] | None = None) -> int:
     trace.set_defaults(run=_trace)
 
     test = sub.add_parser("test", help="run tests and record the run (TestsRun) as evidence")
-    test.add_argument("tests", nargs="*", help="the runner's selectors; default: the index's tests of --clause or --unit")
-    test.add_argument("--clause")
-    test.add_argument("--unit")
+    test.add_argument("tests", nargs="*",
+                      help="the runner's selectors; default: the index's tests of --requirement or --component")
+    test.add_argument("--requirement")
+    test.add_argument("--component")
     test.add_argument("--project", default=".", help="the project's root (default: .)")
     test.set_defaults(run=_test)
 
     check = sub.add_parser("check", help="run the static checks and record the run (ChecksRun)")
-    check.add_argument("paths", nargs="*", help="default: the files of --unit; with --all, the project")
-    check.add_argument("--unit")
+    check.add_argument("paths", nargs="*", help="default: the files of --component; with --all, the project")
+    check.add_argument("--component")
     check.add_argument("--all", action="store_true", help="also the checks of the whole project (dialyzer)")
     check.add_argument("--project", default=".", help="the project's root (default: .)")
     check.set_defaults(run=_check)
@@ -439,7 +440,7 @@ def main(argv: list[str] | None = None) -> int:
     us.add_argument("--by", choices=["agent", "model", "command", "window"], default="agent")
     us.add_argument("--events", action="store_true",
                     help="the ledger's rows instead: the events every number comes from")
-    for f in ("agent", "model", "command", "unit", "kind"):
+    for f in ("agent", "model", "command", "component", "kind"):
         us.add_argument(f"--{f}", help=f"with --events: only this {f}")
     us.add_argument("--window", help="with --events: only the window starting at this time (2026-11-16T18:50)")
     us.add_argument("--rebuild", action="store_true", help="drop the iteration's projection and project it again")

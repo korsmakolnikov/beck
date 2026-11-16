@@ -73,7 +73,7 @@ kent:
       file: .beck/domain.yaml
       shopping_list: .beck/shopping_lists/BM-12-tagging.md
       errors:
-      - 'operations[0].uses[1]: no entity named ''Tags'''
+      - 'morphisms[0].uses[1]: no entity named ''Tags'''
     out:
       outcome: done
   WriteArchitecture:
@@ -114,7 +114,7 @@ kent:
       outcome: done
       result:
         discrepancies: []
-  ProposeResolution:
+  ProposeRestart:
     in:
       kind: interface
       details:
@@ -126,7 +126,7 @@ kent:
         subject: tag-store's add/1 reports a duplicate name
         summary: add/1 returns an error on a duplicate.
         changes: 'tag-store: add/1 :: :ok | {:error, :duplicate}'
-        units:
+        components:
         - tag-store
         - bookmark-tagger
   PlanCorrections:
@@ -136,7 +136,7 @@ kent:
       outcome: done
       result:
         plan:
-        - unit: tag-store
+        - component: tag-store
           agent: martin
           description: Rename add/1 to put/1 and its callers.
   WireCoverage:
@@ -152,36 +152,36 @@ kent:
         summary: "Added {:excoveralls, only: :test} and test_coverage: [tool: ExCoveralls]; the toolchain runs mix coveralls.json."
   RouteDecision:
     in:
-      situation: suite-outside-units
-      question: "The full suite fails outside the units' tests: test/legacy_test.exs:8 (MatchError)"
-      answer: That test is from the tag store, reopen it on the tagging clause.
+      situation: suite-outside-components
+      question: "The full suite fails outside the components' tests: test/legacy_test.exs:8 (MatchError)"
+      answer: That test is from the tag store, reopen it on the tagging requirement.
       actions:
-      - id: reopen-unit
-        does: Reopen a unit on one of its clauses, so that unclebob fixes it.
+      - id: reopen-component
+        does: Reopen a component on one of its requirements, so that unclebob fixes it.
         args:
-          unit: the unit's id
-          clause: the clause's id
+          component: the component's id
+          requirement: the requirement's id
       - id: run-again
         does: Run the full suite again.
         args: {}
     out:
       outcome: done
       result:
-        action: reopen-unit
+        action: reopen-component
         args:
-          unit: tag-store
-          clause: tag-bookmark
-        why: The user names the tag store and its tagging clause.
+          component: tag-store
+          requirement: tag-bookmark
+        why: The user names the tag store and its tagging requirement.
 unclebob:
   WriteRedTest:
     in:
-      clause: tag-missing-bookmark
-      run: beck test <the test> --unit bookmark-tagger --clause tag-missing-bookmark
-      group:
-        unit:
+      requirement: tag-missing-bookmark
+      run: beck test <the test> --component bookmark-tagger --requirement tag-missing-bookmark
+      unit:
+        component:
           id: bookmark-tagger
-        group: operation:tag-bookmark
-        clauses: []
+        unit: morphism:tag-bookmark
+        requirements: []
         entities: []
         dependencies: []
         files:
@@ -193,9 +193,9 @@ unclebob:
         test: test/bookmark_tagger_test.exs:12
   WriteGreenCode:
     in:
-      clause: tag-missing-bookmark
+      requirement: tag-missing-bookmark
       test: test/bookmark_tagger_test.exs:12
-      run: beck test test/bookmark_tagger_test.exs:12 --unit bookmark-tagger --clause tag-missing-bookmark
+      run: beck test test/bookmark_tagger_test.exs:12 --component bookmark-tagger --requirement tag-missing-bookmark
       failure: NOT_OK (1 of 1 not passed)
     out:
       outcome: change_requested
@@ -206,24 +206,24 @@ unclebob:
         proposal: Return {:error, :missing}.
   CoverLines:
     in:
-      clauses:
+      requirements:
       - id: tag-missing-bookmark
         text: Tagging a bookmark that does not exist fails with missing.
         tests:
         - test/bookmark_tagger_test.exs:12
         lines:
           lib/bookmarks/tagging/bookmark_tagger.ex: [31, 32]
-      run: beck test <the tests> --unit bookmark-tagger
+      run: beck test <the tests> --component bookmark-tagger
     out:
       outcome: done
       result:
         tests:
         - test: test/bookmark_tagger_test.exs:20
-          clause: tag-missing-bookmark
+          requirement: tag-missing-bookmark
 martin:
-  ReviewUnit:
+  ReviewComponent:
     in:
-      unit:
+      component:
         id: tag-store
         namespace:
         - bookmarks
@@ -233,7 +233,7 @@ martin:
         - lib/bookmarks/tagging/tag_store.ex
       measures:
         lines: 120
-      clauses:
+      requirements:
       - id: tag-name-is-1-to-40-characters
         text: A tag name holds from 1 to 40 characters.
         tests:
@@ -250,12 +250,12 @@ martin:
           description: add/1 nests three cases.
           proposal: Extract the validation.
         weak_tests: []
-  RefactorUnit:
+  RefactorComponent:
     in:
       findings:
       - *id001
-      run: beck test --unit tag-store
-      check: beck check --unit tag-store
+      run: beck test --component tag-store
+      check: beck check --component tag-store
     out:
       outcome: done
       result:
@@ -268,7 +268,7 @@ martin:
       - mix.exs
       landed:
       - bookmark-tagger
-      run: beck test --unit tag-store
+      run: beck test --component tag-store
     out:
       outcome: done
   FixStaticFindings:

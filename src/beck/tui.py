@@ -1,7 +1,7 @@
 """The TUI (Textual), in tmux-like areas, around the reactor (README, "TUI").
 
     ┌ status: phase · tokens · active agents ──────────────────────────────────┐
-    │ activity (the event stream, summarised)   │ units (the graph, by state)  │
+    │ activity (the event stream, summarised)   │ components (the graph, by state)  │
     │                                           │ tokens per turn (histogram)  │
     ├ main: the decision waiting for the user ───────────────────────────────────┤
     │ > the answer                                                               │
@@ -34,7 +34,7 @@ class BeckApp(App[int]):
     #top { height: 1fr; }
     #activity { width: 2fr; border: round $primary; padding: 0 1; }
     #side { width: 1fr; }
-    #units, #tokens { border: round $secondary; padding: 0 1; height: 1fr; }
+    #components, #tokens { border: round $secondary; padding: 0 1; height: 1fr; }
     #main { height: auto; max-height: 12; border: round $accent; padding: 0 1; }
     """
     BINDINGS = [("ctrl+c", "quit", "Quit (safe: beck attach resumes)")]
@@ -51,7 +51,7 @@ class BeckApp(App[int]):
         with Horizontal(id="top"):
             yield Static(id="activity")
             with Vertical(id="side"):
-                yield Static(id="units")
+                yield Static(id="components")
                 yield Static(id="tokens")
         yield Static(id="main")
         yield Input(placeholder="the answer: yes, or the words", id="answer")
@@ -103,7 +103,7 @@ class BeckApp(App[int]):
         self.query_one("#status", Static).update(
             f"phase: {views.phase(self.store)}   tokens: {views.total_tokens(self.store):,}   active: {agents}")
         self.query_one("#activity", Static).update("\n".join(views.activity(self.store, 60)))
-        self.query_one("#units", Static).update("[b]units[/b]\n" + ("\n".join(views.graph(self.store)) or "none yet"))
+        self.query_one("#components", Static).update("[b]components[/b]\n" + ("\n".join(views.graph(self.store)) or "none yet"))
         self.query_one("#tokens", Static).update(
             "[b]tokens per turn[/b]\n" + ("\n".join(views.histogram(views.tokens(self.store), 18)) or "none yet"))
 

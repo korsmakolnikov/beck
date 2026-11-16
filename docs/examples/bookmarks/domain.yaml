@@ -52,7 +52,7 @@ constraints:
     about: [Bookmark, Tag]
     rule: Either every tag of a request is applied or none is.
 
-operations:
+morphisms:
   - id: tag-bookmark
     description: A user tags one of their bookmarks.
     uses: [Bookmark, Tag, TagName]
@@ -80,7 +80,7 @@ operations:
 
 properties:
   - id: tagging-twice-equals-tagging-once
-    operations: [tag-bookmark]
+    morphisms: [tag-bookmark]
     kind: idempotence
     forall:
       - {name: bookmark, generator: an existing bookmark}

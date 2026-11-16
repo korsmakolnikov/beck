@@ -84,7 +84,7 @@ def test_causes_and_effects(store):
 def test_messages_and_projections_carry_the_event(store):
     root = store.append("SessionStarted", {"project": "/p"})
     run = append_tests_run(store, cause=root)
-    message = Message.caused_by(run, "VerifyRed", "beck", {"clause": "c"})
+    message = Message.caused_by(run, "VerifyRed", "beck", {"requirement": "c"})
     assert (message.causation_id, message.correlation_id) == (run.id, root.id)
     projection = fold(store.read(), 0, lambda n, e: n + 1)
     assert (projection.state, projection.last_event_id, projection.last_seq) == (2, run.id, 2)

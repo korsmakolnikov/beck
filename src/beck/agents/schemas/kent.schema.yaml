@@ -248,7 +248,7 @@ $defs:
                 what: {$ref: "common.schema.yaml#/$defs/text"}
     required: [result]
 
-  ProposeResolution-in:
+  ProposeRestart-in:
     type: object
     required: [kind, details]
     additionalProperties: false
@@ -258,25 +258,25 @@ $defs:
       instructions:
         description: The user's instructions, after a rejected proposal.
         $ref: "common.schema.yaml#/$defs/text"
-  ProposeResolution-out:
+  ProposeRestart-out:
     properties:
       outcome: {enum: [done, question]}
       result:
         type: object
-        required: [subject, summary, changes, units]
+        required: [subject, summary, changes, components]
         additionalProperties: false
         properties:
           subject:
             description: The commit's subject, one sentence of at most 72 characters.
             $ref: "common.schema.yaml#/$defs/text"
           summary:
-            description: What the resolution changes and why, in two sentences at most.
+            description: What the restart changes and why, in two sentences at most.
             $ref: "common.schema.yaml#/$defs/text"
           changes:
             description: The changes to the DSLs and to the interfaces, as the user will review them.
             $ref: "common.schema.yaml#/$defs/text"
-          units:
-            description: The units the resolution reopens.
+          components:
+            description: The components the restart reopens.
             type: array
             items: {type: string, minLength: 1}
     if: {properties: {outcome: {const: done}}}
@@ -301,12 +301,12 @@ $defs:
             minItems: 1
             items:
               type: object
-              required: [unit, agent, description]
+              required: [component, agent, description]
               additionalProperties: false
               properties:
-                unit: {type: string, minLength: 1}
+                component: {type: string, minLength: 1}
                 agent: {enum: [unclebob, martin]}
-                clauses: {type: array, items: {$ref: "common.schema.yaml#/$defs/id"}}
+                requirements: {type: array, items: {$ref: "common.schema.yaml#/$defs/id"}}
                 description: {$ref: "common.schema.yaml#/$defs/text"}
     if: {properties: {outcome: {const: done}}}
     then: {required: [result]}

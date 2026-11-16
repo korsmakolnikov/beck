@@ -1,4 +1,4 @@
-"""The fitness generator judges the architecture of every unit, so it is tested."""
+"""The fitness generator judges the architecture of every component, so it is tested."""
 
 import subprocess
 import sys
@@ -169,7 +169,7 @@ def test_mix_exs_gets_the_support_path_in_the_test_env():
     assert compile_support(patched) == patched
 
 
-def test_an_existing_test_clause_gets_the_support_path_added():
+def test_an_existing_test_requirement_gets_the_support_path_added():
     mix = 'defp elixirc_paths(:test), do: ["lib", "test/support"]'
     assert compile_support(mix) == 'defp elixirc_paths(:test), do: ["lib", "test/support", "test/fitness/support"]'
 

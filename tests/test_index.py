@@ -6,7 +6,7 @@ import pytest
 import yaml
 
 from beck.cli import main
-from beck.index import plan
+from beck.index import execution
 from beck.index.build import build
 from beck.index.store import INTEGRATION
 
@@ -94,30 +94,30 @@ def test_invalid_dsls_build_no_index(project):
     assert conn is None and report.problems
 
 
-def test_an_operation_brings_its_clauses(index):
+def test_an_morphism_brings_its_requirements(index):
     conn, _ = index
     implemented = {dst for src, dst in edges(conn, "implements") if src == "bookmark-tagger"}
     assert implemented == {"tag-bookmark", "tagged-bookmark-carries-the-requested-tags", "tag-missing-bookmark",
                         "tagging-twice-equals-tagging-once", "tag-belongs-to-the-same-user"}
 
 
-def test_units_land_dependencies_first_and_integration_last(index):
+def test_components_land_dependencies_first_and_integration_last(index):
     conn, _ = index
-    units = plan.units(conn)
-    assert units.index("tag-store") < units.index("bookmark-tagger")
-    assert units.index("tag-store") < units.index("archiver")
-    assert units[-1] == INTEGRATION
+    components = execution.components(conn)
+    assert components.index("tag-store") < components.index("bookmark-tagger")
+    assert components.index("tag-store") < components.index("archiver")
+    assert components[-1] == INTEGRATION
 
 
-def test_groups_go_from_the_particular_to_the_general(index):
+def test_units_go_from_the_particular_to_the_general(index):
     conn, _ = index
-    assert plan.groups(conn, "bookmark-tagger") == [
-        plan.Group("entity:Bookmark", "Bookmark", ("tag-belongs-to-the-same-user",)),
-        plan.Group("operation:tag-bookmark", "tag-bookmark",
+    assert execution.units(conn, "bookmark-tagger") == [
+        execution.Unit("model:Bookmark", "Bookmark", ("tag-belongs-to-the-same-user",)),
+        execution.Unit("morphism:tag-bookmark", "tag-bookmark",
                    ("tagged-bookmark-carries-the-requested-tags", "tag-missing-bookmark",
                     "tagging-twice-equals-tagging-once")),
     ]
-    assert plan.groups(conn, INTEGRATION) == [plan.Group("model", None, ("tagging-is-atomic",))]
+    assert execution.units(conn, INTEGRATION) == [execution.Unit("component", None, ("tagging-is-atomic",))]
 
 
 @pytest.mark.parametrize("id_, symbol", [
@@ -142,7 +142,7 @@ def test_a_marker_in_a_test_file_marks_a_test(index):
     }
 
 
-def test_the_report_names_unknown_ids_and_unanchored_operations(project):
+def test_the_report_names_unknown_ids_and_unanchored_morphisms(project):
     (project / "src/bookmarks/archive/archiver.py").unlink()
     domain, arch = docs()
     _, report = build(project, domain, arch, ":memory:")
@@ -150,32 +150,32 @@ def test_the_report_names_unknown_ids_and_unanchored_operations(project):
     assert report.unanchored == ["archive-bookmark"]
 
 
-def test_the_context_holds_only_the_group(index):
+def test_the_context_holds_only_the_unit(index):
     conn, _ = index
-    ctx = plan.context(conn, "bookmark-tagger", "operation:tag-bookmark")
-    assert [c["id"] for c in ctx["clauses"]] == ["tagged-bookmark-carries-the-requested-tags",
+    ctx = execution.context(conn, "bookmark-tagger", "morphism:tag-bookmark")
+    assert [c["id"] for c in ctx["requirements"]] == ["tagged-bookmark-carries-the-requested-tags",
                                                  "tag-missing-bookmark", "tagging-twice-equals-tagging-once"]
     assert [e["name"] for e in ctx["entities"]] == ["Bookmark", "Tag", "TagName"]
-    assert ctx["operation"]["symbols"][0]["signature"].startswith("@callback tag(")
-    assert [e["name"] for e in ctx["operation"]["emits"]] == ["BookmarkTagged"]
+    assert ctx["morphism"]["symbols"][0]["signature"].startswith("@callback tag(")
+    assert [e["name"] for e in ctx["morphism"]["emits"]] == ["BookmarkTagged"]
     assert [d["id"] for d in ctx["dependencies"]] == ["tag-store"]
     assert ctx["files"] == {"source": ["lib/bookmarks/tagging/bookmark_tagger.ex"],
                             "tests": ["test/bookmark_tagger_test.exs"]}
     assert "archive-bookmark" not in str(ctx)
 
 
-def test_an_unknown_group_is_refused(index):
+def test_an_unknown_unit_is_refused(index):
     conn, _ = index
     with pytest.raises(KeyError):
-        plan.context(conn, "bookmark-tagger", "operation:archive-bookmark")
+        execution.context(conn, "bookmark-tagger", "morphism:archive-bookmark")
 
 
 def test_cli(project, capsys):
     assert main(["index", "build", "--project", str(project)]) == 0
     assert "unknown id: src/bookmarks/tagging/tag_store.py:6: spec: ghost-id" in capsys.readouterr().out
-    assert main(["index", "plan", "--project", str(project)]) == 0
-    assert "  operation:tag-bookmark\n    tagged-bookmark-carries-the-requested-tags" in capsys.readouterr().out
-    assert main(["index", "context", "tag-store", "entity:TagName", "--project", str(project)]) == 0
+    assert main(["index", "execution", "--project", str(project)]) == 0
+    assert "  morphism:tag-bookmark\n    tagged-bookmark-carries-the-requested-tags" in capsys.readouterr().out
+    assert main(["index", "context", "tag-store", "model:TagName", "--project", str(project)]) == 0
     assert '"tag-name-is-1-to-40-characters"' in capsys.readouterr().out
 
 
@@ -184,23 +184,23 @@ def test_a_file_with_symbols_of_two_components_is_shared(project):
         "# spec: tag-bookmark\ndef a(): ...\n\n# spec: archive-bookmark\ndef b(): ...\n")
     domain, arch = docs()
     conn, _ = build(project, domain, arch, ":memory:")
-    assert plan.shared_files(conn) == {"src/bookmarks/common.py": ["archiver", "bookmark-tagger"]}
-    assert plan.exclusive(conn) == {frozenset(("archiver", "bookmark-tagger"))}
+    assert execution.shared_files(conn) == {"src/bookmarks/common.py": ["archiver", "bookmark-tagger"]}
+    assert execution.exclusive(conn) == {frozenset(("archiver", "bookmark-tagger"))}
 
 
 def test_no_file_is_shared_when_each_holds_one_component(index):
     conn, _ = index
-    assert plan.shared_files(conn) == {} and plan.exclusive(conn) == set()
+    assert execution.shared_files(conn) == {} and execution.exclusive(conn) == set()
 
 
-def test_a_unit_waits_only_for_its_concrete_dependencies(project):
-    from beck.machine.session import plan_units
+def test_a_component_waits_only_for_its_concrete_dependencies(project):
+    from beck.machine.session import derive_execution
     domain, arch = docs()
     conn, _ = build(project, domain, arch, ":memory:")
-    assert not any("waits_for" in u for u in plan_units(conn)["units"])   # tag-store is an interface
+    assert not any("waits_for" in u for u in derive_execution(conn)["components"])   # tag-store is an interface
     store = next(c for d in arch["elements"] for c in d.get("elements", []) if c.get("id") == "tag-store")
     store["boundary"] = "concrete"
     conn, _ = build(project, domain, arch, ":memory:")
-    waits = {u["id"]: u.get("waits_for") for u in plan_units(conn)["units"]}
+    waits = {u["id"]: u.get("waits_for") for u in derive_execution(conn)["components"]}
     assert waits["bookmark-tagger"] == ["tag-store"] and waits["archiver"] == ["tag-store"]
     assert waits["tag-store"] is None

@@ -1,4 +1,4 @@
-"""The session's machine: framing, survey and model (README, phases 1 to 3), up to the units' plan.
+"""The session's machine: framing, survey and model (README, phases 1 to 3), up to the execution.
 
     SessionStarted → LoadConfig → ConfigLoaded → ClassifyProject → ProjectClassified (or the user's choice)
     → AskInterview (the user, the standard questions) → AskFollowUps (kent, once) → AskInterview … → InterviewCompleted
@@ -8,7 +8,7 @@
     → ApproveShoppingList (the user) → WriteDomain (kent) → ValidateDomain → ApproveDomain (the user)
     → WriteArchitecture (kent) → ValidateArchitecture → WriteInterfaces (kent) → CompileInterfaces
     → GenerateFitnessFunctions → WriteFitnessFunctions (kent, the untranslated rules) → RunFitnessFunctions
-    → ApproveArchitecture (the user) → BuildIndex → AnchorIds (kent) → CommitModel → ModelCommitted, UnitsPlanned
+    → ApproveArchitecture (the user) → BuildIndex → AnchorIds (kent) → CommitModel → ModelCommitted, ExecutionDerived
 
 Every loop between kent and a check follows the repetition rule; a blocked
 loop asks the user (ModelBlocked). A revision asked by the user has no limit.
@@ -32,7 +32,7 @@ from beck.events.project import Project
 from beck.events.store import Event, EventStore
 from beck.fitness.generate import detect_stack
 from beck.fitness.generate import write as write_fitness
-from beck.index import plan as index_plan
+from beck.index import execution as index_execution
 from beck.index.anchor import LANGUAGES
 from beck.index.build import build as build_index
 from beck.index.store import INTEGRATION, connect, data
@@ -41,10 +41,10 @@ from beck.machine.core import Command, Ctx, Machine, Result, action, ask_routed
 from beck.machine.signatures import blocked, signature
 from beck.scaffold import LANGUAGES as LAID
 from beck.scaffold import ScaffoldError, scaffold
-from beck.stubs import uncited
 from beck.testrun import run as run_tests
-from beck.toolchain import STUBS, ToolchainError
+from beck.toolchain import UNIMPLEMENTED, ToolchainError
 from beck.toolchain import load as load_toolchain
+from beck.unimplemented import unreferenced
 
 session = Machine()
 S = "session"
@@ -439,7 +439,7 @@ def after_a_session_question(event: Event, ctx: Ctx) -> list[Command]:
     if situation == "suite-broken":
         if chosen == "run-again":
             return [Command("VerifySuite", "beck", {}, S)]
-        runs = [e for e in ctx.events(types=("TestsRun",)) if not e.payload.get("unit")]
+        runs = [e for e in ctx.events(types=("TestsRun",)) if not e.payload.get("component")]
         tests = runs[-1].payload.get("counts", {}).get("tests", 0) if runs else 0
         return [Command("GoOn", "beck", {"as": "SuiteVerified", "payload": {"tests": tests}}, S)]
     if situation == "scaffold-failed":
@@ -711,8 +711,8 @@ def compile_interfaces(event: Event, ctx: Ctx) -> list[Command]:
 @session.handler("CompileInterfaces")
 def handle_compile(command: Event, ctx: Ctx) -> list[Result]:
     toolchain = load_toolchain(ctx.project)
-    # a stub no id cites has no cycle to implement it: the suite stays green, the program does not run
-    errors = [f"{file}:{line}: a stub no id cites" for file, line in uncited(ctx.project)]
+    # an unimplemented no id references has no cycle to implement it: the suite stays green, the program does not run
+    errors = [f"{file}:{line}: an unimplemented no id references" for file, line in unreferenced(ctx.project)]
     if errors:
         return [Result("InterfacesBroken", {"errors": errors, "signature": signature(errors)})]
     if not toolchain.build:
@@ -825,27 +825,27 @@ def _boundary(conn: sqlite3.Connection, component: str) -> str | None:
     return json.loads(row["data"]).get("boundary") if row else None
 
 
-def plan_units(conn: sqlite3.Connection) -> dict[str, Any]:
-    """UnitsPlanned's payload from the index: the units in landing order, their groups, dependencies, sharing."""
-    units = index_plan.units(conn)
-    exclusive = index_plan.exclusive(conn)
+def derive_execution(conn: sqlite3.Connection) -> dict[str, Any]:
+    """ExecutionDerived's payload from the index: the components in landing order, their units, dependencies, sharing."""
+    components = index_execution.components(conn)
+    exclusive = index_execution.exclusive(conn)
     out = []
-    for u in units:
-        groups = [{"id": g.id, "clauses": list(g.clauses)} for g in index_plan.groups(conn, u)]
+    for u in components:
+        units = [{"id": g.id, "requirements": list(g.requirements)} for g in index_execution.units(conn, u)]
         deps = [r["dst"] for r in conn.execute(
             "SELECT e.dst FROM edge e JOIN node n ON n.id = e.dst WHERE e.src = ? AND e.kind = 'depends_on' "
             "AND n.kind = 'component'", (u,))]
         implements = [r["dst"] for r in conn.execute("SELECT dst FROM edge WHERE src = ? AND kind = 'implements'", (u,))]
-        entry: dict[str, Any] = {"id": u, "groups": groups, "depends_on": deps, "implements": implements,
+        entry: dict[str, Any] = {"id": u, "units": units, "depends_on": deps, "implements": implements,
                                  "exclusive_with": sorted(o for pair in exclusive if u in pair for o in pair if o != u)}
         concrete = [d for d in deps if _boundary(conn, d) != "interface"]
-        if concrete:   # the unit's tests use the real modules: it starts once they have landed
+        if concrete:   # the component's tests use the real modules: it starts once they have landed
             entry["waits_for"] = concrete
         if u == INTEGRATION:
             entry["integration"] = True
-            entry["depends_on"] = [x for x in units if x != INTEGRATION]
+            entry["depends_on"] = [x for x in components if x != INTEGRATION]
         out.append(entry)
-    return {"units": out}
+    return {"components": out}
 
 
 @session.handler("CommitModel")
@@ -857,11 +857,11 @@ def handle_commit_model(command: Event, ctx: Ctx) -> list[Result]:
         _git(ctx.project, "commit", "-q", "-m", f"feat: the interfaces and the fitness functions of {_branch(ctx)}")
     conn = connect(index_path(ctx))
     try:
-        planned = plan_units(conn)
+        scheduled = derive_execution(conn)
     finally:
         conn.close()
     sha = _git(ctx.project, "rev-parse", "HEAD").stdout.strip()
-    return [Result("ModelCommitted", {"sha": sha}), Result("UnitsPlanned", planned)]
+    return [Result("ModelCommitted", {"sha": sha}), Result("ExecutionDerived", scheduled)]
 
 
 @session.handler("BlockModel")
@@ -883,7 +883,7 @@ def ask_about_the_model(event: Event, ctx: Ctx) -> list[Command]:
 
 @dataclass
 class IndexWorkspace:
-    """Where each unit lives (its UnitStarted), what it may touch and what its sessions get (the index)."""
+    """Where each component lives (its ComponentStarted), what it may touch and what its sessions get (the index)."""
     store: EventStore
     project: Path
     _cache: dict[str, Path] = field(default_factory=dict)
@@ -891,8 +891,8 @@ class IndexWorkspace:
     def _conn(self) -> sqlite3.Connection:
         return connect(self.project / ".beck" / "index.db")
 
-    def replan(self) -> dict[str, Any] | None:
-        """UnitsPlanned's payload from the model of now (a resolution may have changed the DSLs); None when the
+    def rederive(self) -> dict[str, Any] | None:
+        """ExecutionDerived's payload from the model of now (a restart may have changed the DSLs); None when the
         DSLs do not build an index."""
         def read(name: str) -> Any:
             path = self.project / ".beck" / name
@@ -902,15 +902,15 @@ class IndexWorkspace:
         if conn is None:
             return None
         try:
-            return plan_units(conn)
+            return derive_execution(conn)
         finally:
             conn.close()
 
-    def already_met(self, unit: str, clause: str) -> bool:
-        """Whether the unit's worktree already implements the clause: the index, built on the worktree's code,
-        anchors the clause (or its entity, its operation) to a symbol in the unit's scope whose body is no
-        longer kent's stub. A red test that passes on such code proves the clause."""
-        tree = self.worktree(unit)
+    def already_met(self, component: str, requirement: str) -> bool:
+        """Whether the component's worktree already implements the requirement: the index, built on the worktree's code,
+        anchors the requirement (or its entity, its morphism) to a symbol in the component's scope whose body is no
+        longer kent's unimplemented. A red test that passes on such code proves the requirement."""
+        tree = self.worktree(component)
         def read(name: str) -> Any:
             path = self.project / ".beck" / name
             return yaml.safe_load(path.read_text()) if path.is_file() else None
@@ -918,8 +918,8 @@ class IndexWorkspace:
         if conn is None:
             return False
         try:
-            row = conn.execute("SELECT owner FROM node WHERE id = ? AND kind = 'clause'", (clause,)).fetchone()
-            ids = [clause] + ([row["owner"]] if row and row["owner"] else [])
+            row = conn.execute("SELECT owner FROM node WHERE id = ? AND kind = 'requirement'", (requirement,)).fetchone()
+            ids = [requirement] + ([row["owner"]] if row and row["owner"] else [])
             anchored = [json.loads(r["data"]) for r in conn.execute(
                 f"SELECT s.data FROM edge a JOIN node s ON s.id = a.dst WHERE a.kind = 'anchored_to' "
                 f"AND s.kind = 'symbol' AND a.src IN ({','.join('?' * len(ids))})", ids)]
@@ -927,12 +927,12 @@ class IndexWorkspace:
             for r in conn.execute("SELECT data FROM node WHERE kind = 'symbol'"):
                 d = json.loads(r["data"])
                 starts.setdefault(d["file"], []).append(d["line"])
-            component = conn.execute("SELECT data FROM node WHERE id = ?", (unit,)).fetchone()
+            node = conn.execute("SELECT data FROM node WHERE id = ?", (component,)).fetchone()
         finally:
             conn.close()
         language = load_toolchain(self.project).language
-        scope = _component_paths(language, json.loads(component["data"])["namespace"]) if component else []
-        marker, _ = STUBS[language]
+        scope = _component_paths(language, json.loads(node["data"])["namespace"]) if node else []
+        marker, _ = UNIMPLEMENTED[language]
         for symbol in anchored:
             file, line = symbol["file"], symbol["line"]
             if not any(file == s or file.startswith(s.rstrip("/") + "/") for s in scope) or not (tree / file).is_file():
@@ -943,20 +943,20 @@ class IndexWorkspace:
                 return True
         return False
 
-    def worktree(self, unit: str) -> Path:
-        started = list(self.store.read(stream=f"unit:{unit}", types_=("UnitStarted", "UnitReopened")))
+    def worktree(self, component: str) -> Path:
+        started = list(self.store.read(stream=f"component:{component}", types_=("ComponentStarted", "ComponentReopened")))
         if not started:
-            raise KeyError(f"unit {unit!r} has no worktree yet")
+            raise KeyError(f"component {component!r} has no worktree yet")
         return Path(started[-1].payload["worktree"])
 
-    def scope(self, unit: str) -> list[str]:
+    def scope(self, component: str) -> list[str]:
         toolchain = load_toolchain(self.project)
         conn = self._conn()
         try:
-            if unit == INTEGRATION:
+            if component == INTEGRATION:
                 rows = conn.execute("SELECT data FROM node WHERE kind = 'component' AND id != ?", (INTEGRATION,))
             else:
-                rows = conn.execute("SELECT data FROM node WHERE id = ?", (unit,))
+                rows = conn.execute("SELECT data FROM node WHERE id = ?", (component,))
             namespaces = [json.loads(r["data"])["namespace"] for r in rows]
         finally:
             conn.close()
@@ -965,18 +965,18 @@ class IndexWorkspace:
             paths += _component_paths(toolchain.language, ns)
         return paths
 
-    def group_context(self, unit: str, group: str) -> dict[str, Any]:
+    def unit_context(self, component: str, unit: str) -> dict[str, Any]:
         conn = self._conn()
         try:
-            return index_plan.context(conn, unit, group)
+            return index_execution.context(conn, component, unit)
         finally:
             conn.close()
 
-    def clause_text(self, clause: str) -> str:
+    def requirement_text(self, requirement: str) -> str:
         conn = self._conn()
         try:
-            row = conn.execute("SELECT text FROM node WHERE id = ?", (clause,)).fetchone()
-            return row["text"] if row else clause
+            row = conn.execute("SELECT text FROM node WHERE id = ?", (requirement,)).fetchone()
+            return row["text"] if row else requirement
         finally:
             conn.close()
 

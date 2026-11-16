@@ -75,10 +75,10 @@ class Run:
     summary: str      # what the agent reads
 
 
-def run(root: Path, toolchain: Toolchain, tests: list[str], *, actor: str, unit: str | None = None,
-        clause: str | None = None, store_root: Path | None = None, cause_id: str | None = None,
+def run(root: Path, toolchain: Toolchain, tests: list[str], *, actor: str, component: str | None = None,
+        requirement: str | None = None, store_root: Path | None = None, cause_id: str | None = None,
         iteration: str | None = None, coverage_of: list[str] | None = None) -> Run:
-    """Runs in root (a unit's worktree); the reports and the event go to store_root's .beck/ (default: root).
+    """Runs in root (a component's worktree); the reports and the event go to store_root's .beck/ (default: root).
 
     cause_id and iteration default to $BECK_CAUSE and the open iteration (an agent's run); beck passes them
     when a policy asks it to run tests. coverage_of: the paths to measure, when the toolchain measures.
@@ -96,7 +96,7 @@ def run(root: Path, toolchain: Toolchain, tests: list[str], *, actor: str, unit:
         measured = coverage_of is not None and bool(toolchain.coverage)
         command, env = toolchain.test_argv(tests, str(report), (coverage_of or [], str(coverage)) if measured else None)
         written = root / toolchain.coverage.report if measured and toolchain.coverage.report else None
-        if measured:   # coverage.py's data file, outside the tree: it would be a change of the unit
+        if measured:   # coverage.py's data file, outside the tree: it would be a change of the component
             env = {**env, "COVERAGE_FILE": str(reports / f"{name}.coverage-data")}
         if written is not None and written.is_file():
             written.unlink()   # a report of an earlier run is not this run's
@@ -133,9 +133,9 @@ def run(root: Path, toolchain: Toolchain, tests: list[str], *, actor: str, unit:
         if measured and coverage.is_file():
             payload["coverage"] = str(coverage.relative_to(store_root))
             payload["coverage_format"] = toolchain.coverage.format
-        payload.update({k: v for k, v in (("unit", unit), ("clause", clause)) if v})
-        event = store.append("TestsRun", payload, stream=f"cycle:{unit}/{clause}" if unit and clause
-                             else f"unit:{unit}" if unit else "session",
+        payload.update({k: v for k, v in (("component", component), ("requirement", requirement)) if v})
+        event = store.append("TestsRun", payload, stream=f"cycle:{component}/{requirement}" if component and requirement
+                             else f"component:{component}" if component else "session",
                              actor=actor, cause=cause, sha=git(root, "rev-parse", "HEAD"))
         return Run(event, exit_code, text)
     finally:
@@ -144,7 +144,7 @@ def run(root: Path, toolchain: Toolchain, tests: list[str], *, actor: str, unit:
 
 
 def _run(command: list[str], root: Path, env: dict[str, str], out: Any, timeout: float) -> tuple[int, bool]:
-    """The exit code, and whether the run was stopped at the timeout: its whole process group, since the
+    """The exit code, and whether the run was stopped at the timeout: its whole process unit, since the
     runner's children (uv run, then pytest) would outlive it."""
     proc = subprocess.Popen(command, cwd=root, env=env, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
     try:

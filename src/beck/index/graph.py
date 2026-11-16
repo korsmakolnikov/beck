@@ -15,35 +15,35 @@ def load_domain(conn: sqlite3.Connection, doc: dict[str, Any]) -> None:
     for e in doc["entities"]:
         add_node(conn, e["name"], "entity", subkind=e["kind"], text=e["description"], fields=e["fields"])
         for inv in e.get("invariants", []):
-            add_node(conn, inv["id"], "clause", subkind="invariant", owner=e["name"], text=inv["rule"])
+            add_node(conn, inv["id"], "requirement", subkind="invariant", owner=e["name"], text=inv["rule"])
             add_edge(conn, inv["id"], e["name"], "binds")
     for ev in doc.get("events", []):
         add_node(conn, ev["name"], "event", text=ev["description"], fields=ev.get("fields", []))
     for r in doc.get("relations", []):
         for rule in r.get("rules", []):
-            add_node(conn, rule["id"], "clause", subkind="rule", owner=r["from"], text=rule["rule"],
+            add_node(conn, rule["id"], "requirement", subkind="rule", owner=r["from"], text=rule["rule"],
                      relation={"from": r["from"], "to": r["to"], "kind": r["kind"]})
             add_edge(conn, rule["id"], r["from"], "binds")
             add_edge(conn, rule["id"], r["to"], "binds")
     for c in doc.get("constraints", []):
-        add_node(conn, c["id"], "clause", subkind="constraint", text=c["rule"])
+        add_node(conn, c["id"], "requirement", subkind="constraint", text=c["rule"])
         for name in c["about"]:
             add_edge(conn, c["id"], name, "binds")
-    for op in doc["operations"]:
-        add_node(conn, op["id"], "operation", text=op["description"], pre=op.get("pre", []),
+    for op in doc["morphisms"]:
+        add_node(conn, op["id"], "morphism", text=op["description"], pre=op.get("pre", []),
                  emits=op.get("emits", []))
         for name in op["uses"]:
             add_edge(conn, op["id"], name, "uses")
         for post in op["post"]:
-            add_node(conn, post["id"], "clause", subkind="post", owner=op["id"], text=post["rule"])
+            add_node(conn, post["id"], "requirement", subkind="post", owner=op["id"], text=post["rule"])
             add_edge(conn, post["id"], op["id"], "binds")
         for err in op.get("errors", []):
-            add_node(conn, err["id"], "clause", subkind="error", owner=op["id"], text=err["outcome"],
+            add_node(conn, err["id"], "requirement", subkind="error", owner=op["id"], text=err["outcome"],
                      when=err["when"])
             add_edge(conn, err["id"], op["id"], "binds")
     for p in doc.get("properties", []):
-        ops = p.get("operations", [])
-        add_node(conn, p["id"], "clause", subkind="property", owner=ops[0] if len(ops) == 1 else None,
+        ops = p.get("morphisms", [])
+        add_node(conn, p["id"], "requirement", subkind="property", owner=ops[0] if len(ops) == 1 else None,
                  text=p["holds"], property_kind=p["kind"], forall=p["forall"])
         for op in ops:
             add_edge(conn, p["id"], op, "binds")
@@ -67,7 +67,7 @@ def load_architecture(conn: sqlite3.Connection, doc: dict[str, Any]) -> None:
 
     for e in doc["elements"]:
         element(e, system["id"], [system["physical"]])
-    add_node(conn, INTEGRATION, "component", subkind="integration", text="The integration unit.",
+    add_node(conn, INTEGRATION, "component", subkind="integration", text="The integration component.",
              namespace=[system["physical"]])
 
     def wire(e: dict[str, Any]) -> None:
@@ -80,8 +80,8 @@ def load_architecture(conn: sqlite3.Connection, doc: dict[str, Any]) -> None:
 
     def implement(component: str, id_: str) -> None:
         add_edge(conn, component, id_, "implements")
-        # an operation brings its post, its errors and its single-operation properties
-        for row in conn.execute("SELECT id FROM node WHERE kind = 'clause' AND owner = ? AND "
+        # a morphism brings its post, its errors and its single-morphism properties
+        for row in conn.execute("SELECT id FROM node WHERE kind = 'requirement' AND owner = ? AND "
                                 "subkind IN ('post', 'error', 'property')", (id_,)):
             add_edge(conn, component, row["id"], "implements")
 

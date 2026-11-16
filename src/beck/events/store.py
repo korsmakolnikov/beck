@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS event (
   seq            INTEGER PRIMARY KEY AUTOINCREMENT,
   id             TEXT NOT NULL UNIQUE,
   type           TEXT NOT NULL,
-  stream         TEXT NOT NULL,   -- session | unit:<id> | cycle:<unit>/<clause> | ...
+  stream         TEXT NOT NULL,   -- session | component:<id> | cycle:<component>/<requirement> | ...
   actor          TEXT NOT NULL,   -- beck | user | <agent>
   causation_id   TEXT REFERENCES event(id),
   correlation_id TEXT NOT NULL,

@@ -2,13 +2,13 @@ $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://beck.local/agents/martin.schema.yaml
 title: martin's commands
 description: >-
-  One session per unit, from ReviewUnit to the unit's landing. beck runs the
-  unit's tests and the full suite when the policies ask for them; martin
+  One session per component, from ReviewComponent to the component's landing. beck runs the
+  component's tests and the full suite when the policies ask for them; martin
   runs `beck test` and `beck check` for its own steps, writes files, never
-  commits: beck commits its changes as fixups of the unit's commit.
+  commits: beck commits its changes as fixups of the component's commit.
 
 $defs:
-  unit:
+  component:
     type: object
     required: [id, namespace, files]
     additionalProperties: false
@@ -37,15 +37,15 @@ $defs:
       outcome: {enum: [done, change_requested]}
     not: {required: [result]}
 
-  ReviewUnit-in:
+  ReviewComponent-in:
     type: object
-    required: [unit, measures, clauses]
+    required: [component, measures, requirements]
     additionalProperties: false
     properties:
-      unit: {$ref: "#/$defs/unit"}
+      component: {$ref: "#/$defs/component"}
       measures: {type: object}
-      clauses:
-        description: Every clause the unit implements, with its sentence and the tests that cite it.
+      requirements:
+        description: Every requirement the component implements, with its sentence and the tests that reference it.
         type: array
         items:
           type: object
@@ -58,14 +58,14 @@ $defs:
       uncovered:
         description: >-
           Lines no test runs that beck could not get covered: dead code is a
-          finding (delete it); code the unit needs is a finding naming the
-          clause that should test it.
+          finding (delete it); code the component needs is a finding naming the
+          requirement that should test it.
         type: object
         additionalProperties:
           type: array
           items: {type: integer, minimum: 1}
       flaky:
-        description: Tests of the unit beck found flaky; each is a weak test of yours to strengthen.
+        description: Tests of the component beck found flaky; each is a weak test of yours to strengthen.
         type: array
         items:
           type: object
@@ -74,7 +74,7 @@ $defs:
           properties:
             test: {type: string, minLength: 1}
             evidence: {$ref: "common.schema.yaml#/$defs/text"}
-  ReviewUnit-out:
+  ReviewComponent-out:
     properties:
       outcome: {enum: [done, change_requested]}
       result:
@@ -84,7 +84,7 @@ $defs:
         properties:
           findings: {type: array, items: {$ref: "#/$defs/finding"}}
           weak_tests:
-            description: Tests that do not verify the clause they cite.
+            description: Tests that do not verify the requirement they reference.
             type: array
             items: {$ref: "#/$defs/weak-test"}
     if: {properties: {outcome: {const: done}}}
@@ -92,14 +92,14 @@ $defs:
 
   weak-test:
     type: object
-    required: [test, clause, why]
+    required: [test, requirement, why]
     additionalProperties: false
     properties:
       test: {type: string, minLength: 1}
-      clause: {$ref: "common.schema.yaml#/$defs/id"}
+      requirement: {$ref: "common.schema.yaml#/$defs/id"}
       why: {$ref: "common.schema.yaml#/$defs/text"}
 
-  RefactorUnit-in:
+  RefactorComponent-in:
     description: >-
       The findings to address in this turn, or the weak tests to strengthen.
       A weak test is fixed by martin under the three laws of TDD: the test
@@ -119,7 +119,7 @@ $defs:
         items: {$ref: "#/$defs/weak-test"}
       run: {type: string, minLength: 1}
       check: {type: string, minLength: 1}
-  RefactorUnit-out:
+  RefactorComponent-out:
     properties:
       outcome: {enum: [done, change_requested]}
       result:
@@ -150,7 +150,7 @@ $defs:
     properties:
       files: {$ref: "common.schema.yaml#/$defs/paths"}
       landed:
-        description: The units already on the feature branch that touched the same files.
+        description: The components already on the feature branch that touched the same files.
         type: array
         items: {type: string, minLength: 1}
       run: {type: string, minLength: 1}

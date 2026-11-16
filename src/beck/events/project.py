@@ -36,7 +36,7 @@ class Iteration:
 
 class Project:
     def __init__(self, root: Path | str):
-        self.root = Path(root).resolve()   # absolute: agents run in the units' worktrees, not in the root
+        self.root = Path(root).resolve()   # absolute: agents run in the components' worktrees, not in the root
         self.beck_dir = self.root / ".beck"
         self.beck_dir.mkdir(parents=True, exist_ok=True)
         ignore = self.beck_dir / ".gitignore"

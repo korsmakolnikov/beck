@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS usage_event (
   agent          TEXT NOT NULL,
   model          TEXT NOT NULL,
   command        TEXT NOT NULL,
-  unit           TEXT,
+  component           TEXT,
   {_COUNTS}
 );
 CREATE INDEX IF NOT EXISTS usage_event_iteration ON usage_event(iteration, seq);
@@ -80,7 +80,7 @@ class Row:
     agent: str
     model: str
     command: str
-    unit: str | None
+    component: str | None
     numbers: dict[str, int]
 
 
@@ -149,7 +149,7 @@ class Usage:
         command = store.get(event.causation_id) if event.causation_id else None
         name = (command.payload.get("command") if command and command.type == "CommandIssued" else None)
         name = name or p.get("command") or "-"
-        unit = (command.payload.get("args") or {}).get("unit") if command and command.type == "CommandIssued" else None
+        component = (command.payload.get("args") or {}).get("component") if command and command.type == "CommandIssued" else None
         numbers: dict[str, int] = {n: 0 for n in NUMBERS}
         if event.type == "AgentTurnEnded":
             tokens = p.get("tokens") or {}
@@ -161,7 +161,7 @@ class Usage:
             numbers["failed" if event.type == "AgentTurnFailed" else "rejected"] = 1
             model = self._model_of(iteration, p["agent"], event.causation_id)
         return Row(event.id, event.seq, event.correlation_id, event.causation_id, event.type, event.at,
-                   window_of(event.at, self.window), p["agent"], model, name, unit, numbers)
+                   window_of(event.at, self.window), p["agent"], model, name, component, numbers)
 
     def _model_of(self, iteration: str, agent: str, command_id: str | None) -> str:
         """A failed or rejected turn's model: its own turn's, else the agent's last."""
@@ -176,9 +176,9 @@ class Usage:
         marks = ", ".join("?" * len(NUMBERS))
         self._conn.execute(
             f"INSERT INTO usage_event (iteration, event_id, seq, correlation_id, command_id, kind, at, win, agent, "
-            f"model, command, unit, {cols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, {marks})",
+            f"model, command, component, {cols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, {marks})",
             (iteration, r.event_id, r.seq, r.correlation_id, r.command_id, r.kind, r.at, r.win, r.agent, r.model,
-             r.command, r.unit, *values))
+             r.command, r.component, *values))
         adds = ", ".join(f"{n} = {n} + excluded.{n}" for n in NUMBERS)
         tail = ("events = events + 1, first_seq = min(first_seq, excluded.first_seq), "
                 "last_seq = max(last_seq, excluded.last_seq)")
@@ -212,8 +212,8 @@ class Usage:
         return dict(self._conn.execute(f"SELECT {sums} FROM usage WHERE iteration = ?", (iteration,)).fetchone())
 
     def events(self, iteration: str, after: int = 0, **where: str) -> Iterator[dict[str, Any]]:
-        """The ledger's rows after a rowid, optionally of one agent, model, command, unit, kind or window."""
-        allowed = {"agent", "model", "command", "unit", "kind", "win"}
+        """The ledger's rows after a rowid, optionally of one agent, model, command, component, kind or window."""
+        allowed = {"agent", "model", "command", "component", "kind", "win"}
         unknown = set(where) - allowed
         if unknown:
             raise ValueError(f"unknown filter {sorted(unknown)}")

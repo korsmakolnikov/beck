@@ -40,12 +40,12 @@ def reactor_for(project: Project, iteration: str, store: EventStore, agents: Age
         config = dict(beck_config.DEFAULTS)  # LoadConfig reports it as an event
     ctx = Ctx(store, project.root, iteration, IndexWorkspace(store, project.root),
               limits=(config["limits"]["times"], config["limits"]["attempts"]),
-              units_in_parallel=config["units_in_parallel"],
+              components_in_parallel=config["components_in_parallel"],
               flakiness=(config["flakiness"]["window"], config["flakiness"]["runs"]))
     driver = agents or ClaudeCode(store, project.root, iteration, config["models"],
                                   executable=os.environ.get("BECK_CLAUDE", "claude"), docs=docs_dir())
     usage = Usage(project.root, config["usage"]["window_minutes"])
-    return Reactor(ctx, beck_machine, driver, slots=config["units_in_parallel"],
+    return Reactor(ctx, beck_machine, driver, slots=config["components_in_parallel"],
                    projectors=[projector(usage, store, iteration)])
 
 

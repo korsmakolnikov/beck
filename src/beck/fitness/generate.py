@@ -146,7 +146,7 @@ class Written:
     stack: str
     files: list[str]
     rules_file: str
-    pending_rules: dict[str, str]   # rules not yet cited (spec: <id>) in the rules file
+    pending_rules: dict[str, str]   # rules not yet referenced (spec: <id>) in the rules file
     notes: list[str]
 
 

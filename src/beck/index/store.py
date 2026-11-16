@@ -10,10 +10,10 @@ from typing import Any
 SCHEMA = """
 CREATE TABLE node (
   id      TEXT PRIMARY KEY,
-  kind    TEXT NOT NULL,   -- component | library | container | entity | event | operation | clause | symbol | test
+  kind    TEXT NOT NULL,   -- component | library | container | entity | event | morphism | requirement | symbol | test
   subkind TEXT,            -- element kind; entity | value_object; invariant | rule | constraint | post | error | property
-  owner   TEXT,            -- clause: the node whose group holds it (entity, operation) or NULL (model group)
-  text    TEXT,            -- the clause's sentence, the description, the symbol's signature
+  owner   TEXT,            -- requirement: the node whose unit holds it (entity, morphism) or NULL (component unit)
+  text    TEXT,            -- the requirement's sentence, the description, the symbol's signature
   data    TEXT NOT NULL DEFAULT '{}'  -- JSON: fields, physical name, file and lines, ...
 );
 CREATE TABLE edge (
@@ -29,7 +29,7 @@ CREATE TABLE file (
 );
 """
 
-INTEGRATION = "@integration"  # the integration unit; '@' keeps it out of the DSL's ids
+INTEGRATION = "@integration"  # the integration component; '@' keeps it out of the DSL's ids
 
 
 def create(path: Path | str) -> sqlite3.Connection:

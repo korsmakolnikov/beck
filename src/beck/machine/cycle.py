@@ -1,4 +1,4 @@
-"""The machine of a cycle: one clause, one test, one red and one green (README, phase 4).
+"""The machine of a cycle: one requirement, one test, one red and one green (README, phase 4).
 
     CycleOpened → WriteRedTest (unclebob) → RedDeclared → VerifyRed → RedVerified → CommitRed → RedCommitted
       → WriteGreenCode (unclebob) → GreenDeclared → VerifyGreen → GreenVerified → CommitGreen
@@ -7,7 +7,7 @@
 A rejection (RedRejected, GreenRejected, a SignalRejected of the turn) sends
 the turn again with the reason, until the repetition rule blocks the cycle
 (CycleBlocked). An agent's change request (ChangeRequested) ends the turn;
-the unit's machine parks the unit. While a unit is parked no turn of its
+the component's machine parks the component. While a component is parked no turn of its
 cycles starts; CycleReopened resumes a cycle at its phase.
 """
 
@@ -30,71 +30,73 @@ RED = ("RedRejected",)
 GREEN = ("GreenRejected",)
 
 
-def stream(unit: str, clause: str) -> str:
-    return f"cycle:{unit}/{clause}"
+def stream(component: str, requirement: str) -> str:
+    return f"cycle:{component}/{requirement}"
 
 
 @dataclass(frozen=True)
 class Workspace:
-    """Where a unit lives and what it may touch, given by hand (the tests); beck.machine.unit derives it."""
+    """Where a component lives and what it may touch, given by hand (the tests); beck.machine.component derives it."""
     worktrees: dict[str, Path]
     scopes: dict[str, list[str]]
-    groups: dict[tuple[str, str], dict[str, Any]]   # (unit, group) → beck index context
-    met: set[tuple[str, str]] = field(default_factory=set)   # (unit, clause) the index shows implemented
+    units: dict[tuple[str, str], dict[str, Any]]   # (component, unit) → beck index context
+    met: set[tuple[str, str]] = field(default_factory=set)   # (component, requirement) the index shows implemented
 
-    def worktree(self, unit: str) -> Path:
-        return self.worktrees[unit]
+    def worktree(self, component: str) -> Path:
+        return self.worktrees[component]
 
-    def already_met(self, unit: str, clause: str) -> bool:
-        return (unit, clause) in self.met
+    def already_met(self, component: str, requirement: str) -> bool:
+        return (component, requirement) in self.met
 
-    def scope(self, unit: str) -> list[str]:
-        return self.scopes[unit]
+    def scope(self, component: str) -> list[str]:
+        return self.scopes[component]
 
-    def group_context(self, unit: str, group: str) -> dict[str, Any]:
-        return self.groups[(unit, group)]
+    def unit_context(self, component: str, unit: str) -> dict[str, Any]:
+        return self.units[(component, unit)]
 
 
-def parked(ctx: Ctx, unit: str) -> bool:
-    """Whether the unit is parked, as of the policy's event. A unit parked before it started (a dependent, still
+def parked(ctx: Ctx, component: str) -> bool:
+    """Whether the component is parked, as of the policy's event. A component parked before it started (a dependent, still
     waiting) is no longer parked once started."""
     state = False
-    for e in ctx.events(stream=f"unit:{unit}", types=("UnitParked", "UnitResumed", "UnitStarted")):
-        state = e.type == "UnitParked"
+    for e in ctx.events(stream=f"component:{component}", types=("ComponentParked", "ComponentResumed", "ComponentStarted")):
+        state = e.type == "ComponentParked"
     return state
 
 
-def _rejections(ctx: Ctx, unit: str, clause: str, kinds: tuple[str, ...], command: str, since: str) -> list[str]:
+def _rejections(ctx: Ctx, component: str, requirement: str, kinds: tuple[str, ...], command: str, since: str) -> list[str]:
     """The signatures of the loop's rejections since its start event, in order."""
-    events = ctx.events(stream=stream(unit, clause))
+    events = ctx.events(stream=stream(component, requirement))
     start = max((e.seq for e in events if e.type == since), default=0)
     return [e.payload["signature"] for e in events if e.seq >= start and (
         e.type in kinds or (e.type == "SignalRejected" and e.payload.get("command") == command))]
 
 
-def _red_turn(ctx: Ctx, unit: str, clause: str, group: str, first: bool, retry: tuple[int, str] | None) -> Command:
-    context: dict[str, Any] = {"clause": clause,
-                               "run": f"beck test <the test> --unit {unit} --clause {clause}"}
+def _red_turn(ctx: Ctx, component: str, requirement: str, unit: str, first: bool, retry: tuple[int, str] | None) -> Command:
+    context: dict[str, Any] = {"requirement": requirement,
+                               "run": f"beck test <the test> --component {component} --requirement {requirement}"}
     if first and retry is None:
-        context["group"] = ctx.workspace.group_context(unit, group)
-    args: dict[str, Any] = {"session": f"{unit}/{group}", "context": context, "unit": unit, "clause": clause,
-                            "group": group}
+        context["unit"] = ctx.workspace.unit_context(component, unit)
+    args: dict[str, Any] = {"session": f"{component}/{unit}", "context": context, "component": component,
+                            "requirement": requirement,
+                            "unit": unit}
     if retry:
         args["retry"] = list(retry)
-    return Command("WriteRedTest", "unclebob", args, stream(unit, clause))
+    return Command("WriteRedTest", "unclebob", args, stream(component, requirement))
 
 
-def _green_turn(unit: str, clause: str, group: str, test: str, failure: str | None,
+def _green_turn(component: str, requirement: str, unit: str, test: str, failure: str | None,
                 retry: tuple[int, str] | None) -> Command:
-    context: dict[str, Any] = {"clause": clause, "test": test,
-                               "run": f"beck test {test} --unit {unit} --clause {clause}"}
+    context: dict[str, Any] = {"requirement": requirement, "test": test,
+                               "run": f"beck test {test} --component {component} --requirement {requirement}"}
     if failure:
         context["failure"] = failure
-    args: dict[str, Any] = {"session": f"{unit}/{group}", "context": context, "unit": unit, "clause": clause,
-                            "group": group, "test": test}
+    args: dict[str, Any] = {"session": f"{component}/{unit}", "context": context, "component": component,
+                            "requirement": requirement,
+                            "unit": unit, "test": test}
     if retry:
         args["retry"] = list(retry)
-    return Command("WriteGreenCode", "unclebob", args, stream(unit, clause))
+    return Command("WriteGreenCode", "unclebob", args, stream(component, requirement))
 
 
 def _issued(ctx: Ctx, event: Event) -> Event:
@@ -109,20 +111,20 @@ def _issued(ctx: Ctx, event: Event) -> Event:
 @cycle.policy("CycleOpened")
 def open_red(event: Event, ctx: Ctx) -> list[Command]:
     p = event.payload
-    if parked(ctx, p["unit"]):
+    if parked(ctx, p["component"]):
         return []
-    return [_red_turn(ctx, p["unit"], p["clause"], p["group"], p["first"], None)]
+    return [_red_turn(ctx, p["component"], p["requirement"], p["unit"], p["first"], None)]
 
 
 @cycle.policy("CycleReopened")
 def reopen(event: Event, ctx: Ctx) -> list[Command]:
-    """After a resolution: the cycle goes on at its phase, the reason in the retry."""
+    """After a restart: the cycle goes on at its phase, the reason in the retry."""
     p = event.payload
     retry = (2, p["reason"])
     if p["phase"] == "red":
-        return [_red_turn(ctx, p["unit"], p["clause"], p["group"], False, retry)]
-    test, group = _declared_test(ctx, p["unit"], p["clause"])
-    return [_green_turn(p["unit"], p["clause"], group, test, None, retry)]
+        return [_red_turn(ctx, p["component"], p["requirement"], p["unit"], False, retry)]
+    test, unit = _declared_test(ctx, p["component"], p["requirement"])
+    return [_green_turn(p["component"], p["requirement"], unit, test, None, retry)]
 
 
 @cycle.policy("RedDeclared")
@@ -134,10 +136,10 @@ def verify_red(event: Event, ctx: Ctx) -> list[Command]:
 @cycle.policy("RedRejected", "SignalRejected")
 def retry_red(event: Event, ctx: Ctx) -> list[Command]:
     name, a = _agent_turn(ctx, event)
-    if name != "WriteRedTest" or parked(ctx, a["unit"]):
+    if name != "WriteRedTest" or parked(ctx, a["component"]):
         return []
-    return _retry(ctx, event, a["unit"], a["clause"], RED, name, "CycleOpened",
-                  lambda attempt, reason: _red_turn(ctx, a["unit"], a["clause"], a["group"], False, (attempt, reason)))
+    return _retry(ctx, event, a["component"], a["requirement"], RED, name, "CycleOpened",
+                  lambda attempt, reason: _red_turn(ctx, a["component"], a["requirement"], a["unit"], False, (attempt, reason)))
 
 
 @cycle.policy("RedVerified")
@@ -148,10 +150,10 @@ def commit_red(event: Event, ctx: Ctx) -> list[Command]:
 @cycle.policy("RedCommitted")
 def open_green(event: Event, ctx: Ctx) -> list[Command]:
     p = event.payload
-    if parked(ctx, p["unit"]) or _issued(ctx, event).payload["args"].get("already_green"):
+    if parked(ctx, p["component"]) or _issued(ctx, event).payload["args"].get("already_green"):
         return []
-    test, group = _declared_test(ctx, p["unit"], p["clause"])
-    return [_green_turn(p["unit"], p["clause"], group, test, None, None)]
+    test, unit = _declared_test(ctx, p["component"], p["requirement"])
+    return [_green_turn(p["component"], p["requirement"], unit, test, None, None)]
 
 
 @cycle.policy("GreenDeclared")
@@ -162,23 +164,23 @@ def verify_green(event: Event, ctx: Ctx) -> list[Command]:
 @cycle.policy("GreenRejected", "SignalRejected")
 def retry_green(event: Event, ctx: Ctx) -> list[Command]:
     name, a = _agent_turn(ctx, event)
-    if name != "WriteGreenCode" or parked(ctx, a["unit"]):
+    if name != "WriteGreenCode" or parked(ctx, a["component"]):
         return []
     failure = event.payload.get("failure")
-    return _retry(ctx, event, a["unit"], a["clause"], GREEN, name, "RedCommitted",
-                  lambda attempt, reason: _green_turn(a["unit"], a["clause"], a["group"], a["test"], failure,
+    return _retry(ctx, event, a["component"], a["requirement"], GREEN, name, "RedCommitted",
+                  lambda attempt, reason: _green_turn(a["component"], a["requirement"], a["unit"], a["test"], failure,
                                                       (attempt, reason)))
 
 
 def green_stuck(ctx: Ctx, event: Event) -> bool:
     """A ChangeRequested that takes the cycle back to red: unclebob's `test` kind, or the repetition rule's
-    times of change requests from the green of one red (no resolution could unblock it: the red is suspect)."""
+    times of change requests from the green of one red (no restart could unblock it: the red is suspect)."""
     p = event.payload
-    if p["agent"] != "unclebob" or "clause" not in p:
+    if p["agent"] != "unclebob" or "requirement" not in p:
         return False
     if p["kind"] == "test":
         return True
-    events = ctx.events(stream=stream(p["unit"], p["clause"]))
+    events = ctx.events(stream=stream(p["component"], p["requirement"]))
     since = max((e.seq for e in events if e.type in ("RedCommitted", "RedRewound")), default=0)
     asked = [e for e in events if e.seq > since and e.type == "ChangeRequested"]
     return _issued(ctx, event).payload["command"] == "WriteGreenCode" and len(asked) >= ctx.limits[0]
@@ -192,23 +194,23 @@ def rewind_red(event: Event, ctx: Ctx) -> list[Command]:
     if not green_stuck(ctx, event):
         return []
     a = _issued(ctx, event).payload["args"]
-    rewinds = len(ctx.events(stream=stream(a["unit"], a["clause"]), types=("RedRewound",)))
+    rewinds = len(ctx.events(stream=stream(a["component"], a["requirement"]), types=("RedRewound",)))
     if rewinds >= ctx.limits[0]:
-        return [Command("BlockCycle", "beck", {"unit": a["unit"], "clause": a["clause"],
+        return [Command("BlockCycle", "beck", {"component": a["component"], "requirement": a["requirement"],
                                                "reason": f"the red test was found wrong {rewinds} times"},
                         event.stream)]
     why = "the red test is wrong" if p["kind"] == "test" else "the green asked for a change too many times"
-    return [Command("RewindRed", "beck", {"unit": a["unit"], "clause": a["clause"], "group": a["group"],
+    return [Command("RewindRed", "beck", {"component": a["component"], "requirement": a["requirement"], "unit": a["unit"],
                                           "reason": f"{why}: {p['problem']}"}, event.stream)]
 
 
 @cycle.policy("RedRewound")
 def red_again(event: Event, ctx: Ctx) -> list[Command]:
     p = event.payload
-    if parked(ctx, p["unit"]):
+    if parked(ctx, p["component"]):
         return []
-    attempt = len(ctx.events(stream=stream(p["unit"], p["clause"]), types=("RedRewound",))) + 1
-    return [_red_turn(ctx, p["unit"], p["clause"], p["group"], False, (attempt, p["reason"]))]
+    attempt = len(ctx.events(stream=stream(p["component"], p["requirement"]), types=("RedRewound",))) + 1
+    return [_red_turn(ctx, p["component"], p["requirement"], p["unit"], False, (attempt, p["reason"]))]
 
 
 @cycle.policy("GreenVerified")
@@ -216,13 +218,13 @@ def commit_green(event: Event, ctx: Ctx) -> list[Command]:
     return [Command("CommitGreen", "beck", dict(event.payload), event.stream)]
 
 
-def _retry(ctx: Ctx, event: Event, unit: str, clause: str, kinds: tuple[str, ...], command: str, since: str,
+def _retry(ctx: Ctx, event: Event, component: str, requirement: str, kinds: tuple[str, ...], command: str, since: str,
            turn: Any) -> list[Command]:
-    sequence = _rejections(ctx, unit, clause, kinds, command, since)
+    sequence = _rejections(ctx, component, requirement, kinds, command, since)
     times, attempts = ctx.limits
     why = blocked(sequence, times, attempts)
     if why:
-        return [Command("BlockCycle", "beck", {"unit": unit, "clause": clause, "reason": why}, event.stream)]
+        return [Command("BlockCycle", "beck", {"component": component, "requirement": requirement, "reason": why}, event.stream)]
     reason = event.payload.get("reason") or "; ".join(event.payload.get("errors", []))
     return [turn(len(sequence) + 1, reason)]
 
@@ -239,11 +241,11 @@ def _agent_turn(ctx: Ctx, rejection: Event) -> tuple[str, dict[str, Any]]:
     return issued.payload["command"], issued.payload["args"]
 
 
-def _declared_test(ctx: Ctx, unit: str, clause: str) -> tuple[str, str]:
-    declared = [e for e in ctx.events(stream=stream(unit, clause), types=("RedVerified",))][-1]
+def _declared_test(ctx: Ctx, component: str, requirement: str) -> tuple[str, str]:
+    declared = [e for e in ctx.events(stream=stream(component, requirement), types=("RedVerified",))][-1]
     turn = ctx.store.get(declared.causation_id or "")           # VerifyRed
-    group = ctx.store.get(turn.payload["args"]["turn"]).payload["args"]["group"]
-    return declared.payload["test"], group
+    unit = ctx.store.get(turn.payload["args"]["turn"]).payload["args"]["unit"]
+    return declared.payload["test"], unit
 
 
 # --- translators: the agent's JSON into events -----------------------------------
@@ -254,7 +256,8 @@ def red_declared(command: Event, output: dict[str, Any], ctx: Ctx) -> list[Resul
     args = command.payload["args"]
     if output["outcome"] == "change_requested":
         return [_change(args, output)]
-    return [Result("RedDeclared", {"unit": args["unit"], "clause": args["clause"], "test": output["result"]["test"]},
+    return [Result("RedDeclared", {"component": args["component"], "requirement": args["requirement"],
+                                   "test": output["result"]["test"]},
                    actor="unclebob")]
 
 
@@ -263,12 +266,12 @@ def green_declared(command: Event, output: dict[str, Any], ctx: Ctx) -> list[Res
     args = command.payload["args"]
     if output["outcome"] == "change_requested":
         return [_change(args, output)]
-    return [Result("GreenDeclared", {"unit": args["unit"], "clause": args["clause"], "test": args["test"]},
+    return [Result("GreenDeclared", {"component": args["component"], "requirement": args["requirement"], "test": args["test"]},
                    actor="unclebob")]
 
 
 def _change(args: dict[str, Any], output: dict[str, Any]) -> Result:
-    return Result("ChangeRequested", {"agent": "unclebob", "unit": args["unit"], "clause": args["clause"],
+    return Result("ChangeRequested", {"agent": "unclebob", "component": args["component"], "requirement": args["requirement"],
                                       **output["change"]}, actor="unclebob")
 
 
@@ -291,29 +294,29 @@ def _runs(ctx: Ctx, turn: str) -> list[Event]:
 @cycle.handler("VerifyRed")
 def handle_verify_red(command: Event, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
-    # a test that passes proves the clause when its code exists: the integration unit's (over components already
-    # implemented), or a clause the index shows implemented by an earlier green
+    # a test that passes proves the requirement when its code exists: the integration component's (over components already
+    # implemented), or a requirement the index shows implemented by an earlier green
     met = getattr(ctx.workspace, "already_met", None)
-    accept = a["unit"] == INTEGRATION or bool(met and met(a["unit"], a["clause"]))
-    verdict = verify.verify_red(ctx.workspace.worktree(a["unit"]), _runs(ctx, a["turn"]), a["test"], ctx.project,
+    accept = a["component"] == INTEGRATION or bool(met and met(a["component"], a["requirement"]))
+    verdict = verify.verify_red(ctx.workspace.worktree(a["component"]), _runs(ctx, a["turn"]), a["test"], ctx.project,
                                 accept_pass=accept)
     if verdict.ok:
-        return [Result("RedVerified", {"unit": a["unit"], "clause": a["clause"], "test": a["test"],
+        return [Result("RedVerified", {"component": a["component"], "requirement": a["requirement"], "test": a["test"],
                                        "run": verdict.run or "",
                                        **({"already_green": True} if verdict.reason == "already green" else {})})]
-    return [Result("RedRejected", {"unit": a["unit"], "clause": a["clause"], "reason": verdict.reason,
+    return [Result("RedRejected", {"component": a["component"], "requirement": a["requirement"], "reason": verdict.reason,
                                    "signature": signature(verdict.problems)})]
 
 
 @cycle.handler("VerifyGreen")
 def handle_verify_green(command: Event, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
-    verdict = verify.verify_green(ctx.workspace.worktree(a["unit"]), _runs(ctx, a["turn"]), a["test"],
-                                  ctx.workspace.scope(a["unit"]), ctx.project)
+    verdict = verify.verify_green(ctx.workspace.worktree(a["component"]), _runs(ctx, a["turn"]), a["test"],
+                                  ctx.workspace.scope(a["component"]), ctx.project)
     if verdict.ok:
-        return [Result("GreenVerified", {"unit": a["unit"], "clause": a["clause"], "test": a["test"],
+        return [Result("GreenVerified", {"component": a["component"], "requirement": a["requirement"], "test": a["test"],
                                          "run": verdict.run or ""})]
-    payload = {"unit": a["unit"], "clause": a["clause"], "reason": verdict.reason,
+    payload = {"component": a["component"], "requirement": a["requirement"], "reason": verdict.reason,
                "signature": signature(verdict.problems)}
     if verdict.failure:
         payload["failure"] = verdict.failure
@@ -335,35 +338,35 @@ def commit(root: Path, message: str, allow_empty: bool = False, empty: bool = Fa
     return git("rev-parse", "HEAD")
 
 
-def message(ctx: Ctx, unit: str, own: str) -> str:
-    """A cycle's commit: its own message, or a fixup of the unit's commit once the unit is squashed."""
-    squashed = list(ctx.store.read(stream=f"unit:{unit}", types_=("UnitSquashed",)))
+def message(ctx: Ctx, component: str, own: str) -> str:
+    """A cycle's commit: its own message, or a fixup of the component's commit once the component is squashed."""
+    squashed = list(ctx.store.read(stream=f"component:{component}", types_=("ComponentSquashed",)))
     return f"fixup! {squashed[-1].payload['subject']}" if squashed else own
 
 
 @cycle.handler("CommitRed")
 def handle_commit_red(command: Event, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
-    tree = ctx.workspace.worktree(a["unit"])
-    sha = commit(tree, message(ctx, a["unit"], f"test({a['unit']}): {a['clause']}"))
-    committed = Result("RedCommitted", {"unit": a["unit"], "clause": a["clause"], "sha": sha})
+    tree = ctx.workspace.worktree(a["component"])
+    sha = commit(tree, message(ctx, a["component"], f"test({a['component']}): {a['requirement']}"))
+    committed = Result("RedCommitted", {"component": a["component"], "requirement": a["requirement"], "sha": sha})
     if a.get("already_green"):   # the code exists: an empty green keeps the TDD order of the commits
-        green = commit(tree, message(ctx, a["unit"], f"feat({a['unit']}): {a['clause']}"), empty=True)
-        return [committed, Result("GreenCommitted", {"unit": a["unit"], "clause": a["clause"], "sha": green}),
-                Result("CycleClosed", {"unit": a["unit"], "clause": a["clause"]})]
+        green = commit(tree, message(ctx, a["component"], f"feat({a['component']}): {a['requirement']}"), empty=True)
+        return [committed, Result("GreenCommitted", {"component": a["component"], "requirement": a["requirement"], "sha": green}),
+                Result("CycleClosed", {"component": a["component"], "requirement": a["requirement"]})]
     return [committed]
 
 
-def undo_red(tree: Path, unit: str, clause: str) -> None:
+def undo_red(tree: Path, component: str, requirement: str) -> None:
     """Takes the cycle's red commit away, found by its subject (a rebase rewrites the sha). Nothing to do when
-    there is none (a crash between the undo and its event) or when the clause was greened: later cycles may
+    there is none (a crash between the undo and its event) or when the requirement was greened: later cycles may
     build on its test. A revert that conflicts is given up, the tree left as it was."""
     def git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         return subprocess.run(["git", *args], cwd=tree, capture_output=True, text=True, check=check)
     def last(subject: str) -> str:
         return git("log", "-1", "--format=%H", "--fixed-strings", f"--grep={subject}").stdout.strip()
-    found = last(f"test({unit}): {clause}")
-    if not found or last(f"feat({unit}): {clause}"):
+    found = last(f"test({component}): {requirement}")
+    if not found or last(f"feat({component}): {requirement}"):
         return
     if found == git("rev-parse", "HEAD").stdout.strip():
         git("reset", "-q", "--hard", "HEAD~1")
@@ -374,22 +377,23 @@ def undo_red(tree: Path, unit: str, clause: str) -> None:
 @cycle.handler("RewindRed")
 def handle_rewind_red(command: Event, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
-    tree = ctx.workspace.worktree(a["unit"])
-    undo_red(tree, a["unit"], a["clause"])   # by its subject: a resume's rebase rewrote its sha
+    tree = ctx.workspace.worktree(a["component"])
+    undo_red(tree, a["component"], a["requirement"])   # by its subject: a resume's rebase rewrote its sha
     subprocess.run(["git", "clean", "-fdq", "--", ".", ":!.beck"], cwd=tree, check=True)
-    return [Result("RedRewound", {k: a[k] for k in ("unit", "clause", "group", "reason")})]
+    return [Result("RedRewound", {k: a[k] for k in ("component", "requirement", "unit", "reason")})]
 
 
 @cycle.handler("CommitGreen")
 def handle_commit_green(command: Event, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
-    sha = commit(ctx.workspace.worktree(a["unit"]), message(ctx, a["unit"], f"feat({a['unit']}): {a['clause']}"),
+    sha = commit(ctx.workspace.worktree(a["component"]), message(ctx, a["component"],
+                                                                 f"feat({a['component']}): {a['requirement']}"),
                  allow_empty=True)
-    return [Result("GreenCommitted", {"unit": a["unit"], "clause": a["clause"], "sha": sha}),
-            Result("CycleClosed", {"unit": a["unit"], "clause": a["clause"]})]
+    return [Result("GreenCommitted", {"component": a["component"], "requirement": a["requirement"], "sha": sha}),
+            Result("CycleClosed", {"component": a["component"], "requirement": a["requirement"]})]
 
 
 @cycle.handler("BlockCycle")
 def handle_block(command: Event, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
-    return [Result("CycleBlocked", {"unit": a["unit"], "clause": a["clause"], "reason": a["reason"]})]
+    return [Result("CycleBlocked", {"component": a["component"], "requirement": a["requirement"], "reason": a["reason"]})]

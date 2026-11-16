@@ -2,18 +2,18 @@
 
 import sys
 
+from test_component import execution, git, pending_of_user, repo, run  # noqa: F401
 from test_refactor import CHECKER, HEADS, Team, out
-from test_unit import git, pending_of_user, plan, repo, run  # noqa: F401
 
 from beck.events.project import Project
 from beck.machine.closing import workflow
+from beck.machine.component import Workspace
 from beck.machine.core import Ctx, Reactor, Result
-from beck.machine.unit import Workspace
 
 
 class Reviewers(Team):
     def PlanCorrections(self, envelope, cwd):
-        return out("PlanCorrections", result={"plan": [{"unit": "store", "agent": "martin",
+        return out("PlanCorrections", result={"plan": [{"component": "store", "agent": "martin",
                                                          "description": "Write the one as 2 - 1."}]})
 
 
@@ -23,11 +23,12 @@ def setup(repo, agents, toolchain_extra=""):
         path.write_text(path.read_text().replace("check: []\n", "") + toolchain_extra)
     project = Project(repo)
     it, store, _ = project.start_iteration()
-    workspace = Workspace(store, repo, lambda unit, tree: [f"src/shop/{unit}"],
-                          lambda unit, group: {"unit": {"id": unit}, "group": group, "clauses": [], "entities": [],
+    workspace = Workspace(store, repo, lambda component, tree: [f"src/shop/{component}"],
+                          lambda component, unit: {"component": {"id": component}, "unit": unit, "requirements": [],
+                                                   "entities": [],
                                                "dependencies": [], "files": {"source": [], "tests": []}})
-    ctx = Ctx(store, repo, it.id, workspace, units_in_parallel=2)
-    store.append("UnitsPlanned", plan())
+    ctx = Ctx(store, repo, it.id, workspace, components_in_parallel=2)
+    store.append("ExecutionDerived", execution())
     return Reactor(ctx, workflow, agents), store, project, it
 
 
@@ -95,7 +96,7 @@ def test_a_correction_is_a_fixup_the_next_review_shows_and_the_close_folds(repo)
     assert "return 2 - 1" in git(repo, "show", "HEAD~1:src/shop/store/store_adds.py")
 
 
-def test_a_failing_full_suite_reopens_the_unit_of_the_failing_test(repo):
+def test_a_failing_full_suite_reopens_the_component_of_the_failing_test(repo):
     reactor, store, *_ = setup(repo, Reviewers(repo))
     run(reactor)
     first = review(reactor)
@@ -106,7 +107,7 @@ def test_a_failing_full_suite_reopens_the_unit_of_the_failing_test(repo):
     run(reactor)
     failed = list(store.read(types_=("SuiteFailed",)))
     assert failed and failed[0].payload["tests"] == ["tests/test_cart_totals.py::test_cart_totals"]
-    reopened = [e.payload["unit"] for e in store.read(types_=("UnitReopened",))]
+    reopened = [e.payload["component"] for e in store.read(types_=("ComponentReopened",))]
     assert sorted(set(reopened)) == ["cart", "store"]
     assert "return 1" in (repo / "src/shop/cart/cart_totals.py").read_text()
     assert review(reactor).payload["args"]["round"] == 2
@@ -117,8 +118,8 @@ class Router(Reviewers):
 
     def RouteDecision(self, envelope, cwd):
         ctx = envelope["context"]
-        assert ctx["situation"] == "suite-outside-units" and ctx["answer"] == "It is a known failure, go on."
-        assert [a["id"] for a in ctx["actions"]] == ["reopen-unit", "run-again", "go-on"]
+        assert ctx["situation"] == "suite-outside-components" and ctx["answer"] == "It is a known failure, go on."
+        assert [a["id"] for a in ctx["actions"]] == ["reopen-component", "run-again", "go-on"]
         if "retry" not in envelope:
             return out("RouteDecision", result={"action": "skip", "args": {}, "why": "the user says so"})
         assert "'skip' is not in the menu" in envelope["retry"]["reason"]
@@ -136,7 +137,7 @@ def test_beck_s_own_question_is_routed_by_kent_to_an_action_of_its_menu(repo):
     reactor.answer(first.id, [Result("CorrectionsRequested", {"text": "store: write 2 - 1"}, actor="user")])
     run(reactor)
     [ask] = [c for c in pending_of_user(reactor) if c.payload["command"] == "Ask"]
-    assert "outside the units' tests" in user.prompt(ask)
+    assert "outside the components' tests" in user.prompt(ask)
     reactor.answer(ask.id, user.answer(ask, "It is a known failure, go on."))
     run(reactor)
     assert [e.payload["action"] for e in store.read(types_=("DecisionRouted",))] == ["go-on"]
@@ -146,15 +147,15 @@ def test_beck_s_own_question_is_routed_by_kent_to_an_action_of_its_menu(repo):
     assert review(reactor).payload["args"]["round"] == 2
 
 
-def test_a_failing_test_of_a_dropped_clause_reopens_no_unit(repo):
-    # the session of 2026-11-15: the full suite failed on the test of a clause taken out of the domain, and beck
-    # reopened the unit on that clause, four times
-    from test_unit import without
+def test_a_failing_test_of_a_dropped_requirement_reopens_no_component(repo):
+    # the session of 2026-11-15: the full suite failed on the test of a requirement taken out of the domain, and beck
+    # reopened the component on that requirement, four times
+    from test_component import without
 
     from beck.machine.closing import reopen_failing
     store = Project(repo).start_iteration()[1]
-    store.append("UnitsPlanned", without("cart-totals"))
-    store.append("RedVerified", {"unit": "cart", "clause": "cart-totals", "test": "tests/test_t.py::test_t",
+    store.append("ExecutionDerived", without("cart-totals"))
+    store.append("RedVerified", {"component": "cart", "requirement": "cart-totals", "test": "tests/test_t.py::test_t",
                                  "run": "r"}, stream="cycle:cart/cart-totals")
     failed = store.append("SuiteFailed", {"tests": ["tests/test_t.py::test_t"], "failure": "NOT_OK"}, stream="branch")
     [command] = reopen_failing(failed, Ctx(store, repo, "it", None))
@@ -163,7 +164,7 @@ def test_a_failing_test_of_a_dropped_clause_reopens_no_unit(repo):
 
 
 def test_the_review_names_the_interfaces_no_cycle_implemented(repo):
-    # the session of 2026-11-15: the suite was green, but the program's entry point, which no clause cited, still
+    # the session of 2026-11-15: the suite was green, but the program's entry point, which no requirement referenced, still
     # raised "not implemented": the command did not start, and the review did not say so
     (repo / "src/shop/main.py").write_text('def main():\n    """The entry point."""\n'
                                            '    raise NotImplementedError("not implemented")\n')
@@ -171,36 +172,37 @@ def test_the_review_names_the_interfaces_no_cycle_implemented(repo):
     git(repo, "commit", "-qm", "the entry point's interface")
     reactor, store, *_ = setup(repo, Reviewers(repo))
     run(reactor)
-    assert "a stub no cycle implemented: src/shop/main.py:3" in review(reactor).payload["args"]["notes"]
+    assert "an unimplemented no cycle implemented: src/shop/main.py:3" in review(reactor).payload["args"]["notes"]
 
 
-def test_the_review_names_the_planned_clauses_no_cycle_proved(repo):
-    # the session of 2026-11-15: a resolution added a clause to a unit already landed; the new plan held it, but
+def test_the_review_names_the_scheduled_requirements_no_cycle_proved(repo):
+    # the session of 2026-11-15: a restart added a requirement to a component already landed; the new execution held it, but
     # no cycle ran it, the code never enforced it, and the program broke it: the match could last forever
-    from test_unit import plan as unit_plan
+    from test_component import execution as component_execution
 
     from beck.machine.closing import unproved
     store = Project(repo).start_iteration()[1]
-    later = unit_plan()
-    later["units"][0]["groups"][0]["clauses"].append("store-refuses-negatives")
-    store.append("UnitsPlanned", later)
-    for unit, clause in (("store", "store-adds"), ("cart", "cart-totals")):
-        store.append("CycleClosed", {"unit": unit, "clause": clause}, stream=f"cycle:{unit}/{clause}")
-    store.append("CycleDropped", {"unit": "cart", "clause": "cart-empties", "reason": "r"},
+    later = component_execution()
+    later["components"][0]["units"][0]["requirements"].append("store-refuses-negatives")
+    store.append("ExecutionDerived", later)
+    for component, requirement in (("store", "store-adds"), ("cart", "cart-totals")):
+        store.append("CycleClosed", {"component": component, "requirement": requirement},
+                     stream=f"cycle:{component}/{requirement}")
+    store.append("CycleDropped", {"component": "cart", "requirement": "cart-empties", "reason": "r"},
                  stream="cycle:cart/cart-empties")
     assert unproved(Ctx(store, repo, "it", None)) == ["store/store-refuses-negatives"]
 
 
 def test_the_branch_autosquash_folds_a_fixup_of_the_model_s_commit(repo):
     # the session of 2026-11-15: martin fixed the static findings of an interface at the close, a fixup of the
-    # model's commit, which is the units' base: the autosquash started from it and left the fixup unfolded
+    # model's commit, which is the components' base: the autosquash started from it and left the fixup unfolded
     from beck.machine.closing import handle_autosquash_branch
     model = git(repo, "rev-parse", "HEAD")
     subject = git(repo, "log", "-1", "--format=%s")
     store = Project(repo).start_iteration()[1]
     store.append("ModelCommitted", {"sha": model})
-    store.append("UnitStarted", {"unit": "store", "worktree": str(repo), "branch": "b", "base": model},
-                 stream="unit:store")
+    store.append("ComponentStarted", {"component": "store", "worktree": str(repo), "branch": "b", "base": model},
+                 stream="component:store")
     (repo / "src/shop/store/fixed.py").write_text("X = 1\n")
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", f"fixup! {subject}")
@@ -223,8 +225,8 @@ def test_a_static_fix_of_a_line_older_than_the_branch_fixes_up_the_model_s_commi
     model = git(repo, "rev-parse", "HEAD")
     store = Project(repo).start_iteration()[1]
     store.append("ModelCommitted", {"sha": model})
-    store.append("UnitStarted", {"unit": "store", "worktree": str(repo), "branch": "b", "base": model},
-                 stream="unit:store")
+    store.append("ComponentStarted", {"component": "store", "worktree": str(repo), "branch": "b", "base": model},
+                 stream="component:store")
     (repo / "pyproject.toml").write_text((repo / "pyproject.toml").read_text().replace("# scaffold", "# fixed"))
     command = store.append("CommandIssued", {"command": "CommitBranchFixes", "target": "beck", "args": {}},
                            stream="branch")

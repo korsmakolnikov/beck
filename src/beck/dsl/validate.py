@@ -61,8 +61,8 @@ class DomainIds:
     """The ids of a valid domain, as the architecture needs them."""
 
     all: dict[str, str] = field(default_factory=dict)  # id -> path
-    operations: set[str] = field(default_factory=set)
-    inherited: set[str] = field(default_factory=set)  # come with their operation
+    morphisms: set[str] = field(default_factory=set)
+    inherited: set[str] = field(default_factory=set)  # come with their morphism
     explicit: set[str] = field(default_factory=set)  # must be listed in one implements
 
 
@@ -84,14 +84,14 @@ def domain_ids(doc: dict[str, Any]) -> tuple[DomainIds, list[tuple[str, str]]]:
             add(rule["id"], f"relations[{i}].rules[{j}].id", ids.explicit)
     for i, c in enumerate(doc.get("constraints", [])):
         add(c["id"], f"constraints[{i}].id", ids.explicit)
-    for i, op in enumerate(doc.get("operations", [])):
-        add(op["id"], f"operations[{i}].id", ids.operations)
+    for i, op in enumerate(doc.get("morphisms", [])):
+        add(op["id"], f"morphisms[{i}].id", ids.morphisms)
         for j, post in enumerate(op.get("post", [])):
-            add(post["id"], f"operations[{i}].post[{j}].id", ids.inherited)
+            add(post["id"], f"morphisms[{i}].post[{j}].id", ids.inherited)
         for j, err in enumerate(op.get("errors", [])):
-            add(err["id"], f"operations[{i}].errors[{j}].id", ids.inherited)
+            add(err["id"], f"morphisms[{i}].errors[{j}].id", ids.inherited)
     for i, p in enumerate(doc.get("properties", [])):
-        single = len(p.get("operations", [])) == 1
+        single = len(p.get("morphisms", [])) == 1
         add(p["id"], f"properties[{i}].id", ids.inherited if single else ids.explicit)
     return ids, seen
 
@@ -121,11 +121,11 @@ def _domain_semantics(doc: dict[str, Any]) -> Iterator[Problem]:
                 yield Problem(f"relations[{i}].{end}", f"no entity named {r[end]!r}")
     for i, c in enumerate(doc.get("constraints", [])):
         yield from refs(c["about"], entities, f"constraints[{i}].about", "entity")
-    for i, op in enumerate(doc.get("operations", [])):
-        yield from refs(op["uses"], entities, f"operations[{i}].uses", "entity")
-        yield from refs(op.get("emits", []), events, f"operations[{i}].emits", "event")
+    for i, op in enumerate(doc.get("morphisms", [])):
+        yield from refs(op["uses"], entities, f"morphisms[{i}].uses", "entity")
+        yield from refs(op.get("emits", []), events, f"morphisms[{i}].emits", "event")
     for i, p in enumerate(doc.get("properties", [])):
-        yield from refs(p.get("operations", []), ids.operations, f"properties[{i}].operations", "operation")
+        yield from refs(p.get("morphisms", []), ids.morphisms, f"properties[{i}].morphisms", "morphism")
 
 
 def validate_domain(doc: Any) -> list[Problem]:
@@ -199,7 +199,7 @@ def _architecture_semantics(doc: dict[str, Any], domain: DomainIds) -> Iterator[
             elif role == "container" and "elements" not in by_id[ref]:
                 yield Problem(path, f"element {ref!r} contains no elements")
 
-    # implementation: every operation and explicit clause exactly once
+    # implementation: every morphism and explicit requirement exactly once
     implemented: list[tuple[str, str]] = []
     for e, path in elements:
         implemented += [(r, f"{path}.implements[{k}]") for k, r in enumerate(e.get("implements", []))]
@@ -207,12 +207,12 @@ def _architecture_semantics(doc: dict[str, Any], domain: DomainIds) -> Iterator[
         implemented += [(r, f"integration.implements[{k}]") for k, r in enumerate(doc["integration"]["implements"])]
     for id_, path in implemented:
         if id_ in domain.inherited:
-            yield Problem(path, f"{id_!r} comes with its operation and is never listed")
-        elif id_ not in domain.operations and id_ not in domain.explicit:
+            yield Problem(path, f"{id_!r} comes with its morphism and is never listed")
+        elif id_ not in domain.morphisms and id_ not in domain.explicit:
             yield Problem(path, f"no domain id {id_!r}")
-    yield from _duplicates([(i, p) for i, p in implemented if i in domain.operations | domain.explicit], "implemented id")
+    yield from _duplicates([(i, p) for i, p in implemented if i in domain.morphisms | domain.explicit], "implemented id")
     listed = {i for i, _ in implemented}
-    for id_ in sorted((domain.operations | domain.explicit) - listed):
+    for id_ in sorted((domain.morphisms | domain.explicit) - listed):
         yield Problem(domain.all[id_], f"{id_!r} is implemented by no component")
 
 

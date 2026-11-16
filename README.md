@@ -13,7 +13,7 @@ of it.
 beck is an application that replaces the `kent` agent of minime and
 redesigns its architecture-first workflow around it. The workflow as agents
 costs too many tokens (in minime's measures: unclebob 70.8 %, joshua
-10.7 %, kent 6.4 %), is slow, and needs the user at every unit. Once beck
+10.7 %, kent 6.4 %), is slow, and needs the user at every component. Once beck
 is stable, beck rewrites beck: a released version builds the next, as a
 compiler bootstraps itself.
 
@@ -57,7 +57,7 @@ without stopping the work.
   does not match its schema is rejected (`SignalRejected`).
 * **The user's words become the flow's actions through kent.** When beck
   asks the user about a situation its rules cannot settle (a suite failing
-  outside the units, checks that keep failing, an agent's turn that keeps
+  outside the components, checks that keep failing, an agent's turn that keeps
   failing, an environment that does not come up), the question carries a
   closed menu of the actions valid there; kent turns the user's answer into
   one of them (`RouteDecision`, checked against the menu), and the machine
@@ -70,7 +70,7 @@ without stopping the work.
 * **Agents never search the code twice.** The index maps every DSL id to the
   code and the tests; beck hands each agent only the slice it needs.
 * **The user is the architect at the start and the reviewer at the end**,
-  not a reviewer of every unit: the workflow can run overnight, and on
+  not a reviewer of every component: the workflow can run overnight, and on
   holidays. What it cannot solve alone it parks, with a proposal, and goes on
   with the rest.
 * **Event sourcing.** Everything that happens is an event; state, resume,
@@ -95,7 +95,7 @@ without stopping the work.
   * the limits of a cycle (see "Blocked cycles"): 3 repetitions of a
     pattern, 30 attempts;
   * the CLI driver (Claude Code, Copilot);
-  * the units in parallel: 4 by default.
+  * the components in parallel: 4 by default.
 
 ## Project layout: `.beck/`
 
@@ -112,16 +112,16 @@ Everything beck needs lives in `.beck/`; minime's `.sources/`,
 * the event stores (never versioned)
 
 When versioned, beck commits `.beck/` itself (`docs(workflow): …`), only
-between units; no agent is needed for it.
+between components; no agent is needed for it.
 
 ## Actors (draft)
 
 | Actor | What | Notes |
 |---|---|---|
 | beck | the state machines, the policies, the commits, the deterministic checks, the TUI | no LLM |
-| kent (inside beck) | studies the existing code and delimits the area the iteration touches; brings the environment up from the project's docs (`AGENTS.md`, README, Makefile); writes the shopping list; is the DSL author: the domain, then the architecture and the interfaces (hughes and ford merged); anchors the spec ids to the code; keeps the DSLs in sync with the code; proposes the resolution of a blocked cycle or of an interface change | name kept from Kent Beck; never runs together with the old `kent` agent; the domain and the architecture are two states of the machine, each with a fresh context and its own approval; in brownfield it reads the code, only the slice of the delimited area the index hands it |
-| unclebob | TDD, one group of spec ids per session, context cut by the index | N in parallel, one unit each, in its own worktree; may request an interface change |
-| martin | reviews the unit, including whether each test verifies the clause it cites; refactors it on green tests and closes it on its own; strengthens the weak tests itself, under the three laws of TDD; resolves the conflicts when its unit lands | runs in parallel with the unclebobs; no new tests (temporary benchmarks only); outside the unit only code covered by tests; missing tests send the work back to unclebob; weak tests are flagged for argyris; may request an interface change, never makes one; the refactor (blue) phase may move back into unclebob once the graph has cut unclebob's consumption |
+| kent (inside beck) | studies the existing code and delimits the area the iteration touches; brings the environment up from the project's docs (`AGENTS.md`, README, Makefile); writes the shopping list; is the DSL author: the domain, then the architecture and the interfaces (hughes and ford merged); anchors the spec ids to the code; keeps the DSLs in sync with the code; proposes the restart of a blocked cycle or of an interface change | name kept from Kent Beck; never runs together with the old `kent` agent; the domain and the architecture are two states of the machine, each with a fresh context and its own approval; in brownfield it reads the code, only the slice of the delimited area the index hands it |
+| unclebob | TDD, one unit of spec ids per session, context cut by the index | N in parallel, one component each, in its own worktree; may request an interface change |
+| martin | reviews the component, including whether each test verifies the requirement it references; refactors it on green tests and closes it on its own; strengthens the weak tests itself, under the three laws of TDD; resolves the conflicts when its component lands | runs in parallel with the unclebobs; no new tests (temporary benchmarks only); outside the component only code covered by tests; missing tests send the work back to unclebob; weak tests are flagged for argyris; may request an interface change, never makes one; the refactor (blue) phase may move back into unclebob once the graph has cut unclebob's consumption |
 | smart_audit | (implemented, `src/beck/machine/audit.py`) the observer for argyris, deterministic: a projector triggered by given events reads the event store, looks for patterns of violations (`SignalRejected`, a forbidden tool, a violated scope, an interruption, tests run that are not the cycle's, how the parallelism stalls) and writes each to an outbox table | replaces joshua, whose name is dropped; a small agent comes back inside it as a fallback only when the projector's complexity explodes, or when a problem never reached argyris (the audit failed) |
 | argyris | improves beck's agents: one of beck's own agents (`src/beck/agents/prompts/argyris.md`), not an installed file; the outbox's reader (`src/beck/argyris.py`, `beck audit --wake`) opens its session, in beck's source, with a structured message, a `ReviewViolations` of the pending records, each with the files of the rule it breaks; argyris settles them with the user and proposes each change as a **pull request to beck** (`beck contrib start`, `diff`, `submit`: a worktree per change, then commit, push and `gh pr create`); its JSON answer, through `beck audit --settle`, marks the records handled and records a `ViolationSettled` with the pull request, caused by the event each is about; runs replays and A/B tests of models; with smart_audit, tunes the parallelism | |
 | test reader | on Haiku: summarises a failure for unclebob | only when the deterministic parser is not enough |
@@ -234,7 +234,7 @@ Implemented: `src/beck/events/`, with `beck sessions`, `beck events` and
 * **The consumption is a projection** (implemented, `src/beck/usage.py`):
   every `AgentTurnEnded`, `AgentTurnFailed` and `SignalRejected` becomes a
   row of a ledger in `beck.db` (`usage_event`: the event's id, seq, command,
-  unit, agent, model, tokens, time), and in the same transaction adds to the
+  component, agent, model, tokens, time), and in the same transaction adds to the
   totals per iteration, agent, model and command (`usage`) and per time
   window (`usage_window`, `usage.window_minutes`, 10 by default). Every
   number is a sum of ledger rows, and every row names its event: `beck usage
@@ -245,37 +245,37 @@ Implemented: `src/beck/events/`, with `beck sessions`, `beck events` and
 
 ## Parallelism and commits
 
-* **As parallel as possible.** Every unit (a component, the integration
+* **As parallel as possible.** Every component (a component, the integration
   flow) gets its own git worktree, branched from the feature branch once the
-  interfaces are committed. N unclebobs work on different units at once, and
-  martin refactors the finished units beside them.
-* An unclebob does not wait for the components its unit depends on through
+  interfaces are committed. N unclebobs work on different components at once, and
+  martin refactors the finished components beside them.
+* An unclebob does not wait for the components its component depends on through
   an interface (`boundary: interface`): it trusts the declared interfaces,
   which is what they are for. A `concrete` dependency is tested with the
-  real module, so the unit waits for it to land (`waits_for` in
-  `UnitsPlanned`); its worktree then branches from a feature branch that
-  holds it. The integration unit at the end exists to find where the
+  real module, so the component waits for it to land (`waits_for` in
+  `ExecutionDerived`); its worktree then branches from a feature branch that
+  holds it. The integration component at the end exists to find where the
   components diverge from the interfaces.
-* **A clause already met.** A red test that passes on its first run proves
-  its clause when the code exists: the integration unit's, or a clause the
-  index, built on the unit's worktree, anchors to code in the unit's scope
-  that is no longer a stub (an earlier green did more than its clause).
+* **A requirement already met.** A red test that passes on its first run proves
+  its requirement when the code exists: the integration component's, or a requirement the
+  index, built on the component's worktree, anchors to code in the component's scope
+  that is no longer an unimplemented (an earlier green did more than its requirement).
   beck commits the test and an empty green, to keep the TDD order of the
   commits (`already_green`).
-* beck commits every TDD phase in the unit's worktree as soon as it has
+* beck commits every TDD phase in the component's worktree as soon as it has
   verified it: the new test fails (red), then passes with no test changed
   (green). The code is never left uncommitted.
 * **The history a reviewer sees is always autosquashed.** The agents can
-  make 90 commits for one unit; that many commits throw away the value of
+  make 90 commits for one component; that many commits throw away the value of
   git and force the reviewer to rebuild the context from the pieces. So:
-  * once martin has verified the unit's tests, beck squashes its TDD commits
-    into one commit, the unit's;
-  * from then on every change to the unit (martin's refactors, a reopened
+  * once martin has verified the component's tests, beck squashes its TDD commits
+    into one commit, the component's;
+  * from then on every change to the component (martin's refactors, a reopened
     cycle, a resolved conflict, a fix found by the full suite or the static
-    checks) is a `fixup!` of the unit's commit, the way the user works every
+    checks) is a `fixup!` of the component's commit, the way the user works every
     day;
-  * beck autosquashes the unit before it lands, and the feature branch
-    before presenting it to the user: the user reviews one commit per unit,
+  * beck autosquashes the component before it lands, and the feature branch
+    before presenting it to the user: the user reviews one commit per component,
     never a fixup made before;
   * the changes **the user** asks for in review are fixups, kept so that the
     next round shows what changed; the same will hold for the other
@@ -286,12 +286,12 @@ Implemented: `src/beck/events/`, with `beck sessions`, `beck events` and
   * when the user closes the iteration, beck autosquashes the branch, the
     user's fixups included: a pull request is always presented
     autosquashed, and changes after it arrive only as fixups.
-* beck lands the unit's commit on the feature branch in the dependency order
-  of the architecture; since every unit lands as one commit, no single
+* beck lands the component's commit on the feature branch in the dependency order
+  of the architecture; since every component lands as one commit, no single
   commit needs reordering. A landing that conflicts goes back to martin,
   then through the checks again.
 * It is not expected to work well at first: smart_audit measures, from the
-  events, how long each unit waits, the conflicts at landing and the
+  events, how long each component waits, the conflicts at landing and the
   divergences found by the integration, and argyris and the user tune it.
 * Pushing and opening the pull request stay manual.
 * The user's corrections: fixups in a review round, a new iteration, or by
@@ -316,14 +316,14 @@ Implemented: `src/beck/events/`, with `beck sessions`, `beck events` and
   starts as above and is tuned with the replays.
 * A blocked cycle does not stop the machine: beck parks it and the cycles
   that depend on it, goes on with the independent work, and has kent propose
-  a resolution, which waits for the user. When nothing else can proceed, the
+  a restart, which waits for the user. When nothing else can proceed, the
   machine stops, and that is correct.
 * An **interface change** follows the same path. It can be requested during
-  the iteration by unclebob (a signature lacks a datum the operation needs,
+  the iteration by unclebob (a signature lacks a datum the morphism needs,
   an error case is not in the return type, a property of the spec cannot be
   observed through the public interface), by martin (an interface too wide
   or leaking its implementation: changing a contract changes the tests, so
-  martin requests it, never makes it), or by the integration unit (a
+  martin requests it, never makes it), or by the integration component (a
   divergence between components). The work in flight on the components that
   use that interface is parked too.
 
@@ -347,9 +347,9 @@ Implemented: `src/beck/events/`, with `beck sessions`, `beck events` and
   transparently and logs a warning in the log file.
 * **beck does nothing of its own accord**: it runs tests when an agent asks
   (`beck test`) or a policy does. unclebob runs only the test of its cycle;
-  when a unit is implemented, a policy has beck run the unit's tests and
+  when a component is implemented, a policy has beck run the component's tests and
   the fitness functions; the whole suite runs once, at the end of the
-  integration unit. smart_audit checks which tests each cycle ran.
+  integration component. smart_audit checks which tests each cycle ran.
 * **The agent never reads the console** (reading the runners' whole output
   was one of the costs of the old workflow). `beck test` sends the output to
   the run's log under `.beck/reports/` and prints only `ALL_OK (n passed)`
@@ -361,8 +361,8 @@ Implemented: `src/beck/events/`, with `beck sessions`, `beck events` and
   runs the checks of `toolchain.yml` (ruff, mypy, credo, dialyzer, or any
   `file:line: message` tool), reads their output deterministically, prints
   `ALL_OK` or one line per finding, and records a `ChecksRun`. They are not
-  cheap: the `paths` checks run per unit, on the unit's files, before the
-  unit's autosquash; the `project` checks (dialyzer) only with `--all`, at
+  cheap: the `paths` checks run per component, on the component's files, before the
+  component's autosquash; the `project` checks (dialyzer) only with `--all`, at
   the end of the iteration.
 * **The report is beck's evidence**, never the agent's word. The agents run
   the tests through `beck test` (implemented), which runs the command of
@@ -379,23 +379,23 @@ Implemented: `src/beck/events/`, with `beck sessions`, `beck events` and
   it is the implementer's mistake, rejected at once.
 * **Shared files** (to try): the model writes the structural ones (the
   dependency manifest from the external libraries, the supervision tree from
-  the supervised components) before any unit starts; the index marks a file
+  the supervised components) before any component starts; the index marks a file
   holding symbols of several components as shared, and the scheduler never
-  runs two units sharing one in parallel; any other need of a unit to
+  runs two components sharing one in parallel; any other need of a component to
   change a shared file is an architecture change. See `docs/dsl.md`.
 * **Coverage: it goes up and never down; one line never stops the work.**
-  beck measures it at every run of a unit's tests, in the report format the
+  beck measures it at every run of a component's tests, in the report format the
   toolchain names (coverage.py, ExCoveralls, lcov). Two rules:
   * *the ratchet*: the project's coverage (the suite's at the start, then
-    each landed unit's files as they landed) must not go down with the
-    unit's files. With TDD it never does, so a drop is an anomaly the user
-    decides on (after beck's one try at the gaps): go on, park the unit, or
+    each landed component's files as they landed) must not go down with the
+    component's files. With TDD it never does, so a drop is an anomaly the user
+    decides on (after beck's one try at the gaps): go on, park the component, or
     cover again; kent routes the answer;
   * *the gaps* (the boy scout rule): a line the iteration changed that no
-    test runs. beck maps it, through the `spec:` markers, to the clause
+    test runs. beck maps it, through the `spec:` markers, to the requirement
     that names its code and asks unclebob once (`CoverLines`) for the tests
     that run it; beck checks that only tests changed, that they pass, that
-    they run the lines, and commits them. What is left (a line no clause
+    they run the lines, and commits them. What is left (a line no requirement
     names, or a try that failed twice) goes to martin at the review: dead
     code is deleted, live code is a finding for the user.
 * **Measures behind interfaces, the tools in the toolchain.** Each measure
@@ -415,9 +415,9 @@ Implemented: `src/beck/events/`, with `beck sessions`, `beck events` and
   repetition rule, a detector reads the runs in the events: when the last
   runs of a test on one tree (the window, 3) are mixed, beck hunts in a
   worktree of its own, escalating only while it is not sure: the test alone
-  N times (`flakiness.runs`, 5), then inside its unit's tests (a dependency
+  N times (`flakiness.runs`, 5), then inside its component's tests (a dependency
   on time or order), then, with the user's permission, inside the whole
-  suite. A flaky test of a unit reaches martin as a weak test; every one is
+  suite. A flaky test of a component reaches martin as a weak test; every one is
   in the notes of the review.
 * Whether a project's tests can run is checked once, at the start, by
   kent and the environment checker.
@@ -443,7 +443,7 @@ Implemented: `src/beck/events/`, with `beck sessions`, `beck events` and
 
 Implemented (`beck tui [iteration]`, `src/beck/tui.py`, its read models in
 `src/beck/views.py`); the components' graph is a list in landing order with
-each unit's state and dependencies (`grandalf` not needed so far).
+each component's state and dependencies (`grandalf` not needed so far).
 Textual, with tmux-like areas:
 
 * a status bar: global tokens, the state machine's state, the active
@@ -513,8 +513,8 @@ costs less than TDD. The replays act as integration tests.
 ## beck's own architecture (approved 2026-11-13)
 
 * **State machines**: one for the session (phases 1, 2, 3 and 6); one per
-  unit (phases 4 and 5), holding the red/green machine of the cycle
-  (unclebob) and the blue phase of the unit (martin, once per unit, after
+  component (phases 4 and 5), holding the red/green machine of the cycle
+  (unclebob) and the blue phase of the component (martin, once per component, after
   the cycles; it may move into unclebob's cycle later); a scheduler of the
   slots.
 * **Policies**: functions of an event. A policy that needs an agent or the
@@ -532,16 +532,16 @@ costs less than TDD. The replays act as integration tests.
   pending and runs again on attach; a policy sees the events up to its own,
   so a replay issues exactly what the first run did. Implemented: the
   cycle's machine (`src/beck/machine/cycle.py`: the verifiers of red and
-  green, the repetition rule) and the units' (`src/beck/machine/unit.py`:
-  the scheduler of the slots, worktrees, groups, parking, resolutions) and
-  phase 5's (`src/beck/machine/refactor.py`: the unit's tests run by beck
+  green, the repetition rule) and the components' (`src/beck/machine/component.py`:
+  the scheduler of the slots, worktrees, units, parking, restarts) and
+  phase 5's (`src/beck/machine/refactor.py`: the component's tests run by beck
   with coverage, regressions reopening their cycles, the squash, the
   measures, martin's review and refactors as fixups verified by beck, the
   trade-off asked to the user, the static checks, the autosquash, the
   landing in dependency order and its conflicts) and phase 6's
-  (`src/beck/machine/closing.py`: the integration unit last, the full suite
+  (`src/beck/machine/closing.py`: the integration component last, the full suite
   and the project's checks run by beck, their failures sent back to the
-  units or fixed as fixups found with git blame, the branch's autosquash,
+  components or fixed as fixups found with git blame, the branch's autosquash,
   the reviews, the corrections, the close); an agent's question goes to the
   user and the wrapped answer back to the session that asked. The
   session's machine (`src/beck/machine/session.py`, phases 1 to 3: the
@@ -553,13 +553,13 @@ costs less than TDD. The replays act as integration tests.
   agents and user. The user's words become events through
   `src/beck/machine/user.py`, one decision per user command.
 * **The toolchain is the project's** (`.beck/toolchain.yml` of the main
-  tree, `$BECK_PROJECT` for an agent), the commands run in the unit's
+  tree, `$BECK_PROJECT` for an agent), the commands run in the component's
   worktree. Python runs with `PYTHONDONTWRITEBYTECODE=1`: a stale `.pyc`
   with the same mtime and size as a rewritten file gave a false result.
-* **A resolution is a real diff**: kent makes its changes (DSLs,
+* **A restart is a real diff**: kent makes its changes (DSLs,
   interfaces) in the feature branch's tree, uncommitted, and describes them;
   the user reviews the diff; beck commits it on approval and discards it on
-  rejection, then rebases the parked units on it and reopens their cycles
+  rejection, then rebases the parked components on it and reopens their cycles
   at their phase.
 * **One asyncio process**; every agent runs as a subprocess of its CLI, read
   as a stream: every tool call becomes an event, the tokens come from the
@@ -581,7 +581,7 @@ policies and by the TUI. They are named only where a policy needs one:
 
 * the state of the machine (where `beck attach` resumes);
 * the sequence of the failure signatures of a loop (the repetition rule);
-* which units are ready to land and which are parked;
+* which components are ready to land and which are parked;
 * the TUI and the metrics (tokens per agent, the histogram, the graph of the
   components, the parallelism measures for smart_audit);
 * the catalog (`beck sessions`).
@@ -663,9 +663,9 @@ P: FitnessFunctionsGenerated [untranslated = ∅] | FitnessFunctionsWritten
    ReviseArchitecture (U)                          → ArchitectureRevised ⟲ WriteArchitecture
 P: ArchitectureApproved → BuildIndex (B)           → IndexBuilt {the unanchored ids}
 P: [unanchored ≠ ∅] → AnchorIds (A kent)           → IdsAnchored
-P: IndexBuilt [unanchored = ∅] | IdsAnchored → PlanUnits (B)
-                                                   → UnitsPlanned (units, groups of spec ids, dependency and landing order)
-P: UnitsPlanned → CommitModel (B)                  → ModelCommitted (interfaces and fitness functions on the
+P: IndexBuilt [unanchored = ∅] | IdsAnchored → DeriveExecution (B)
+                                                   → ExecutionDerived (components, units of spec ids, dependency and landing order)
+P: ExecutionDerived → CommitModel (B)                  → ModelCommitted (interfaces and fitness functions on the
                                                      feature branch; .beck/ too when versioned)
 ```
 
@@ -673,106 +673,106 @@ Cross-cutting, from phase 1: `P: AgentTurnEnded | SignalRejected → AuditTurn (
 
 ### 4. Implementation (approved)
 
-Per unit, in its own worktree, units in parallel; one unclebob session per
-group, the cycles of the group inside it.
+Per component, in its own worktree, components in parallel; one unclebob session per
+unit, the cycles of the unit inside it.
 
 ```
-P: ModelCommitted | UnitClosed | UnitParked → ScheduleUnits (B)
-   [free slot, unit not started]           → StartUnit (B)      → UnitStarted (worktree from the feature branch)
-P: UnitStarted | GroupClosed [groups left] → OpenGroup (B: context from the index) → GroupOpened (new unclebob session)
-P: GroupOpened | CycleClosed [clauses of the group without a test]
-   → WriteRedTest (A unclebob: writes the test, runs it with beck test) → RedDeclared {clause id, test id}
+P: ModelCommitted | ComponentClosed | ComponentParked → ScheduleComponents (B)
+   [free slot, component not started]           → StartComponent (B)      → ComponentStarted (worktree from the feature branch)
+P: ComponentStarted | UnitClosed [units left] → OpenUnit (B: context from the index) → UnitOpened (new unclebob session)
+P: UnitOpened | CycleClosed [requirements of the unit without a test]
+   → WriteRedTest (A unclebob: writes the test, runs it with beck test) → RedDeclared {requirement id, test id}
 P: RedDeclared → VerifyRed (B: a fresh TestsRun holds the test, not passed;
                  no syntax or collection error; only test files changed)
                                                                 → RedVerified | RedRejected ⟲ WriteRedTest {reason}
 P: RedVerified → CommitRed (B)                                  → RedCommitted
 P: RedCommitted → WriteGreenCode (A unclebob: runs the cycle's test) → GreenDeclared
 P: GreenDeclared → VerifyGreen (B: a fresh TestsRun holds the test, passed;
-                   no test file changed since RedCommitted; files in the unit's scope)
+                   no test file changed since RedCommitted; files in the component's scope)
                                                                 → GreenVerified | GreenRejected
 P: GreenRejected → SummariseFailure (B parser, Haiku fallback)  → FailureSummarised ⟲ WriteGreenCode
 P: GreenVerified → CommitGreen (B)                              → GreenCommitted → CycleClosed
-P: CycleClosed [every clause of the group has a green test]     → GroupClosed (session ends)
-P: GroupClosed [no group left]                                  → UnitImplemented
+P: CycleClosed [every requirement of the unit has a green test]     → UnitClosed (session ends)
+P: UnitClosed [no unit left]                                  → ComponentImplemented
 
 P: [repetition rule] → BlockCycle (B)                           → CycleBlocked
    RequestInterfaceChange | RequestArchitectureChange (A unclebob | martin) → …ChangeRequested
 P: CycleBlocked | …ChangeRequested → ParkDependents (B)         → DependentsParked
-P: DependentsParked | ResolutionRejected → ProposeResolution (A kent) → ResolutionProposed
-   ApproveResolution (U) → ResolutionApproved | RejectResolution (U) → ResolutionRejected {instructions}
-P: ResolutionApproved → ApplyResolution (B: DSLs and interfaces committed on the feature branch,
-                        index rebuilt, groups replanned, parked worktrees rebased) → ResolutionApplied
-P: ResolutionApplied → ReopenCycles (B)                         → CyclesReopened ⟲ OpenGroup
+P: DependentsParked | RestartRejected → ProposeRestart (A kent) → RestartProposed
+   ApproveRestart (U) → RestartApproved | RejectRestart (U) → RestartRejected {instructions}
+P: RestartApproved → ApplyRestart (B: DSLs and interfaces committed on the feature branch,
+                        index rebuilt, units rederived, parked worktrees rebased) → RestartApplied
+P: RestartApplied → ReopenCycles (B)                         → CyclesReopened ⟲ OpenUnit
 ```
 
-After the unit's squash (phase 5) a reopened cycle commits its red and green
-as fixups of the unit's commit.
+After the component's squash (phase 5) a reopened cycle commits its red and green
+as fixups of the component's commit.
 
-### 5. Unit refactor (approved)
+### 5. Component refactor (approved)
 
-martin, in the unit's worktree, beside the other units.
+martin, in the component's worktree, beside the other components.
 
 ```
-P: UnitImplemented → RunUnitTests (B: the unit's tests and the fitness functions, with coverage)
+P: ComponentImplemented → RunComponentTests (B: the component's tests and the fitness functions, with coverage)
                                                                 → CoverageMeasured (+ CoverageDecreased: a note)
-                                                                → UnitVerified | RegressionFound | CoverageGapsFound
-P: RegressionFound → CycleReopened (B, on the clauses of the failing tests, green) ⟲ phase 4
-P: CoverageGapsFound [the first time] → CoverLines (A unclebob: tests that run the lines a clause
+                                                                → ComponentVerified | RegressionFound | CoverageGapsFound
+P: RegressionFound → CycleReopened (B, on the requirements of the failing tests, green) ⟲ phase 4
+P: CoverageGapsFound [the first time] → CoverLines (A unclebob: tests that run the lines a requirement
                   names) → CoverageTestsDeclared → VerifyCover (B: only tests changed, they pass,
-                  they run the lines) → CommitCoverage → RunUnitTests
-                  | CoverageRejected ⟲ once → GiveUpCoverage → UnitVerified (the gaps go to martin)
-P: UnitVerified [not squashed] → SquashUnit (B: the TDD commits into the unit's commit) → UnitSquashed
-P: UnitSquashed | UnitVerified [squashed] → MeasureUnit (B: lines, complexity; durations and
-                  flakiness from the cycles' reports)           → UnitMeasured
-P: UnitMeasured → ReviewUnit (A martin: SOLID, idiom, readability;
-                  each test against the clause it cites)        → UnitReviewed {findings, weak tests}
-P: UnitReviewed | RefactorCommitted [findings or weak tests left]
-   → RefactorUnit (A martin: runs the unit's tests and the fitness functions;
+                  they run the lines) → CommitCoverage → RunComponentTests
+                  | CoverageRejected ⟲ once → GiveUpCoverage → ComponentVerified (the gaps go to martin)
+P: ComponentVerified [not squashed] → SquashComponent (B: the TDD commits into the component's commit) → ComponentSquashed
+P: ComponentSquashed | ComponentVerified [squashed] → MeasureComponent (B: lines, complexity; durations and
+                  flakiness from the cycles' reports)           → ComponentMeasured
+P: ComponentMeasured → ReviewComponent (A martin: SOLID, idiom, readability;
+                  each test against the requirement it references)        → ComponentReviewed {findings, weak tests}
+P: ComponentReviewed | RefactorCommitted [findings or weak tests left]
+   → RefactorComponent (A martin: runs the component's tests and the fitness functions;
                    a weak test under the three laws of TDD)     → RefactorDeclared {phase: tests | code | strengthen}
 P: RefactorDeclared → VerifyRefactor (B: a fresh TestsRun, the same tests all green;
                       tests phase: no source changed; code phase: no test changed;
-                      coverage; measures)                       → RefactorVerified | RefactorRejected ⟲ RefactorUnit
+                      coverage; measures)                       → RefactorVerified | RefactorRejected ⟲ RefactorComponent
                                                                 | MeasureWorsened
-P: MeasureWorsened → ParkUnit (B)                               → UnitParked {measure, martin's reason}
-   AcceptTradeoff (U) → RefactorVerified | RejectTradeoff (U) → RefactorReverted (B) ⟲ RefactorUnit
-P: RefactorVerified → CommitRefactor (B: a fixup of the unit's commit) → RefactorCommitted
-P: UnitReviewed | RefactorCommitted [no findings left] → AutosquashUnit (B) → UnitReady
-P: UnitReady | UnitLanded [its dependencies landed]
-   → LandUnit (B: rebase on the feature branch)                 → UnitLanded | LandingConflicted
-P: LandingConflicted → ResolveConflict (A martin: a fixup; runs the unit's tests) → ConflictResolved
-P: ConflictResolved → VerifyRefactor (B) → AutosquashUnit ⟲ LandUnit
-P: UnitLanded → CloseUnit (B: removes the worktree; commits .beck/ when versioned) → UnitClosed
+P: MeasureWorsened → ParkComponent (B)                               → ComponentParked {measure, martin's reason}
+   AcceptTradeoff (U) → RefactorVerified | RejectTradeoff (U) → RefactorReverted (B) ⟲ RefactorComponent
+P: RefactorVerified → CommitRefactor (B: a fixup of the component's commit) → RefactorCommitted
+P: ComponentReviewed | RefactorCommitted [no findings left] → AutosquashComponent (B) → ComponentReady
+P: ComponentReady | ComponentLanded [its dependencies landed]
+   → LandComponent (B: rebase on the feature branch)                 → ComponentLanded | LandingConflicted
+P: LandingConflicted → ResolveConflict (A martin: a fixup; runs the component's tests) → ConflictResolved
+P: ConflictResolved → VerifyRefactor (B) → AutosquashComponent ⟲ LandComponent
+P: ComponentLanded → CloseComponent (B: removes the worktree; commits .beck/ when versioned) → ComponentClosed
 ```
 
-A worsened measure parks the unit until the user accepts the trade-off or
+A worsened measure parks the component until the user accepts the trade-off or
 rejects it; later iterations will judge it with tools (connascence,
 coupling, cohesion, cyclomatic complexity). A clean landing runs no tests:
-a unit's tests replace its dependencies with doubles, and the integration
-unit finds the rest.
+a component's tests replace its dependencies with doubles, and the integration
+component finds the rest.
 
 ### 6. Integration and closing (approved)
 
 ```
-P: UnitClosed [every other unit landed] → StartUnit (B: the integration unit) → phases 4 and 5
+P: ComponentClosed [every other component landed] → StartComponent (B: the integration component) → phases 4 and 5
                                           (its tests use the real components, no doubles)
-P: UnitClosed [the integration unit] | CorrectionsApplied
+P: ComponentClosed [the integration component] | CorrectionsApplied
    → RunFullSuite (B)                                           → FullSuiteRun
 P: FullSuiteRun → VerifySuite (B)                               → SuiteGreen | SuiteFailed
-P: SuiteFailed → MapFailures (B: test → clause → the unit that implements it) → UnitsReopened
-                 → OpenGroup in a worktree of each unit ⟲ phases 4 and 5 (fixups of the unit's commit)
+P: SuiteFailed → MapFailures (B: test → requirement → the component that implements it) → ComponentsReopened
+                 → OpenUnit in a worktree of each component ⟲ phases 4 and 5 (fixups of the component's commit)
 P: SuiteGreen → RunStaticChecks (B: the toolchain's check)      → StaticChecksPassed | StaticChecksFailed
 P: StaticChecksFailed → ProposeStaticFixes (A martin: fixups of the commits
                         that wrote the lines, found with git blame) → StaticFixesCommitted ⟲ RunStaticChecks
-P: StaticChecksPassed [first round] → AutosquashBranch (B)      → BranchSquashed (one commit per unit)
+P: StaticChecksPassed [first round] → AutosquashBranch (B)      → BranchSquashed (one commit per component)
 P: BranchSquashed | StaticChecksPassed [later round] → PresentForReview (B→U)
    RequestCorrections (U) {text}                               → CorrectionsRequested
-P: CorrectionsRequested → PlanCorrections (A kent: the units, through the index) → CorrectionsPlanned
-P: CorrectionsPlanned → the units' worktrees (A unclebob | martin: fixups, kept) → CorrectionsApplied
+P: CorrectionsRequested → PlanCorrections (A kent: the components, through the index) → CorrectionsPlanned
+P: CorrectionsPlanned → the components' worktrees (A unclebob | martin: fixups, kept) → CorrectionsApplied
    CloseIteration (U) → AutosquashBranch (B) → IterationClosed (B: the catalog's end; the PR is presentable)
    StartNewIteration (U) | FixByHand (U)                       → the user's choice
 ```
 
-* ↳ a divergence between components in the integration unit
+* ↳ a divergence between components in the integration component
   → `InterfaceChangeRequested` (phase 4).
 
 ### 7. Cross-cutting
@@ -819,16 +819,16 @@ together, then the points below.
   the code (the brownfield survey, the index, the anchoring), and writes
   the documentation from them.
 * **smart_audit, to extend**: its rules today are the forbidden tools and
-  commands, unclebob reading outside its group, test runs that are not the
+  commands, unclebob reading outside its unit, test runs that are not the
   cycle's, martin's order on a weak test, malformed outputs, failed turns,
   beck's own crashes (`BeckCrashed`). Not yet: how the parallelism stalls. argyris is woken by hand (`beck
   audit --wake`); waking it at every new record needs a terminal for it.
   argyris's own session is not in the event store: smart_audit cannot
   audit it yet.
-* **Phase 5, to refine**: a unit resumed after a trade-off retakes its slot
-  without the scheduler; a flaky test outside the units is only reported;
-  a unit parked for its coverage resumes only through a resolution.
-* **Phase 6, to confirm**: a correction for martin names the unit's largest
+* **Phase 5, to refine**: a component resumed after a trade-off retakes its slot
+  without the scheduler; a flaky test outside the components is only reported;
+  a component parked for its coverage resumes only through a restart.
+* **Phase 6, to confirm**: a correction for martin names the component's largest
   file as a hint (`PlanCorrections` has no file).
 * **Index staleness**: how to detect a time jump (the code changed under the
   index without any event). Reindexing at the start of each iteration covers

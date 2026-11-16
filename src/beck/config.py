@@ -2,7 +2,7 @@
 
     versioned: false            # whether beck commits .beck/ (the DSLs, the shopping lists, the toolchain)
     branch_format: "<slug>"     # how kent names the branch; a task code comes from the user
-    units_in_parallel: 4
+    components_in_parallel: 4
     limits: {times: 3, attempts: 30}   # the repetition rule
     flakiness: {window: 3, runs: 5}    # mixed results in the last `window` runs on one tree: hunt, `runs` each
     driver: claude              # the CLI that runs the agents
@@ -24,7 +24,7 @@ import yaml
 DEFAULTS: dict[str, Any] = {
     "versioned": False,
     "branch_format": "<slug>",
-    "units_in_parallel": 4,
+    "components_in_parallel": 4,
     "limits": {"times": 3, "attempts": 30},
     "flakiness": {"window": 3, "runs": 5},
     "driver": "claude",
@@ -33,7 +33,7 @@ DEFAULTS: dict[str, Any] = {
     "usage": {"window_minutes": 10},
 }
 
-_TYPES: dict[str, type | tuple[type, ...]] = {"versioned": bool, "branch_format": str, "units_in_parallel": int,
+_TYPES: dict[str, type | tuple[type, ...]] = {"versioned": bool, "branch_format": str, "components_in_parallel": int,
                                               "limits": dict, "flakiness": dict, "driver": str, "models": dict, "budget": dict,
                                               "usage": dict}
 
@@ -71,8 +71,8 @@ def load(project: Path, global_file: Path | None = None) -> dict[str, Any]:
               if not isinstance(config.get(k), t)]
     unknown = sorted(set(config) - set(DEFAULTS))
     errors += [f"unknown setting `{k}`" for k in unknown]
-    if isinstance(config.get("units_in_parallel"), int) and config["units_in_parallel"] < 1:
-        errors.append("`units_in_parallel` must be at least 1")
+    if isinstance(config.get("components_in_parallel"), int) and config["components_in_parallel"] < 1:
+        errors.append("`components_in_parallel` must be at least 1")
     minutes = config["usage"].get("window_minutes") if isinstance(config.get("usage"), dict) else None
     if not isinstance(minutes, int) or not 1 <= minutes <= 60 or 60 % minutes:
         errors.append("`usage.window_minutes` must divide an hour (1 to 60)")

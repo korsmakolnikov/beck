@@ -194,11 +194,11 @@ def scan(root: Path, path: Path) -> list[Marker]:
 class AnchorReport:
     files: int = 0
     markers: int = 0
-    unknown: list[Marker] = field(default_factory=list)  # markers citing an id the DSLs do not have
+    unknown: list[Marker] = field(default_factory=list)  # markers referencing an id the DSLs do not have
 
 
 def anchor(conn: sqlite3.Connection, root: Path) -> AnchorReport:
-    known = {row["id"] for row in conn.execute("SELECT id FROM node WHERE kind IN ('operation', 'clause')")}
+    known = {row["id"] for row in conn.execute("SELECT id FROM node WHERE kind IN ('morphism', 'requirement')")}
     report = AnchorReport()
     for path in project_files(root):
         content = (root / path).read_bytes()
@@ -222,7 +222,7 @@ def anchor(conn: sqlite3.Connection, root: Path) -> AnchorReport:
 def ids_at(root: Path, path: Path, lines: set[int]) -> dict[int, list[str]]:
     """The ids of the markers that hold each line: those of its innermost definition, then of the enclosing ones.
 
-    A line outside every marked definition holds no id. Used to hand a line no test runs to the clause
+    A line outside every marked definition holds no id. Used to hand a line no test runs to the requirement
     that names its code.
     """
     if path.suffix not in LANGUAGES or not (root / path).is_file():

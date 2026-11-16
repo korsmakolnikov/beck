@@ -1,14 +1,14 @@
-"""The measures of a unit, deterministic, each behind an interface the toolchain configures.
+"""The measures of a component, deterministic, each behind an interface the toolchain configures.
 
-* Size and complexity (`complexity.py`): the functions of the unit's files,
+* Size and complexity (`complexity.py`): the functions of the component's files,
   from the backend `toolchain.yml` names (lizard; Credo for Elixir, beck's own counter on tree-sitter as its fallback).
-  A refactor worsens the unit when the complexity grows: the maximum or the
+  A refactor worsens the component when the complexity grows: the maximum or the
   mean of the functions' cyclomatic complexity. The size, the parameters and
   the length are reported for martin, never judged: extracting a function
   adds lines.
 * Coverage (`coverage.py`): the report of the run, in the format the
   toolchain names, read into lines executed and missing per file. Two uses:
-  the gaps, the lines the iteration changed (the diff from the unit's base)
+  the gaps, the lines the iteration changed (the diff from the component's base)
   that no test ran, which beck tries once to cover and then hands to martin;
   and the ratchet: the project's coverage never goes down.
 """
@@ -104,8 +104,8 @@ def ratio(files: dict[str, list[int]]) -> float | None:
     return round(100 * sum(v[0] for v in files.values()) / measured, 2) if measured else None
 
 
-def ratchet(baseline: dict[str, list[int]], unit: dict[str, list[int]], scope_files: list[str]) -> tuple[
+def ratchet(baseline: dict[str, list[int]], component: dict[str, list[int]], scope_files: list[str]) -> tuple[
         float | None, float | None]:
-    """The project's coverage before and with the unit: the baseline with the unit's files as they are now."""
-    with_unit = {f: v for f, v in baseline.items() if f not in scope_files} | unit
-    return ratio(baseline), ratio(with_unit)
+    """The project's coverage before and with the component: the baseline with the component's files as they are now."""
+    with_component = {f: v for f, v in baseline.items() if f not in scope_files} | component
+    return ratio(baseline), ratio(with_component)

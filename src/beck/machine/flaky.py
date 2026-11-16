@@ -7,7 +7,7 @@ the same result; when the last runs of a test on one tree (the window, 3)
 are mixed, beck hunts, escalating only while it is not sure:
 
     TestsRun [mixed on one tree] → HuntFlakiness alone (the test by itself, N times)
-      → FlakyTestFound [mixed] | FlakinessUnsure → HuntFlakiness unit (inside its unit's tests, N times:
+      → FlakyTestFound [mixed] | FlakinessUnsure → HuntFlakiness component (inside its component's tests, N times:
         a dependency on time or order) → FlakyTestFound | FlakinessUnsure
         → ApproveSuiteRuns (the user: the whole suite, N times, is expensive)
           → SuiteRunsApproved → HuntFlakiness suite → FlakyTestFound | FlakinessCleared
@@ -15,7 +15,7 @@ are mixed, beck hunts, escalating only while it is not sure:
 
 The hunt runs in a worktree of its own, detached at the tree, so the agents
 go on meanwhile; its runs are not evidence for the detector. A flaky test of
-a unit reaches martin as a weak test at the review; every flaky test is in
+a component reaches martin as a weak test at the review; every flaky test is in
 the notes of the presentation. Nothing stops.
 """
 
@@ -31,7 +31,7 @@ from beck.testrun import run as run_tests
 from beck.toolchain import load
 
 flaky = Machine()
-STAGES = ("alone", "unit", "suite")
+STAGES = ("alone", "component", "suite")
 
 
 def stream(test: str) -> str:
@@ -67,29 +67,29 @@ def detect(event: Event, ctx: Ctx) -> list[Command]:
         outcomes = [o for o in (_outcome(e, test) for e in same_tree) if o is not None][-window:]
         if len(set(outcomes)) > 1:
             commands.append(Command("HuntFlakiness", "beck", {
-                "test": test, "tree": tree, "unit": event.payload.get("unit") or _unit_of(ctx, test),
+                "test": test, "tree": tree, "component": event.payload.get("component") or _component_of(ctx, test),
                 "stage": "alone", "seen": outcomes}, stream(test)))
     return commands
 
 
-def _unit_of(ctx: Ctx, test: str) -> str | None:
+def _component_of(ctx: Ctx, test: str) -> str | None:
     for e in ctx.events(types=("RedVerified", "CoverageTestsVerified")):
         tests = [e.payload["test"]] if e.type == "RedVerified" else [t["test"] for t in e.payload["tests"]]
         if test in tests:
-            return str(e.payload["unit"])
+            return str(e.payload["component"])
     return None
 
 
-def _unit_tests(ctx: Ctx, unit: str) -> list[str]:
+def _component_tests(ctx: Ctx, component: str) -> list[str]:
     from beck.machine.refactor import _declared_tests
-    return list(_declared_tests(ctx, unit))
+    return list(_declared_tests(ctx, component))
 
 
 @flaky.handler("HuntFlakiness")
 def handle_hunt(command: Event, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     test, stage, runs = a["test"], a["stage"], ctx.flakiness[1]
-    selection = {"alone": [test], "unit": _unit_tests(ctx, a.get("unit") or ""), "suite": []}[stage]
+    selection = {"alone": [test], "component": _component_tests(ctx, a.get("component") or ""), "suite": []}[stage]
     path = ctx.project / ".beck" / "worktrees" / f"flaky-{command.id[:8]}"
     sha = subprocess.run(["git", "commit-tree", a["tree"], "-m", f"beck: the tree {test} ran on"], cwd=ctx.project,
                          capture_output=True, text=True, check=True).stdout.strip()
@@ -108,8 +108,8 @@ def handle_hunt(command: Event, ctx: Ctx) -> list[Result]:
     seen = [o for o in outcomes if o is not None]
     evidence = f"{stage}: {seen.count('passed')} of {len(seen)} runs passed, on one tree"
     base: dict[str, Any] = {"test": test, "stage": stage, "evidence": evidence}
-    if a.get("unit"):
-        base["unit"] = a["unit"]
+    if a.get("component"):
+        base["component"] = a["component"]
     if len(set(seen)) > 1:
         return [Result("FlakyTestFound", base, stream=stream(test))]
     if stage == "suite":
@@ -121,8 +121,8 @@ def handle_hunt(command: Event, ctx: Ctx) -> list[Result]:
 def escalate(event: Event, ctx: Ctx) -> list[Command]:
     p = event.payload
     hunt = ctx.store.get(event.causation_id or "").payload["args"]
-    if p["stage"] == "alone" and p.get("unit") and _unit_tests(ctx, p["unit"]):
-        return [Command("HuntFlakiness", "beck", {**hunt, "stage": "unit"}, event.stream)]
+    if p["stage"] == "alone" and p.get("component") and _component_tests(ctx, p["component"]):
+        return [Command("HuntFlakiness", "beck", {**hunt, "stage": "component"}, event.stream)]
     return [Command("ApproveSuiteRuns", "user", {"test": p["test"], "runs": ctx.flakiness[1], "evidence": p["evidence"],
                                                  "hunt": hunt}, event.stream)]
 

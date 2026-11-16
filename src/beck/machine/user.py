@@ -41,7 +41,7 @@ DECISIONS: dict[str, Decision] = {
     "ApproveDslSync": Decision("approval", "DslSyncApproved", "DslSyncRejected"),
     "ApproveDomain": Decision("approval", "DomainApproved", "DomainRevised"),
     "ApproveArchitecture": Decision("approval", "ArchitectureApproved", "ArchitectureRevised"),
-    "ApproveResolution": Decision("approval", "ResolutionApproved", "ResolutionRejected"),
+    "ApproveRestart": Decision("approval", "RestartApproved", "RestartRejected"),
     "ApproveTradeoff": Decision("approval", "TradeoffAccepted", "TradeoffRejected"),
     "PresentForReview": Decision("approval", "ReviewAccepted", "CorrectionsRequested"),
     "ApproveSuiteRuns": Decision("approval", "SuiteRunsApproved", "SuiteRunsRefused"),
@@ -95,15 +95,15 @@ def prompt(command: Event) -> str:
     if name == "ConfirmToolchain":
         return f"The stack looks like {args['detected']}: python or elixir?"
     if name == "PresentForReview":
-        # the notes first: a stub left matters more than the commits, and a long list would push them out of sight
+        # the notes first: an unimplemented left matters more than the commits, and a long list would push them out of sight
         notes = ("To look at:\n" + "\n".join(f"- {n}" for n in args["notes"]) + "\n") if args.get("notes") else ""
         return "Review the branch (yes to close the iteration, or the corrections):\n" + notes + "\n".join(args["commits"])
-    if name == "ApproveResolution":
+    if name == "ApproveRestart":
         p = args["proposal"]
-        return f"Resolution: {p['summary']}\n{p['changes']}\n(yes, or what to change)"
+        return f"Restart: {p['summary']}\n{p['changes']}\n(yes, or what to change)"
     if name == "ApproveSuiteRuns":
-        return (f"{args['test']} looks flaky ({args['evidence']}), but alone and in its unit it was steady: "
+        return (f"{args['test']} looks flaky ({args['evidence']}), but alone and in its component it was steady: "
                 f"run the whole suite {args['runs']} times to find out? (yes, or no)")
     if name == "ApproveTradeoff":
-        return f"A refactor of {args['unit']} worsens {', '.join(args['worsened'])}: accept? (yes, or why not)"
+        return f"A refactor of {args['component']} worsens {', '.join(args['worsened'])}: accept? (yes, or why not)"
     return f"{name}: {args.get('file') or args.get('summary') or ''} (yes, or what to change)"
