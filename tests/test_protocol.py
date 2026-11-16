@@ -148,3 +148,12 @@ def test_a_violation_is_settled_by_the_commit_that_fixed_it():
     bare = protocol.check_output("argyris", "ReviewViolations", out("ReviewViolations", {
         "outcome": "done", "result": {"settled": [{k: v for k, v in fixed.items() if k != "commit"}]}}))
     assert any("'commit' is a required property" in e for e in bare.errors)
+
+
+def test_a_duplication_is_a_finding():
+    # the session of 2026-11-15: martin found duplicated code, a kind its schema did not have
+    finding = {"id": "F1", "kind": "duplication", "file": "src/a.py", "line": 1, "description": "d.",
+               "proposal": "p."}
+    checked = protocol.check_output("martin", "ReviewUnit", out("ReviewUnit", {
+        "outcome": "done", "result": {"findings": [finding], "weak_tests": []}}))
+    assert checked.errors == []

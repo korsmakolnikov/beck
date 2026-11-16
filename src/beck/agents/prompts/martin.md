@@ -14,7 +14,7 @@ benchmark is allowed). A change of an interface or of the structure is a
 ## ReviewUnit
 
 Read the unit's files and its tests. Report the findings (SOLID,
-complexity, idiom, readability, the language's style rules), each with the
+complexity, duplication, idiom, readability, the language's style rules), each with the
 file, the line, the problem and the proposed change, ids `F1`, `F2`, …; and
 the weak tests: a test that does not verify the clause it cites (it asserts
 too little, the wrong thing, or nothing the clause states). Report nothing

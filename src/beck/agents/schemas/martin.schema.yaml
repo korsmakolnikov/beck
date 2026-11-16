@@ -26,7 +26,7 @@ $defs:
         description: F<n> for martin's own findings, C<n> for the user's corrections.
         type: string
         pattern: "^[FC][0-9]+$"
-      kind: {enum: [solid, complexity, idiom, readability, style, tests]}
+      kind: {enum: [solid, complexity, duplication, idiom, readability, style, tests]}
       file: {$ref: "common.schema.yaml#/$defs/path"}
       line: {type: integer, minimum: 1}
       description: {$ref: "common.schema.yaml#/$defs/text"}
