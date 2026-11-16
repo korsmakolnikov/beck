@@ -31,8 +31,9 @@ from beck.machine.cycle import stream as cycle_stream
 from beck.machine.refactor import _declared_tests, _git, _head, autosquash_onto, units_machine
 from beck.machine.signatures import blocked, signature
 from beck.machine.unit import plan, state, stream
+from beck.stubs import stubs
 from beck.testrun import run as run_tests
-from beck.toolchain import STUBS, load
+from beck.toolchain import load
 
 closing = Machine()
 BRANCH = "branch"
@@ -251,7 +252,7 @@ def _present(ctx: Ctx) -> Command:
     notes += [f"{e.payload['unit']}: lines no test runs, {_lines(e.payload['gaps'])}"
               for e in _last_coverage(ctx) if e.payload["gaps"]]
     notes += [f"flaky: {e.payload['test']} ({e.payload['evidence']})" for e in ctx.events(types=("FlakyTestFound",))]
-    notes += [f"a stub no cycle implemented: {where}" for where in _stubs(ctx.project)]
+    notes += [f"a stub no cycle implemented: {file}:{line}" for file, line in stubs(ctx.project)]
     notes += [f"a clause no cycle proved: {c}" for c in unproved(ctx)]
     if notes:
         args["notes"] = notes
@@ -262,22 +263,6 @@ def unproved(ctx: Ctx) -> list[str]:
     """The planned clauses no cycle closed, as unit/clause: a resolution may add one to a unit that has landed."""
     done = {(e.payload["unit"], e.payload["clause"]) for e in ctx.events(types=("CycleClosed", "CycleDropped"))}
     return [f"{u}/{c}" for u, p in plan(ctx).items() for g in p["groups"] for c in g["clauses"] if (u, c) not in done]
-
-
-def _stubs(root: Path) -> list[str]:
-    """The interface bodies kent wrote that still raise "not implemented": no clause cited them, so no cycle
-    implemented them, and the suite cannot tell."""
-    toolchain = load(root)
-    marker, suffix = STUBS[toolchain.language]
-    found = []
-    for base in toolchain.source_roots(root):
-        for path in sorted((root / base).rglob(f"*{suffix}")):
-            if ".beck" in path.relative_to(root).parts:
-                continue
-            for n, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
-                if marker in line:
-                    found.append(f"{path.relative_to(root)}:{n}")
-    return found
 
 
 def _lines(gaps: dict[str, list[int]]) -> str:

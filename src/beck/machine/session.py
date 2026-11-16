@@ -41,6 +41,7 @@ from beck.machine.core import Command, Ctx, Machine, Result, action, ask_routed
 from beck.machine.signatures import blocked, signature
 from beck.scaffold import LANGUAGES as LAID
 from beck.scaffold import ScaffoldError, scaffold
+from beck.stubs import uncited
 from beck.testrun import run as run_tests
 from beck.toolchain import STUBS, ToolchainError
 from beck.toolchain import load as load_toolchain
@@ -710,6 +711,10 @@ def compile_interfaces(event: Event, ctx: Ctx) -> list[Command]:
 @session.handler("CompileInterfaces")
 def handle_compile(command: Event, ctx: Ctx) -> list[Result]:
     toolchain = load_toolchain(ctx.project)
+    # a stub no id cites has no cycle to implement it: the suite stays green, the program does not run
+    errors = [f"{file}:{line}: a stub no id cites" for file, line in uncited(ctx.project)]
+    if errors:
+        return [Result("InterfacesBroken", {"errors": errors, "signature": signature(errors)})]
     if not toolchain.build:
         return [Result("InterfacesCompiled", {})]
     argv, env = toolchain.argv(toolchain.build, [])

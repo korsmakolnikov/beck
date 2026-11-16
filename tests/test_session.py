@@ -332,3 +332,28 @@ def test_the_index_tells_a_clause_an_earlier_green_implemented(project):
     assert not workspace.already_met("adder", "add-sums")                  # the interface is still a stub
     (worktree / "src/calc/adder/__init__.py").write_text(INTERFACE.replace("raise NotImplementedError", "return a + b"))
     assert workspace.already_met("adder", "add-sums")
+
+
+class Uncited(Agents):
+    """Writes, first, an interface with a stub no id cites, as kent wrote main() and SystemClock.sleep."""
+
+    def WriteInterfaces(self, e, cwd):
+        first = not [1 for a, c in self.calls if c["command"] == "WriteInterfaces"][1:]
+        done_ = super().WriteInterfaces(e, cwd)
+        if first:
+            path = cwd / "src/calc/adder/__init__.py"
+            path.write_text(path.read_text() + '\n\ndef helper():\n    """Helps."""\n    raise NotImplementedError\n')
+        return done_
+
+
+def test_a_stub_no_id_cites_sends_the_interfaces_back_to_kent(project):
+    # the sessions of 2026-11-15 and 16: main(), and the clock's real implementation, cited no id: no cycle
+    # implemented them, the suite stayed green and the program did not start
+    agents = Uncited(project)
+    reactor, store, *_ = start(project, agents)
+    drive(reactor, ANSWERS)
+    [broken] = store.read(types_=("InterfacesBroken",))
+    assert broken.payload["errors"] == ["src/calc/adder/__init__.py:8: a stub no id cites"]
+    second = [e for a, e in agents.calls if e["command"] == "WriteInterfaces"][1]
+    assert second["context"]["errors"] == broken.payload["errors"]
+    assert list(store.read(types_=("IterationClosed",)))
