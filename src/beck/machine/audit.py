@@ -45,6 +45,23 @@ def _allowed(agent: str, tool: str, tool_input: dict[str, Any]) -> bool:
     return False
 
 
+READERS = ("cat", "bat", "head", "tail", "less")
+
+
+def _read_paths(root: Path, tool: dict[str, Any]) -> list[str]:
+    """The files a tool call reads: a Read's, or the file arguments of a shell reader (cat, bat, head...)."""
+    if tool["tool"] == "Read":
+        p = _path(root, tool["input"])
+        return [p] if p else []
+    if tool["tool"] != "Bash":
+        return []
+    words = str(tool["input"].get("command", "")).split()
+    if not words or words[0] not in READERS:
+        return []
+    files = [w for w in words[1:] if not w.startswith("-") and not w.isdigit()]
+    return [p for p in (_path(root, {"file_path": f}) for f in files) if p]
+
+
 def _path(root: Path, tool_input: dict[str, Any]) -> str | None:
     raw = tool_input.get("file_path") or tool_input.get("path") or tool_input.get("notebook_path")
     if not raw:
@@ -81,9 +98,9 @@ def violations(ctx: Ctx, event: Event) -> list[tuple[str, dict[str, Any]]]:
     if agent == "unclebob" and unit:
         scope = ctx.workspace.scope(unit)
         for t in tools:
-            p = _path(root, t["input"]) if t["tool"] in ("Read",) else None
-            if p and not is_test_file(Path(p)) and not any(p == s or p.startswith(s.rstrip("/") + "/") for s in scope):
-                found.append(("explored", {"command": command, "path": p}))
+            for p in _read_paths(root, t):
+                if not is_test_file(Path(p)) and not any(p == s or p.startswith(s.rstrip("/") + "/") for s in scope):
+                    found.append(("explored", {"command": command, "path": p}))
         runs = [e for e in siblings if e.type == "TestsRun"]
         test = args.get("test")
         for r in runs:

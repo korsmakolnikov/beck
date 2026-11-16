@@ -60,6 +60,19 @@ def test_forbidden_tools_commands_and_exploring_reach_the_outbox(repo):
     assert explored.correlation_id == logged[0].correlation_id
 
 
+def test_the_read_only_commands_are_allowed_and_audited_like_a_read(repo):
+    # the user, 2026-11-16: ls, cat, bat and the like are harmless; kent's ls and cat filled the outbox. A cat of a
+    # file outside unclebob's scope is exploring all the same
+    project, _ = run(repo, {"WriteRedTest": [
+        {"tool": "Bash", "input": {"command": "ls -la src/pkg"}},
+        {"tool": "Bash", "input": {"command": "cat src/pkg/mod.py"}},
+        {"tool": "Bash", "input": {"command": "bat --plain tests/test_mod.py"}},
+        {"tool": "Bash", "input": {"command": "head -20 docs/design.md"}},
+        {"tool": "Bash", "input": {"command": "git log --oneline"}},
+    ]})
+    assert [(r.kind, r.payload.get("path")) for r in project.pending()] == [("explored", "docs/design.md")]
+
+
 def test_the_outbox_from_the_cli(repo, capsys):
     project, _ = run(repo, {"WriteRedTest": [{"tool": "Bash", "input": {"command": "pytest"}}]})
     assert main(["audit", "--project", str(repo)]) == 0

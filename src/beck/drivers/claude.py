@@ -63,9 +63,18 @@ def definition(agent: str, model: str | None = None) -> dict[str, Any]:
     return out
 
 
+# what an agent with a shell may run to read: harmless, and audited like a Read (smart_audit's scope rule)
+READ_ONLY = ["Bash(ls:*)", "Bash(cat:*)", "Bash(bat:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(wc:*)",
+             "Bash(rg:*)", "Bash(tree:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)",
+             "Bash(git status:*)"]
+
+
 def allowed_tools(agent: str) -> list[str]:
     meta, _ = _front_matter((PROMPTS / f"{agent}.md").read_text())
-    return [str(t) for t in meta.get("tools", [])]
+    tools = [str(t) for t in meta.get("tools", [])]
+    if any(t.startswith("Bash(") for t in tools):
+        tools += [t for t in READ_ONLY if t not in tools]
+    return tools
 
 
 def session_id(iteration: str, agent: str, session: str) -> str:
