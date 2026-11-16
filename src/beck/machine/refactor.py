@@ -30,7 +30,7 @@ from beck.events.store import Event
 from beck.index.anchor import ids_at, is_test_file
 from beck.junit import UnreadableReport, parse, summary
 from beck.machine.core import Command, Ctx, Machine, Result, action, ask_routed
-from beck.machine.cycle import commit, parked
+from beck.machine.cycle import commit, has_red, parked
 from beck.machine.cycle import stream as cycle_stream
 from beck.machine.signatures import blocked, signature
 from beck.machine.unit import _park_and_propose, implementation, plan, stream
@@ -177,7 +177,10 @@ def _stubs_left(ctx: Ctx, unit: str) -> list[Result]:
         return [Result("RegressionUnassigned", {"unit": unit, "failure": f"stubs no green implemented: {where}"})]
     groups = {e.payload["clause"]: e.payload["group"] for e in ctx.store.read(types_=("CycleOpened",))
               if e.payload["unit"] == unit}
-    return [Result("CycleReopened", {"unit": unit, "clause": c, "group": groups.get(c, "model"), "phase": "green",
+    groups = {c: g["id"] for g in plan(ctx)[unit]["groups"] for c in g["clauses"]} | groups
+    # a clause with no red (a resolution added it after the plan) starts its cycle from the red
+    return [Result("CycleReopened", {"unit": unit, "clause": c, "group": groups.get(c, "model"),
+                                     "phase": "green" if has_red(ctx, unit, c) else "red",
                                      "reason": f"a stub left: {where}; write it"}, stream=cycle_stream(unit, c))
             for c in clauses]
 
