@@ -189,3 +189,23 @@ def test_the_review_names_the_planned_clauses_no_cycle_proved(repo):
     store.append("CycleDropped", {"unit": "cart", "clause": "cart-empties", "reason": "r"},
                  stream="cycle:cart/cart-empties")
     assert unproved(Ctx(store, repo, "it", None)) == ["store/store-refuses-negatives"]
+
+
+def test_the_branch_autosquash_folds_a_fixup_of_the_model_s_commit(repo):
+    # the session of 2026-11-15: martin fixed the static findings of an interface at the close, a fixup of the
+    # model's commit, which is the units' base: the autosquash started from it and left the fixup unfolded
+    from beck.machine.closing import handle_autosquash_branch
+    model = git(repo, "rev-parse", "HEAD")
+    subject = git(repo, "log", "-1", "--format=%s")
+    store = Project(repo).start_iteration()[1]
+    store.append("ModelCommitted", {"sha": model})
+    store.append("UnitStarted", {"unit": "store", "worktree": str(repo), "branch": "b", "base": model},
+                 stream="unit:store")
+    (repo / "src/shop/store/fixed.py").write_text("X = 1\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", f"fixup! {subject}")
+    command = store.append("CommandIssued", {"command": "AutosquashBranch", "target": "beck",
+                                             "args": {"then": "review"}}, stream="branch")
+    handle_autosquash_branch(command, Ctx(store, repo, "it", None))
+    assert git(repo, "log", "-1", "--format=%s") == subject
+    assert (repo / "src/shop/store/fixed.py").is_file()

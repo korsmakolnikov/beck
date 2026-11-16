@@ -44,6 +44,16 @@ def iteration_base(ctx: Ctx) -> str:
     return started[0].payload["base"]
 
 
+def squash_base(ctx: Ctx) -> str:
+    """Where the branch's autosquash starts: before the model's commit, which the units start from, so that its
+    fixups (a static finding fixed in an interface) fold into it; the root when the model is the first commit."""
+    model = ctx.events(types=("ModelCommitted",))
+    if not model:
+        return iteration_base(ctx)
+    parent = _git(ctx.project, "rev-parse", "--verify", "-q", f"{model[-1].payload['sha']}~1", check=False)
+    return parent.stdout.strip() or "--root"
+
+
 def _all_closed(ctx: Ctx) -> bool:
     planned = plan(ctx)
     return bool(planned) and all(state(ctx, u) == "closed" for u in planned)
@@ -287,7 +297,7 @@ def _last_coverage(ctx: Ctx) -> list[Event]:
 
 @closing.handler("AutosquashBranch")
 def handle_autosquash_branch(command: Event, ctx: Ctx) -> list[Result]:
-    autosquash_onto(ctx.project, iteration_base(ctx))
+    autosquash_onto(ctx.project, squash_base(ctx))
     results = [Result("BranchSquashed", {"sha": _head(ctx.project)})]
     if command.payload["args"]["then"] == "close":
         Project(ctx.project).end_iteration(ctx.iteration)
