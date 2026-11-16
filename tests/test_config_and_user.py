@@ -52,6 +52,17 @@ def test_an_approval_is_yes_or_instructions(store):
     assert [(r.type, r.payload) for r in user.answer(review, "fix x")] == [("CorrectionsRequested", {"text": "fix x"})]
 
 
+def test_the_review_shows_its_notes_before_the_commits(store):
+    # the session of 2026-11-16: the notes named three stubs left, after a long list of commits the TUI's main
+    # panel cut: the review looked clean
+    review = command(store, "PresentForReview", commits=[f"c{i} commit" for i in range(20)],
+                     notes=["a stub no cycle implemented: src/a.py:3"])
+    lines = user.prompt(review).splitlines()
+    assert lines[:3] == ["Review the branch (yes to close the iteration, or the corrections):", "To look at:",
+                         "- a stub no cycle implemented: src/a.py:3"]
+    assert lines[3] == "c0 commit"
+
+
 def test_a_choice_must_be_an_option(store):
     c = command(store, "ClassifyProject")
     assert user.answer(c, "Brownfield")[0].payload == {"kind": "brownfield"}

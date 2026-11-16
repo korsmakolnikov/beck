@@ -95,9 +95,9 @@ def prompt(command: Event) -> str:
     if name == "ConfirmToolchain":
         return f"The stack looks like {args['detected']}: python or elixir?"
     if name == "PresentForReview":
-        notes = ("\nTo look at:\n" + "\n".join(f"- {n}" for n in args["notes"])) if args.get("notes") else ""
-        return ("Review the branch (yes to close the iteration, or the corrections):\n" + "\n".join(args["commits"])
-                + notes)
+        # the notes first: a stub left matters more than the commits, and a long list would push them out of sight
+        notes = ("To look at:\n" + "\n".join(f"- {n}" for n in args["notes"]) + "\n") if args.get("notes") else ""
+        return "Review the branch (yes to close the iteration, or the corrections):\n" + notes + "\n".join(args["commits"])
     if name == "ApproveResolution":
         p = args["proposal"]
         return f"Resolution: {p['summary']}\n{p['changes']}\n(yes, or what to change)"
