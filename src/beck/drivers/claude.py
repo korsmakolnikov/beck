@@ -123,7 +123,7 @@ class ClaudeCode:
     def _started(self, sid: str) -> bool:
         return any(e.payload.get("session") == sid for e in self.store.read(types_=("AgentTurnEnded",)))
 
-    def argv(self, agent: str, sid: str) -> list[str]:
+    def argv(self, agent: str, sid: str, resume: bool = False) -> list[str]:
         argv = [self.executable, "-p", "--output-format", "stream-json", "--verbose",
                 "--agents", str(self._agents_file()), "--agent", agent,
                 "--permission-prompts", "none", "--allowedTools", *allowed_tools(agent)]
@@ -131,21 +131,28 @@ class ClaudeCode:
             argv += ["--model", self.models[agent]]
         if self.docs is not None:
             argv += ["--add-dir", str(self.docs)]
-        argv += ["--resume", sid] if self._started(sid) else ["--session-id", sid]
+        argv += ["--resume", sid] if resume or self._started(sid) else ["--session-id", sid]
         return argv
 
     async def turn(self, agent: str, session: str, envelope: dict[str, Any], env: dict[str, str],
                    cwd: Path) -> Turn:
         sid = session_id(self.iteration, agent, session)
+        out, err, code = await self._run(self.argv(agent, sid), cwd, env, envelope)
+        if code != 0 and "is already in use" in err:   # a failed turn had started it: no AgentTurnEnded says so
+            out, err, code = await self._run(self.argv(agent, sid, resume=True), cwd, env, envelope)
+        return self.read(out, err, code, agent, sid)
+
+    async def _run(self, argv: list[str], cwd: Path, env: dict[str, str],
+                   envelope: dict[str, Any]) -> tuple[str, str, int | None]:
         proc = await asyncio.create_subprocess_exec(
-            *self.argv(agent, sid), cwd=cwd, env={**os.environ, **env},
+            *argv, cwd=cwd, env={**os.environ, **env},
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         try:
             out, err = await asyncio.wait_for(proc.communicate(json.dumps(envelope).encode()), self.timeout)
         except asyncio.TimeoutError:
             proc.kill()
             raise TurnFailed(f"no answer in {self.timeout:.0f} s") from None
-        return self.read(out.decode(errors="replace"), err.decode(errors="replace"), proc.returncode, agent, sid)
+        return out.decode(errors="replace"), err.decode(errors="replace"), proc.returncode
 
     def read(self, stdout: str, stderr: str, code: int | None, agent: str, sid: str) -> Turn:
         tools: list[dict[str, Any]] = []

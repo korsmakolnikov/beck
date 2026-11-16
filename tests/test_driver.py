@@ -21,6 +21,9 @@ open(os.environ["FAKE_LOG"], "a").write(json.dumps({{"argv": args, "stdin": sys.
 mode = os.environ.get("FAKE_MODE", "ok")
 if mode == "crash":
     sys.stderr.write("boom\n"); sys.exit(1)
+if mode == "in-use" and "--session-id" in args:
+    sid = args[args.index("--session-id") + 1]
+    sys.stderr.write(f"Error: Session ID {{sid}} is already in use.\n"); sys.exit(1)
 print(json.dumps({{"type": "system", "subtype": "init"}}))
 print(json.dumps({{"type": "assistant", "message": {{"content": [
     {{"type": "text", "text": "working"}},
@@ -123,3 +126,14 @@ def test_a_relative_project_gives_an_agent_in_a_worktree_absolute_paths(driver, 
 def test_a_project_opened_from_a_relative_root_holds_it_absolute(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert Project(".").root == tmp_path
+
+
+def test_a_session_a_failed_turn_started_is_resumed(driver, tmp_path, monkeypatch):
+    # the session of 2026-11-16: a turn failed on the usage limit after Claude Code had created its session, so
+    # beck, which found no AgentTurnEnded of it, asked for it new again: "Session ID ... is already in use"
+    monkeypatch.setenv("FAKE_MODE", "in-use")
+    turn = asyncio.run(driver.turn("reader", "s", ENVELOPE, {}, tmp_path))
+    assert turn.output["outcome"] == "done"
+    first, second = (c["argv"] for c in calls(tmp_path))
+    sid = session_id("iter-1", "reader", "s")
+    assert first[first.index("--session-id") + 1] == sid and second[second.index("--resume") + 1] == sid
