@@ -318,6 +318,7 @@ def propose_again(event: Event, ctx: Ctx) -> list[Command]:
 
 @units.handler("DiscardResolution")
 def discard_resolution(command: Event, ctx: Ctx) -> list[Result]:
+    _git(ctx.project, "reset", "-q", "--", ".", ":!.beck")   # a git rm is staged: unstage it, then restore
     _git(ctx.project, "checkout", "--", ".", ":!.beck")
     _git(ctx.project, "clean", "-fdq", "--", ".", ":!.beck")
     return []

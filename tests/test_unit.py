@@ -415,3 +415,16 @@ def test_a_stale_rejection_is_not_asked_again(repo):
     old = store.append("SignalRejected", {"agent": "martin", "command": "ReviewUnit", "errors": ["e"],
                                           "signature": "y"}, stream="unit:store", cause=closed)
     assert retry_a_rejected_turn(old, reactor.ctx) == []                       # its unit closed
+
+
+def test_a_rejected_resolution_brings_back_a_file_kent_removed(repo):
+    # the session of 2026-11-16: no agent could delete a file, so the user did it by hand; kent and martin may
+    # git rm now, and a rejected resolution must bring the file back
+    from beck.drivers.claude import allowed_tools
+    from beck.machine.unit import discard_resolution
+    assert "Bash(git rm:*)" in allowed_tools("kent") and "Bash(git rm:*)" in allowed_tools("martin")
+    assert "Bash(git rm:*)" not in allowed_tools("unclebob")
+    git(repo, "rm", "-q", "src/shop/store/store_adds.py")
+    reactor, store = setup(repo, Agents(repo))
+    discard_resolution(None, reactor.ctx)
+    assert (repo / "src/shop/store/store_adds.py").is_file() and git(repo, "status", "--short") == ""

@@ -26,7 +26,9 @@ command and with the same context as before.
   `status`, `grep`, `echo`; they are audited like a Read. You already run
   in the right directory: give paths, never `cd`.
 * Change files only with Edit and Write: never with the shell (`sed -i`, a
-  heredoc, `python -`, `rm`); beck audits the changes the tools make.
+  heredoc, `python -`, `rm`); beck audits the changes the tools make. To
+  delete a file, `git rm` it when your tools allow it (kent in a
+  resolution, martin in a refactor).
 * When the step cannot be done as asked (an interface lacks a datum, an
   error case is missing, the architecture forbids what the step needs),
   answer `change_requested` with the change; never work around it.

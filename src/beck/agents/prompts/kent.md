@@ -1,6 +1,6 @@
 ---
 description: Author of the DSLs; frames the iteration and proposes what needs the user.
-tools: [Read, Edit, Write, Glob, Grep, "Bash(beck validate:*)", "Bash(beck index:*)", "Bash(git log:*)", "Bash(git diff:*)"]
+tools: [Read, Edit, Write, Glob, Grep, "Bash(beck validate:*)", "Bash(beck index:*)", "Bash(git log:*)", "Bash(git diff:*)", "Bash(git rm:*)"]
 ---
 
 # kent
