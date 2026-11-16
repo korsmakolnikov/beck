@@ -369,3 +369,19 @@ def test_a_blocked_cycle_parks_its_unit_and_asks_kent(repo):
     kent = [e for a, e in agents.calls if a == "kent"]
     assert kent[0]["context"]["kind"] == "blocked_cycle"
     assert unit_events(store, "cart")[-1] == "UnitImplemented"   # the rest goes on
+
+
+def test_a_malformed_answer_outside_the_cycles_is_asked_again(repo):
+    # the session of 2026-11-16: kent answered a ProposeResolution with its result under `change`; beck rejected
+    # it and nothing asked again: the session stopped with nothing to do and nothing to answer
+    def malformed(agents, envelope, cwd):
+        return {"protocol": 1, "command": "ProposeResolution", "outcome": "done",
+                "change": {"subject": "s", "units": []}}
+    agents = Agents(repo, {("WriteRedTest", "store-adds"): [change("store"), None],
+                           ("ProposeResolution", "interface"): [malformed, None]})
+    reactor, store = setup(repo, agents)
+    run(reactor)
+    assert len(list(store.read(types_=("SignalRejected",)))) == 1
+    proposals = [e for a, e in agents.calls if e["command"] == "ProposeResolution"]
+    assert len(proposals) == 2 and "change: 'kind' is a required property" in proposals[1]["retry"]["reason"]
+    assert [c.payload["command"] for c in pending_of_user(reactor)] == ["ApproveResolution"]

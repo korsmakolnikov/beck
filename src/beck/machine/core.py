@@ -238,6 +238,31 @@ def retry_a_failed_turn(event: Event, ctx: Ctx) -> list[Command]:
     return [Command(turn.payload["command"], turn.payload["target"], dict(turn.payload["args"]), turn.stream)]
 
 
+OWN_RETRIES = {"WriteRedTest", "WriteGreenCode"}   # the cycle retries these itself, under its own loop rule
+
+
+@conversation.policy("SignalRejected")
+def retry_a_rejected_turn(event: Event, ctx: Ctx) -> list[Command]:
+    """A malformed answer outside the cycles: the same command again, with the errors as the reason; the same
+    rejection three times in a row asks the user, as a turn that fails does."""
+    name = event.payload["command"]
+    turn = ctx.store.get(event.causation_id or "")
+    if name in OWN_RETRIES or "context" not in turn.payload["args"]:
+        return []
+    rejected = [e.payload["signature"] for e in ctx.events(stream=event.stream, types=("SignalRejected",))
+                if e.payload["command"] == name]
+    why = blocked(rejected, *ctx.limits)
+    if why:
+        actions = [action("retry", "Run the agent's turn again, as it was.")]
+        if turn.payload["args"].get("unit"):
+            actions.append(action("park-unit", "Park the turn's unit; the other units go on."))
+        return [ask_routed(f"{event.payload['agent']}'s {name} answers wrong ({why}): "
+                           f"{'; '.join(event.payload['errors'])[:500]}", "The answer does not match its schema.",
+                           "turn-failed", actions, event.stream, event.id)]
+    args = {**turn.payload["args"], "retry": [len(rejected) + 1, "; ".join(event.payload["errors"])[:2000]]}
+    return [Command(name, turn.payload["target"], args, turn.stream)]
+
+
 @conversation.policy("DecisionRouted")
 def after_turn_failed(event: Event, ctx: Ctx) -> list[Command]:
     if event.payload["situation"] != "turn-failed":
