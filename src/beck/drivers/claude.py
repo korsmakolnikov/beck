@@ -66,7 +66,8 @@ def definition(agent: str, model: str | None = None) -> dict[str, Any]:
 # what an agent with a shell may run to read: harmless, and audited like a Read (smart_audit's scope rule)
 READ_ONLY = ["Bash(cd:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(bat:*)", "Bash(head:*)", "Bash(tail:*)",
              "Bash(wc:*)", "Bash(rg:*)", "Bash(grep:*)", "Bash(echo:*)", "Bash(tree:*)", "Bash(git log:*)",
-             "Bash(git show:*)", "Bash(git diff:*)", "Bash(git status:*)"]
+             "Bash(git show:*)", "Bash(git diff:*)", "Bash(git status:*)", "Bash(git ls-files:*)",
+             "Bash(git grep:*)", "Bash(sed -n:*)"]
 
 
 def allowed_tools(agent: str) -> list[str]:

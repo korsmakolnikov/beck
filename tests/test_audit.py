@@ -121,3 +121,10 @@ def test_martin_touching_the_code_before_the_weak_test_breaks_the_three_laws(tmp
     assert [k for k, _ in violations(ctx, turn(["src/pkg/a.py", "tests/test_a.py"]))] == ["tdd-order"]
     assert violations(ctx, turn(["tests/test_a.py", "src/pkg/a.py"])) == []
     store.close()
+
+
+def test_an_operator_inside_quotes_does_not_split_the_command():
+    # the replay of 2026-11-16: `grep -n "a\\|b" f` was split at the quoted pipe, and its halves were forbidden
+    from beck.machine.audit import parts
+    assert parts('grep -n "a\\|b" f | head -5') == ['grep -n "a\\|b" f', "head -5"]
+    assert parts("echo 'x;y' && ls") == ["echo 'x;y'", "ls"]

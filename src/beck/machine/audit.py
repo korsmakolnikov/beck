@@ -33,13 +33,41 @@ def audit_the_turn(event: Event, ctx: Ctx) -> list[Command]:
     return [Command("AuditTurn", "beck", {"event": event.id}, A)]
 
 
-_OPERATORS = re.compile(r"\s*(?:&&|\|\||;|\|)\s*")
 _HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?")
 
 
+def _split(line: str) -> list[str]:
+    """A line split on && || ; | outside quotes: `grep "a\\|b" f` is one command."""
+    out, current, quote, i = [], "", None, 0
+    while i < len(line):
+        ch = line[i]
+        if quote:
+            if ch == "\\" and quote == '"' and i + 1 < len(line):
+                current += line[i:i + 2]
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+        elif ch == "\\" and i + 1 < len(line):
+            current += line[i:i + 2]
+            i += 2
+            continue
+        elif ch in "'\"":
+            quote = ch
+        elif line.startswith(("&&", "||"), i) or ch in ";|":
+            out.append(current)
+            current = ""
+            i += 2 if line.startswith(("&&", "||"), i) else 1
+            continue
+        current += ch
+        i += 1
+    out.append(current)
+    return [p.strip() for p in out if p.strip()]
+
+
 def parts(command: str) -> list[str]:
-    """The simple commands of a shell line, as the CLI checks them: split on && || ; | and newlines, a
-    heredoc's body left out (it is data, not commands)."""
+    """The simple commands of a shell line, as the CLI checks them: split on && || ; | (outside quotes) and
+    newlines, a heredoc's body left out (it is data, not commands)."""
     out: list[str] = []
     ending: str | None = None
     for line in command.splitlines():
@@ -50,7 +78,7 @@ def parts(command: str) -> list[str]:
         heredoc = _HEREDOC.search(line)
         if heredoc:
             ending = heredoc.group(1)
-        out += [p for p in _OPERATORS.split(line) if p.strip()]
+        out += _split(line)
     return out
 
 
@@ -70,7 +98,7 @@ def _allowed(agent: str, tool: str, tool_input: dict[str, Any]) -> bool:
     return False
 
 
-READERS = ("cat", "bat", "head", "tail", "less")
+READERS = ("cat", "bat", "head", "tail", "less", "sed")
 SHELL_OPERATORS = {"|", "||", "&&", ";", "&"}
 PATHLIKE = re.compile(r"[\w./@+-]+")
 

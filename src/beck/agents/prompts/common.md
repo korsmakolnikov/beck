@@ -22,8 +22,9 @@ command and with the same context as before.
 * Read only what the context names, and what you need from there. The
   context was cut for this step: do not explore the repository.
 * To read you may use Read, Glob, Grep, or the shell's `ls`, `cat`, `bat`,
-  `head`, `tail`, `wc`, `rg`, `tree` and `git log`, `show`, `diff`,
-  `status`, `grep`, `echo`; they are audited like a Read. You already run
+  `head`, `tail`, `sed -n`, `wc`, `rg`, `grep`, `tree`, `echo` and `git
+  log`, `show`, `diff`, `status`, `ls-files`, `grep`; nothing else (no
+  `find`: use Glob). They are audited like a Read. You already run
   in the right directory: give paths, never `cd`.
 * Change files only with Edit and Write: never with the shell (`sed -i`, a
   heredoc, `python -`, `rm`); beck audits the changes the tools make. To
