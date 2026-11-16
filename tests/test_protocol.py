@@ -121,3 +121,12 @@ def test_free_text_is_brief(agent, command, body, message):
     # the user, 2026-11-16: commit messages and the agents' free text in one sentence, two at most
     checked = protocol.check_output(agent, command, out(command, body))
     assert checked.output is None and any(message in e for e in checked.errors), checked.errors
+
+
+def test_a_resolution_can_be_about_a_test(monkeypatch):
+    # the session of 2026-11-16: martin asked for a change of kind test, and the ProposeResolution beck sent kent
+    # broke kent's input schema
+    doc = protocol.envelope("kent", "ProposeResolution", *CAUSE,
+                            {"kind": "test", "details": {"agent": "martin", "unit": "u", "target": "t",
+                                                         "problem": "p", "proposal": "q"}})
+    assert doc["context"]["kind"] == "test"

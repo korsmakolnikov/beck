@@ -253,7 +253,7 @@ $defs:
     required: [kind, details]
     additionalProperties: false
     properties:
-      kind: {enum: [blocked_cycle, interface, architecture, worsened_measure]}
+      kind: {enum: [blocked_cycle, interface, architecture, test, worsened_measure]}
       details: {type: object}
       instructions:
         description: The user's instructions, after a rejected proposal.
