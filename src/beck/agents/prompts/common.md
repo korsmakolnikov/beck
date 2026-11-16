@@ -27,3 +27,20 @@ command and with the same context as before.
 * When the step cannot be done as asked (an interface lacks a datum, an
   error case is missing, the architecture forbids what the step needs),
   answer `change_requested` with the change; never work around it.
+
+## Writing
+
+Every text you write is short: the user reads hundreds of them.
+
+* An answer's free text: a `subject` is one sentence of at most 72
+  characters; a `summary`, a `problem`, a `why` at most two sentences.
+  beck refuses a longer one.
+* A docstring, for a module, a class, a function: first what it does, in
+  one sentence, two at most; then why it exists, in one sentence, two at
+  most. A domain requirement is cited by its id and its name in the DSL
+  (`spec: <id>`, the name, a few words): the DSLs are the documentation,
+  never restate them. Then an example of use: a doctest for a pure
+  function where the stack has them (Python, Elixir), a plain example
+  otherwise; never an example that touches the terminal, files, the network
+  or the clock.
+* A comment says why, in one line, never what the code says.

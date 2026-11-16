@@ -113,7 +113,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
     "UnitParked": _object({"unit": _STRING, "reason": _STRING, "because_of": _STRING}),
     "UnitResumed": _object({"unit": _STRING, "base": _STRING}),
     "ResolutionProposed": _object({"summary": _STRING, "changes": _STRING,
-                                   "units": {"type": "array", "items": _STRING}}),
+                                   "units": {"type": "array", "items": _STRING}}, {"subject": _STRING}),
     "ResolutionApproved": _object({}),
     "ResolutionRejected": _object({"instructions": _STRING}),
     "ResolutionApplied": _object({"base": _STRING, "units": {"type": "array", "items": _STRING}, "summary": _STRING}),

@@ -98,3 +98,26 @@ def test_martin_strengthens_weak_tests_or_addresses_findings():
     checked = protocol.check_output("martin", "RefactorUnit", out("RefactorUnit", {
         "outcome": "done", "result": {"phase": "strengthen", "addressed": ["test/a_test.exs:3"]}}))
     assert checked.errors == []
+
+
+LONG = "One. Two. Three."
+
+
+@pytest.mark.parametrize("agent, command, body, message", [
+    ("kent", "ProposeResolution", {"outcome": "done", "result": {
+        "subject": "s", "summary": LONG, "changes": "c", "units": []}}, "result.summary: at most 2 sentences"),
+    ("kent", "ProposeResolution", {"outcome": "done", "result": {
+        "subject": "x" * 73, "summary": "s.", "changes": "c", "units": []}}, "result.subject: at most 72 characters"),
+    ("kent", "ProposeResolution", {"outcome": "done", "result": {
+        "subject": "One. Two.", "summary": "s.", "changes": "c", "units": []}}, "result.subject: one sentence"),
+    ("kent", "ProposeResolution", {"outcome": "done", "result": {"summary": "s.", "changes": "c", "units": []}},
+     "'subject' is a required property"),
+    ("unclebob", "WriteGreenCode", {"outcome": "change_requested", "change": {
+        "kind": "test", "target": "x", "problem": LONG, "proposal": "q"}}, "change.problem: at most 2 sentences"),
+    ("kent", "WriteDomain", {"outcome": "question", "question": {"text": "t?", "why": LONG}},
+     "question.why: at most 2 sentences"),
+])
+def test_free_text_is_brief(agent, command, body, message):
+    # the user, 2026-11-16: commit messages and the agents' free text in one sentence, two at most
+    checked = protocol.check_output(agent, command, out(command, body))
+    assert checked.output is None and any(message in e for e in checked.errors), checked.errors

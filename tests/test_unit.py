@@ -107,8 +107,9 @@ class Agents:
     def ProposeResolution(self, envelope, cwd):
         (cwd / "src/shop/store/contract.md").write_text("store: add returns the new total\n")
         return {"protocol": 1, "command": "ProposeResolution", "outcome": "done",
-                "result": {"summary": "store.add returns the new total", "changes": "contract.md",
-                           "units": ["store", "cart"]}}
+                "result": {"subject": "store.add returns the new total",
+                           "summary": "store.add returns the new total. The cart reads it instead of adding again.",
+                           "changes": "contract.md", "units": ["store", "cart"]}}
 
 
 def plan(exclusive=False, waits=False):
@@ -206,7 +207,7 @@ def test_a_change_parks_the_unit_and_its_dependents_until_the_user_approves(repo
     assert sorted(parked) == ["cart", "store"]
     [approval] = pending_of_user(reactor)
     assert approval.payload["command"] == "ApproveResolution"
-    assert approval.payload["args"]["proposal"]["summary"] == "store.add returns the new total"
+    assert approval.payload["args"]["proposal"]["subject"] == "store.add returns the new total"
     assert (repo / "src/shop/store/contract.md").exists() and "contract.md" in git(repo, "status", "--short")
 
     reactor.answer(approval.id, [Result("ResolutionApproved", {}, actor="user")])
@@ -220,7 +221,8 @@ def test_a_change_parks_the_unit_and_its_dependents_until_the_user_approves(repo
     reopened = list(store.read(types_=("CycleReopened",)))
     assert reopened and all(e.payload["reason"].startswith("resumed after a resolution: store.add") for e in reopened)
     red_turns = [e for a, e in agents.calls if e["command"] == "WriteRedTest" and e["context"]["clause"] == "store-adds"]
-    assert red_turns[-1]["retry"]["reason"] == "resumed after a resolution: store.add returns the new total"
+    assert red_turns[-1]["retry"]["reason"] == ("resumed after a resolution: store.add returns the new total. "
+                                                "The cart reads it instead of adding again.")
 
 
 def test_a_waiting_unit_parked_with_its_dependency_is_not_started(repo):

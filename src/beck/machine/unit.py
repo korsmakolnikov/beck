@@ -326,8 +326,10 @@ def discard_resolution(command: Event, ctx: Ctx) -> list[Result]:
 @units.policy("ResolutionApproved")
 def apply_resolution(event: Event, ctx: Ctx) -> list[Command]:
     ask = ctx.store.get(event.causation_id or "")
-    return [Command("ApplyResolution", "beck", {"chain": ask.payload["args"]["chain"],
-                                                "summary": ask.payload["args"]["proposal"]["summary"]}, "resolution")]
+    proposal = ask.payload["args"]["proposal"]
+    return [Command("ApplyResolution", "beck", {"chain": ask.payload["args"]["chain"], "summary": proposal["summary"],
+                                                "subject": proposal.get("subject") or proposal["summary"]},
+                    "resolution")]
 
 
 @units.handler("ApplyResolution")
@@ -335,7 +337,8 @@ def handle_apply(command: Event, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     _git(ctx.project, "add", "-A", "--", ".", ":!.beck")
     if subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=ctx.project).returncode != 0:
-        _git(ctx.project, "commit", "-q", "-m", f"refactor: {a['summary']}")
+        # the subject alone, one sentence; the summary is the body
+        _git(ctx.project, "commit", "-q", "-m", f"refactor: {a.get('subject') or a['summary']}", "-m", a["summary"])
     parked = [e.payload["unit"] for e in ctx.store.read(types_=("UnitParked",))
               if e.payload["because_of"] == a["chain"]]
     results = []

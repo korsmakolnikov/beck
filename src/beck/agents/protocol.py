@@ -6,6 +6,7 @@ fails is the agent's, and becomes a SignalRejected with the errors.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from functools import cache
 from importlib.resources import files
@@ -79,7 +80,40 @@ def check_output(agent: str, command: str, doc: Any) -> Checked:
         errors = _errors(f"{agent}.schema.yaml#/$defs/{command}-out", doc)
     if not errors and agent != "kent" and doc["outcome"] == "question":
         errors = ["outcome: only kent asks the user"]
+    if not errors:
+        errors = brevity(doc)
     return Checked(None if errors else doc, errors)
+
+
+BRIEF = ("summary", "problem", "why")     # what it is, in a sentence, two at most
+SUBJECT = 72                              # a commit's subject: one sentence, the length git shows
+_SENTENCE = re.compile(r"(?<=[.!?])\s+(?=\S)")
+
+
+def sentences(text: str) -> int:
+    return len([s for s in _SENTENCE.split(text.strip()) if s])
+
+
+def brevity(doc: Any, path: str = "") -> list[str]:
+    """The agents' free text kept brief (the user's rule): a subject is one sentence of at most 72 characters;
+    a summary, a problem, a why at most two sentences. A long answer is a SignalRejected, retried."""
+    errors: list[str] = []
+    if isinstance(doc, dict):
+        for key, value in doc.items():
+            where = f"{path}.{key}" if path else key
+            if isinstance(value, str) and key == "subject":
+                if len(value) > SUBJECT:
+                    errors.append(f"{where}: at most {SUBJECT} characters")
+                if sentences(value) > 1:
+                    errors.append(f"{where}: one sentence")
+            elif isinstance(value, str) and key in BRIEF and sentences(value) > 2:
+                errors.append(f"{where}: at most 2 sentences, it has {sentences(value)}")
+            else:
+                errors += brevity(value, where)
+    elif isinstance(doc, list):
+        for i, item in enumerate(doc):
+            errors += brevity(item, f"{path}[{i}]")
+    return errors
 
 
 def envelope(agent: str, command: str, cause_id: str, correlation_id: str, context: dict[str, Any],

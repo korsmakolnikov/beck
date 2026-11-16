@@ -123,6 +123,7 @@ kent:
     out:
       outcome: done
       result:
+        subject: tag-store's add/1 reports a duplicate name
         summary: add/1 returns an error on a duplicate.
         changes: 'tag-store: add/1 :: :ok | {:error, :duplicate}'
         units:

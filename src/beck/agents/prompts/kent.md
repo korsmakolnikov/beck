@@ -19,7 +19,8 @@ a requirement.
 * The architecture names the domain's ids, never restates them;
   `realizes`, `depends_on` and the assertions follow the manifest.
 * Every interface's doc cites the operation it offers (`spec: <id>`): the
-  index anchors the ids through these markers.
+  index anchors the ids through these markers. Write each doc as the common
+  "Writing" rules say: what it does, why it exists, an example.
 * `beck validate domain` and `beck validate architecture` check what you
   wrote; run them before answering.
 * A resolution (`ProposeResolution`) is made as a real change: edit the

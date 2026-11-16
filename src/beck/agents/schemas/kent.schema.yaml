@@ -263,10 +263,15 @@ $defs:
       outcome: {enum: [done, question]}
       result:
         type: object
-        required: [summary, changes, units]
+        required: [subject, summary, changes, units]
         additionalProperties: false
         properties:
-          summary: {$ref: "common.schema.yaml#/$defs/text"}
+          subject:
+            description: The commit's subject, one sentence of at most 72 characters.
+            $ref: "common.schema.yaml#/$defs/text"
+          summary:
+            description: What the resolution changes and why, in two sentences at most.
+            $ref: "common.schema.yaml#/$defs/text"
           changes:
             description: The changes to the DSLs and to the interfaces, as the user will review them.
             $ref: "common.schema.yaml#/$defs/text"
