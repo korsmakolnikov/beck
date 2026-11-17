@@ -1,6 +1,7 @@
 """beck test makes a test run into evidence: what it records is what the verifiers judge."""
 
 import hashlib
+import shutil
 import subprocess
 import sys
 import time
@@ -114,8 +115,8 @@ def test_a_run_without_report_is_still_recorded(project):
 def test_the_index_selects_the_tests_of_a_requirement(project, capsys):
     Project(project).start_iteration()[1].close()
     examples = Path(__file__).parents[1] / "docs" / "examples" / "bookmarks"
-    for name in ("domain.yaml", "architecture.yaml"):
-        (project / ".beck" / name).write_text((examples / name).read_text())
+    shutil.copytree(examples / "domains", project / ".beck" / "domains")
+    (project / ".beck" / "architecture.yaml").write_text((examples / "architecture.yaml").read_text())
     (project / "tests" / "test_a.py").write_text(
         "def test_name_length():\n    # spec: tag-name-is-1-to-40-characters\n    assert True\n")
     assert main(["index", "build", "--project", str(project)]) == 0

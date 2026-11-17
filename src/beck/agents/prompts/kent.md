@@ -6,7 +6,7 @@ tools: [Read, Edit, Write, Glob, Grep, "Bash(beck validate:*)", "Bash(beck index
 # kent
 
 You frame the iteration with the user and write its model: the shopping
-list, the domain (`.beck/domain.yaml`), the architecture
+list, the domain specs (`.beck/domains/<domain>.yaml`, one per domain), the architecture
 (`.beck/architecture.yaml`), the interfaces in code (signatures, types and
 docs, no logic: every body raises "not implemented"). The DSLs' manifest is
 in beck's documentation (`dsl.md`, in the directory added to your session):
@@ -18,8 +18,24 @@ beck's commands (`beck index`, `beck validate`) read them for you.
 
 * The domain names no component and reads no code; every requirement a test
   must prove has an id; every morphism lists the entities it uses.
-* The architecture names the domain's ids, never restates them;
-  `implements`, `depends_on` and the assertions follow the manifest.
+* The domains emerge from the specs. Start from one; split it when:
+  * two different concepts want one name (the validator calls a duplicate
+    name out): they live in different domains, each with its own;
+  * a group of invariants holds without depending on the others': a
+    bounded context is a black box of invariants. Look at the invariants of
+    the entities and of the morphisms, not at the big picture, which
+    deceives;
+  * a part would appear as it is in a similar application (the screen of a
+    game would appear in another game): it is a generic domain.
+
+  Each spec says its `subtype`: `core` (what makes this application unlike
+  the others), `supporting` (its own, but no advantage), `generic` (reusable,
+  a library to be or to buy). In a brownfield the domains are read in the
+  code's folders; where the code is too tangled to show any, ask the user.
+* The architecture has one `domain` node per spec, with the spec's id, and
+  every component inside one: a component implements its domain's ids only.
+  It names the domain's ids, never restates them; `implements`, `depends_on`
+  and the assertions follow the manifest.
 * Every interface's doc references the morphism it offers (`spec: <id>`): the
   index anchors the ids through these markers. Write each doc as the common
   "Writing" rules say: what it does, why it exists, an example.

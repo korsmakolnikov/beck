@@ -43,7 +43,7 @@ def command(store, name, **args):
 
 
 def test_an_approval_is_yes_or_instructions(store):
-    c = command(store, "ApproveDomain", file=".beck/domain.yaml")
+    c = command(store, "ApproveDomain", file=".beck/domains")
     assert [(r.type, r.payload) for r in user.answer(c, "Yes")] == [("DomainApproved", {})]
     assert [(r.type, r.payload) for r in user.answer(c, "Rename it.")] == [("DomainRevised",
                                                                           {"instructions": "Rename it."})]

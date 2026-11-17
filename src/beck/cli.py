@@ -11,7 +11,8 @@ from pathlib import Path
 import yaml
 
 from beck import checks as static_checks
-from beck.dsl.validate import validate_architecture, validate_domain
+from beck.dsl.domains import load as load_domains
+from beck.dsl.validate import validate_architecture, validate_domains
 from beck.events.project import Project
 from beck.events.store import Event
 from beck.fitness.generate import write as write_fitness
@@ -35,11 +36,11 @@ def _load(path: Path) -> object:
 
 def _validate(args: argparse.Namespace) -> int:
     beck_dir = Path(args.project) / ".beck"
-    domain = _load(beck_dir / "domain.yaml")
-    if args.dsl == "domain":
-        problems = validate_domain(domain)
+    specs = load_domains(beck_dir)
+    if args.dsl == "domains":
+        problems = validate_domains(specs)
     else:
-        problems = validate_architecture(_load(beck_dir / "architecture.yaml"), domain)
+        problems = validate_architecture(_load(beck_dir / "architecture.yaml"), specs)
     for problem in problems:
         print(problem)
     if not problems:
@@ -50,8 +51,7 @@ def _validate(args: argparse.Namespace) -> int:
 def _index_build(args: argparse.Namespace) -> int:
     root = Path(args.project)
     beck_dir = root / ".beck"
-    conn, report = build(root, _load(beck_dir / "domain.yaml"), _load(beck_dir / "architecture.yaml"),
-                         beck_dir / "index.db")
+    conn, report = build(root, load_domains(beck_dir), _load(beck_dir / "architecture.yaml"), beck_dir / "index.db")
     for problem in report.problems:
         print(problem)
     if conn is None:
@@ -69,9 +69,9 @@ def _component_index(root: Path):
     in the main tree) against the project's model ($BECK_PROJECT/.beck), built in memory; else the project's."""
     project = _toolchain_root(root)
     beck_dir = project / ".beck"
-    if project.resolve() == root.resolve() or not (beck_dir / "domain.yaml").is_file():
+    if project.resolve() == root.resolve() or not (beck_dir / "domains").is_dir():
         return _db(argparse.Namespace(project=str(project)))
-    conn, report = build(root, _load(beck_dir / "domain.yaml"), _load(beck_dir / "architecture.yaml"), ":memory:")
+    conn, report = build(root, load_domains(beck_dir), _load(beck_dir / "architecture.yaml"), ":memory:")
     if conn is None:
         sys.exit("\n".join(str(p) for p in report.problems) or "the model builds no index")
     return conn
@@ -107,8 +107,8 @@ def _index_context(args: argparse.Namespace) -> int:
 
 def _fitness_generate(args: argparse.Namespace) -> int:
     root = Path(args.project)
-    domain, arch = _load(root / ".beck" / "domain.yaml"), _load(root / ".beck" / "architecture.yaml")
-    problems = validate_architecture(arch, domain)
+    specs, arch = load_domains(root / ".beck"), _load(root / ".beck" / "architecture.yaml")
+    problems = validate_architecture(arch, specs)
     for problem in problems:
         print(problem)
     if problems:
@@ -346,7 +346,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="beck")
     sub = parser.add_subparsers(dest="command", required=True)
     validate = sub.add_parser("validate", help="validate a DSL of .beck/ (docs/dsl.md)")
-    validate.add_argument("dsl", choices=["domain", "architecture"])
+    validate.add_argument("dsl", choices=["domains", "architecture"])
     validate.add_argument("--project", default=".", help="the project's root (default: .)")
     validate.set_defaults(run=_validate)
 

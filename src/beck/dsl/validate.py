@@ -16,6 +16,8 @@ from typing import Any, Iterator
 import jsonschema
 import yaml
 
+from beck.dsl.domains import ids_of, merge
+
 SCHEMAS = files("beck.dsl") / "schemas"
 
 
@@ -101,7 +103,11 @@ def _domain_semantics(doc: dict[str, Any]) -> Iterator[Problem]:
 
     names = [(e["name"], f"entities[{i}].name") for i, e in enumerate(doc.get("entities", []))]
     names += [(e["name"], f"events[{i}].name") for i, e in enumerate(doc.get("events", []))]
-    yield from _duplicates(names, "name")
+    counts = Counter(n for n, _ in names)
+    for name, path in names:   # the smell of two bounded contexts
+        if counts[name] > 1:
+            yield Problem(path, f"name {name!r} is not unique: if the two are different concepts, they belong to "
+                                "different domains: split the spec")
     entities = {e["name"] for e in doc.get("entities", [])}
     events = {e["name"] for e in doc.get("events", [])}
 
@@ -129,7 +135,32 @@ def _domain_semantics(doc: dict[str, Any]) -> Iterator[Problem]:
 
 
 def validate_domain(doc: Any) -> list[Problem]:
+    """One domain's spec, on its own."""
     return _schema_problems("domain", doc) or list(_domain_semantics(doc))
+
+
+def validate_domains(specs: dict[str, Any]) -> list[Problem]:
+    """Every spec of .beck/domains/, each on its own, then together: a file named after its id, the ids of the
+    morphisms and the requirements unique across the specs."""
+    if not specs:
+        return [Problem("domains", "no domain spec: write one per domain, .beck/domains/<id>.yaml")]
+    problems: list[Problem] = []
+    for name, doc in specs.items():
+        where = f"domains/{name}.yaml"
+        if isinstance(doc, dict) and "__yaml_error__" in doc:
+            problems.append(Problem(where, f"not valid YAML: {doc['__yaml_error__']}"))
+            continue
+        found = validate_domain(doc)
+        problems += [Problem(f"{where}: {p.path}" if p.path else where, p.message) for p in found]
+        if not found and doc["id"] != name:
+            problems.append(Problem(f"{where}: id", f"the spec of {doc['id']!r} is named {name!r}: name it after its id"))
+    if problems:
+        return problems
+    seen: list[tuple[str, str]] = []
+    for name, doc in specs.items():
+        _, ids = domain_ids(doc)
+        seen += [(i, f"domains/{name}.yaml: {path}") for i, path in ids]
+    return list(_duplicates(seen, "id"))
 
 
 # --- architecture -----------------------------------------------------------
@@ -266,14 +297,42 @@ def _renamed(doc: Any, path: str = "") -> list[Problem]:
     return found
 
 
-def validate_architecture(doc: Any, domain_doc: Any) -> list[Problem]:
+def validate_architecture(doc: Any, specs: dict[str, Any]) -> list[Problem]:
     renamed = _renamed(doc)
     if renamed:
         return renamed
     problems = _schema_problems("architecture", doc)
     if problems:
         return problems
-    if validate_domain(domain_doc):
-        return [Problem("", "the domain is not valid: validate it first")]
-    ids, _ = domain_ids(domain_doc)
-    return list(_architecture_semantics(doc, ids))
+    if validate_domains(specs):
+        return [Problem("", "the domain specs are not valid: validate them first")]
+    ids, _ = domain_ids(merge(specs))
+    return list(_architecture_semantics(doc, ids)) + list(_domains_of(doc, specs))
+
+
+def _domains_of(doc: dict[str, Any], specs: dict[str, Any]) -> Iterator[Problem]:
+    """A domain node per spec and a spec per domain node; a component in a domain, implementing its spec only."""
+    nodes = [(e, p) for e, p in _walk(doc["elements"], "elements") if e["kind"] == "domain"]
+    for e, path in nodes:
+        if e["id"] not in specs:
+            yield Problem(f"{path}.id", f"the domain {e['id']!r} has no spec: write .beck/domains/{e['id']}.yaml")
+    for name in sorted(set(specs) - {e["id"] for e, _ in nodes}):
+        yield Problem("elements", f"the spec {name!r} has no domain node: add `kind: domain, id: {name}`")
+    ids = {name: ids_of(spec) for name, spec in specs.items()}
+
+    def walk(elements: list[dict[str, Any]], path: str, domain: str | None) -> Iterator[Problem]:
+        for i, e in enumerate(elements):
+            here = f"{path}[{i}]"
+            inside = e["id"] if e["kind"] == "domain" else domain
+            if e["kind"] == "component" and domain is None:
+                yield Problem(here, f"the component {e['id']!r} is in no domain: put it in the domain whose "
+                                    "spec it implements")
+            elif e["kind"] == "component" and domain in ids:
+                for k, id_ in enumerate(e.get("implements", [])):
+                    owner = next((d for d, s in ids.items() if id_ in s), None)
+                    if owner is not None and owner != domain:
+                        yield Problem(f"{here}.implements[{k}]", f"{id_!r} is of the domain {owner!r}, not of "
+                                                                 f"{domain!r}: a component implements its domain's spec")
+            yield from walk(e.get("elements", []), f"{here}.elements", inside)
+
+    yield from walk(doc["elements"], "elements", None)

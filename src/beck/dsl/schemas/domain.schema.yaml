@@ -2,15 +2,23 @@ $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://beck.local/schemas/domain.schema.yaml
 title: beck domain
 description: >-
-  The domain of a system (.beck/domain.yaml): entities, events, relations,
-  constraints, morphisms and properties. The shape only; the references
+  The spec of one domain of a system (.beck/domains/<id>.yaml): entities,
+  events, relations, constraints, morphisms and properties. The shape only; the references
   between ids are checked by beck validate domain (see docs/dsl.md).
 type: object
-required: [domain, system, entities, morphisms]
+required: [domain, id, subtype, system, entities, morphisms]
 additionalProperties: false
 properties:
   domain:
     const: 1
+  id:
+    description: The domain's id, the name of its file and of its domain node in the architecture.
+    $ref: "#/$defs/id"
+  subtype:
+    description: >-
+      core: what makes the application unlike the others; supporting: its own, but no advantage;
+      generic: reusable, a library to be or to buy.
+    enum: [core, supporting, generic]
   system:
     $ref: "#/$defs/physical"
   entities:
@@ -36,11 +44,11 @@ properties:
 
 $defs:
   id:
-    description: Kebab-case, unique across domain.yaml and architecture.yaml.
+    description: Kebab-case, unique across the domain specs and architecture.yaml.
     type: string
     pattern: "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
   name:
-    description: PascalCase, unique across entities, events and relations.
+    description: PascalCase, unique across the entities and the events of the spec.
     type: string
     pattern: "^[A-Z][A-Za-z0-9]*$"
   physical:

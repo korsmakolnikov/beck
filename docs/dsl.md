@@ -3,11 +3,11 @@
 Status: **approved** (2026-11-13), version 1 of both DSLs. This file is the manifesto of the two
 DSLs beck works from; the README records the decisions that led here.
 
-Two YAML files in `.beck/`, one system of ids:
+YAML files in `.beck/`, one system of ids:
 
 | File | Says | Written by | Schema |
 |---|---|---|---|
-| `.beck/domain.yaml` | what the domain is and must guarantee | kent, domain state | [`schemas/domain.schema.yaml`](../src/beck/dsl/schemas/domain.schema.yaml) |
+| `.beck/domains/<domain>.yaml` | what one domain is and must guarantee, one spec per domain | kent, domain state | [`schemas/domain.schema.yaml`](../src/beck/dsl/schemas/domain.schema.yaml) |
 | `.beck/architecture.yaml` | which components implement those guarantees, how they depend on each other, and the rules the structure obeys | kent, architecture state | [`schemas/architecture.schema.yaml`](../src/beck/dsl/schemas/architecture.schema.yaml) |
 
 The domain names no component and reads no code. The architecture names the
@@ -36,7 +36,20 @@ abridged from it.
 * The components map is gone: `implements` lives in the architecture, the
   rest is the index's job.
 
-## The domain (`.beck/domain.yaml`)
+## The domain specs (`.beck/domains/<domain>.yaml`)
+
+One spec per domain (a bounded context): the domains emerge from the
+specs, never the other way round. A spec is split when two different
+concepts want one name (the validator calls a duplicate name out as that
+smell), when a group of invariants holds without the others' (a bounded
+context is a black box of invariants), or when a part would appear as it is
+in a similar application (a generic domain). Each spec names its `subtype`:
+`core` (what makes the application unlike the others), `supporting` (its
+own, but no advantage), `generic` (reusable, a library to be or to buy).
+Inside a spec the names are plain; in the graph an entity is
+`<domain>/<Name>`, so two domains may each have their own `Bookmark` (the
+example does). The ids of the morphisms and the requirements are unique
+across the specs.
 
 Derived from minime's spec version 2, with two changes the graph needs:
 every requirement a test proves has an id (the `post` requirements had none), and
@@ -45,10 +58,12 @@ entities it is `about`.
 
 ```yaml
 domain: 1
+id: tagging                          # the domain's id: the file's name and its domain node's id
+subtype: core                        # core | supporting | generic
 system: bookmarks
 
 entities:
-  - name: Bookmark                   # PascalCase, unique across entities, events and relations
+  - name: Bookmark                   # PascalCase, unique across the spec's entities and events
     kind: entity                     # entity | value_object
     description: A web page a user saved, to be tagged and archived.
     fields:
@@ -104,7 +119,7 @@ properties:
     holds: Tagging twice with the same tags leaves the same state as tagging once.
 ```
 
-* `id`s are kebab-case and unique across both files.
+* `id`s are kebab-case and unique across the specs and the architecture.
 * Every `rule`, `pre`, `when`, `outcome`, `holds` and `generator` is one
   C2-level English sentence a test can check: no "should", no "for now", no
   TODO, no code. An error's `outcome` says what the domain does, not what a
@@ -267,20 +282,25 @@ never edited.
 
 ## Validation
 
-`beck validate domain` and `beck validate architecture` run, in order:
+`beck validate domains` and `beck validate architecture` run, in order:
 
 1. **Schema**: the file against its schema (JSON Schema 2020-12, written in
    YAML).
 2. **Semantic checks**, which a schema cannot express:
-   * domain: ids unique; every name in `uses`, `about`, `from`, `to`,
-     `emits` and `morphisms` exists; `fields` names unique within their
-     owner;
+   * each domain spec: ids unique; names unique (a duplicate is the smell
+     of two domains: split the spec); every name in `uses`, `about`, `from`,
+     `to`, `emits` and `morphisms` exists; `fields` names unique within
+     their owner;
+   * the specs together: each named after its `id`; the ids of the
+     morphisms and the requirements unique across the specs;
    * architecture: ids unique across both files; every `depends_on`, `from`,
      `to`, `within` and `except` names an element of the right kind; no
      cycle in `depends_on`; every `implements` names a domain id that is not
      a morphism's `post` or error; every
      morphism and every requirement implemented exactly once; `$var` used only
-     inside its `foreach`.
+     inside its `foreach`; one `domain` node per spec and a spec per
+     `domain` node; every component inside a domain, implementing only that
+     domain's ids (the integration component implements any).
 
 The architecture's checks need the domain, so it is validated only once the
 domain is approved.

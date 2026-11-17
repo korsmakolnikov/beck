@@ -27,7 +27,8 @@ from typing import Any
 import yaml
 
 from beck import config as beck_config
-from beck.dsl.validate import validate_architecture, validate_domain
+from beck.dsl.domains import load as load_domains
+from beck.dsl.validate import validate_architecture, validate_domains
 from beck.events.project import Project
 from beck.events.store import Event, EventStore
 from beck.fitness.generate import detect_stack
@@ -510,7 +511,7 @@ def rebuild_after_sync(event: Event, ctx: Ctx) -> list[Command]:
 
 @session.handler("DiscardDslSync")
 def handle_discard_dsl_sync(command: Event, ctx: Ctx) -> list[Result]:
-    for name in ("domain.yaml", "architecture.yaml"):
+    for name in ("domains", "architecture.yaml"):
         _git(ctx.project, "checkout", "--", f".beck/{name}", check=False)
     return []
 
@@ -580,11 +581,11 @@ def _dsls(ctx: Ctx) -> tuple[Any, Any]:
             return yaml.safe_load(path.read_text()) if path.is_file() else None
         except yaml.YAMLError as error:
             return {"__yaml_error__": str(error)}
-    return read("domain.yaml"), read("architecture.yaml")
+    return load_domains(ctx.project / ".beck"), read("architecture.yaml")
 
 
 def _write_domain(ctx: Ctx, errors: list[str] | None, revision: str | None) -> Command:
-    context: dict[str, Any] = {"file": ".beck/domain.yaml", "shopping_list": shopping_list(ctx)}
+    context: dict[str, Any] = {"folder": ".beck/domains", "shopping_list": shopping_list(ctx)}
     if errors:
         context["errors"] = errors
     if revision:
@@ -617,9 +618,8 @@ def _errors(doc: Any, problems: list[Any]) -> list[str]:
 
 @session.handler("ValidateDomain")
 def handle_validate_domain(command: Event, ctx: Ctx) -> list[Result]:
-    domain, _ = _dsls(ctx)
-    errors = _errors(domain, validate_domain(domain) if isinstance(domain, dict) and "__yaml_error__" not in domain
-                     else [])
+    specs, _ = _dsls(ctx)
+    errors = [str(p) for p in validate_domains(specs)]
     if errors:
         return [Result("DomainInvalid", {"errors": errors, "signature": signature(errors)})]
     return [Result("DomainValidated", {})]
@@ -635,7 +635,7 @@ def domain_again(event: Event, ctx: Ctx) -> list[Command]:
 
 @session.policy("DomainValidated")
 def approve_domain(event: Event, ctx: Ctx) -> list[Command]:
-    return [_ask_user("ApproveDomain", file=".beck/domain.yaml")]
+    return [_ask_user("ApproveDomain", file=".beck/domains")]
 
 
 @session.policy("DomainRevised")
@@ -644,7 +644,7 @@ def revise_domain(event: Event, ctx: Ctx) -> list[Command]:
 
 
 def _write_architecture(ctx: Ctx, errors: list[str] | None, revision: str | None) -> Command:
-    context: dict[str, Any] = {"file": ".beck/architecture.yaml", "domain": ".beck/domain.yaml",
+    context: dict[str, Any] = {"file": ".beck/architecture.yaml", "domains": ".beck/domains",
                                "shopping_list": shopping_list(ctx)}
     if errors:
         context["errors"] = errors
@@ -687,7 +687,7 @@ def architecture_again(event: Event, ctx: Ctx) -> list[Command]:
 
 
 def _write_interfaces(errors: list[str] | None) -> Command:
-    context: dict[str, Any] = {"architecture": ".beck/architecture.yaml", "domain": ".beck/domain.yaml"}
+    context: dict[str, Any] = {"architecture": ".beck/architecture.yaml", "domains": ".beck/domains"}
     if errors:
         context["errors"] = errors
     return _kent("WriteInterfaces", context, "interfaces")
@@ -931,7 +931,7 @@ class IndexWorkspace:
         def read(name: str) -> Any:
             path = self.project / ".beck" / name
             return yaml.safe_load(path.read_text()) if path.is_file() else None
-        conn, _ = build_index(self.project, read("domain.yaml"), read("architecture.yaml"),
+        conn, _ = build_index(self.project, load_domains(self.project / ".beck"), read("architecture.yaml"),
                               self.project / ".beck" / "index.db")
         if conn is None:
             return None
@@ -948,7 +948,7 @@ class IndexWorkspace:
         def read(name: str) -> Any:
             path = self.project / ".beck" / name
             return yaml.safe_load(path.read_text()) if path.is_file() else None
-        conn, _ = build_index(tree, read("domain.yaml"), read("architecture.yaml"), ":memory:")
+        conn, _ = build_index(tree, load_domains(self.project / ".beck"), read("architecture.yaml"), ":memory:")
         if conn is None:
             return False
         try:

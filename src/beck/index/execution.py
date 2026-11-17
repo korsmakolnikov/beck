@@ -10,6 +10,7 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any
 
+from beck.dsl.domains import plain
 from beck.index.store import INTEGRATION, data
 
 # inside a unit, from the particular to the general
@@ -87,7 +88,7 @@ def units(conn: sqlite3.Connection, component: str) -> list[Unit]:
     for entity in entities:
         mine = [c for c in requirements if c["owner"] == entity]
         if mine:
-            out.append(Unit(f"model:{entity}", entity, _sorted(mine)))
+            out.append(Unit(f"model:{plain(entity)}", entity, _sorted(mine)))
     for op in morphisms:
         mine = [c for c in requirements if c["owner"] == op]
         if mine:
@@ -151,7 +152,7 @@ def context(conn: sqlite3.Connection, component: str, unit_id: str) -> dict[str,
     entities = []
     for name in sorted(set(entity_names), key=order.__getitem__):
         row = _node(conn, name)
-        entities.append({"name": name, "kind": row["subkind"], "description": row["text"],
+        entities.append({"name": plain(name), "kind": row["subkind"], "description": row["text"],
                          "fields": data(row)["fields"]})
 
     dependencies = []
@@ -179,4 +180,4 @@ def context(conn: sqlite3.Connection, component: str, unit_id: str) -> dict[str,
 
 def _event(conn: sqlite3.Connection, name: str) -> dict[str, Any]:
     row = _node(conn, name)
-    return {"name": name, "description": row["text"], "fields": data(row)["fields"]}
+    return {"name": plain(name), "description": row["text"], "fields": data(row)["fields"]}

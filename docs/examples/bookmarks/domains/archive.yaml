@@ -1,0 +1,35 @@
+domain: 1
+id: archive
+subtype: supporting
+system: bookmarks
+
+entities:
+  - name: Bookmark                 # archive's own Bookmark: another concept than tagging's, same name
+    kind: entity
+    description: A saved web page as the archive sees it, open or archived.
+    fields:
+      - {name: id, type: integer, required: true}
+      - {name: status, type: "one of open, archived"}
+      - {name: tags, type: integer}
+    invariants:
+      - id: archived-bookmark-has-a-tag
+        rule: An archived bookmark carries at least one tag.
+
+events:
+  - name: BookmarkArchived
+    description: A bookmark was archived.
+    fields:
+      - {name: bookmark_id, type: integer}
+
+morphisms:
+  - id: archive-bookmark
+    description: A user archives one of their tagged bookmarks.
+    uses: [Bookmark]
+    post:
+      - id: archived-bookmark-is-archived
+        rule: The bookmark's status is archived.
+    errors:
+      - id: archive-untagged-bookmark
+        when: The bookmark carries no tag.
+        outcome: Nothing changes and the user learns a bookmark needs a tag to be archived.
+    emits: [BookmarkArchived]

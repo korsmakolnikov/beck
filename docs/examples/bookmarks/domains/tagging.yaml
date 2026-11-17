@@ -1,17 +1,15 @@
 domain: 1
+id: tagging
+subtype: core
 system: bookmarks
 
 entities:
   - name: Bookmark
     kind: entity
-    description: A web page a user saved, to be tagged and archived.
+    description: A web page a user saved, to be tagged.
     fields:
       - {name: id, type: integer, required: true}
       - {name: user_id, type: integer, required: true}
-      - {name: status, type: "one of open, archived"}
-    invariants:
-      - id: archived-bookmark-has-a-tag
-        rule: An archived bookmark carries at least one tag.
   - name: Tag
     kind: entity
     description: A label a user attaches to their bookmarks.
@@ -33,11 +31,6 @@ events:
     description: A bookmark received one or more tags.
     fields:
       - {name: bookmark_id, type: integer}
-  - name: BookmarkArchived
-    description: A bookmark was archived.
-    fields:
-      - {name: bookmark_id, type: integer}
-
 relations:
   - from: Bookmark
     to: Tag
@@ -66,18 +59,6 @@ morphisms:
         when: The bookmark does not exist.
         outcome: Nothing changes and the user learns the bookmark is missing.
     emits: [BookmarkTagged]
-  - id: archive-bookmark
-    description: A user archives one of their tagged bookmarks.
-    uses: [Bookmark]
-    post:
-      - id: archived-bookmark-is-archived
-        rule: The bookmark's status is archived.
-    errors:
-      - id: archive-untagged-bookmark
-        when: The bookmark carries no tag.
-        outcome: Nothing changes and the user learns a bookmark needs a tag to be archived.
-    emits: [BookmarkArchived]
-
 properties:
   - id: tagging-twice-equals-tagging-once
     about: [Bookmark]

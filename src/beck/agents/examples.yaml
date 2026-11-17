@@ -70,23 +70,23 @@ kent:
         summary: The tag name now allows 64 characters; the invariant should say so.
   WriteDomain:
     in:
-      file: .beck/domain.yaml
+      folder: .beck/domains
       shopping_list: .beck/shopping_lists/BM-12-tagging.md
       errors:
-      - 'morphisms[0].uses[1]: no entity named ''Tags'''
+      - 'domains/tagging.yaml: morphisms[0].uses[1]: no entity named ''Tags'''
     out:
       outcome: done
   WriteArchitecture:
     in:
       file: .beck/architecture.yaml
-      domain: .beck/domain.yaml
+      domains: .beck/domains
       shopping_list: .beck/shopping_lists/BM-12-tagging.md
     out:
       outcome: done
   WriteInterfaces:
     in:
       architecture: .beck/architecture.yaml
-      domain: .beck/domain.yaml
+      domains: .beck/domains
     out:
       outcome: done
       result:

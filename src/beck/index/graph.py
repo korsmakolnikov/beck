@@ -1,6 +1,7 @@
-"""From the two DSLs to the graph (docs/dsl.md, "From the DSLs to the graph").
+"""From the DSLs to the graph (docs/dsl.md, "From the DSLs to the graph").
 
-Expects documents that `beck validate` accepted: it does not check them again.
+Expects documents that `beck validate` accepted: it does not check them again. The domain is the
+specs merged (beck.dsl.domains.merge): an entity's or an event's node is `<domain>/<Name>`.
 """
 
 from __future__ import annotations
@@ -13,12 +14,13 @@ from beck.index.store import INTEGRATION, add_edge, add_node
 
 def load_domain(conn: sqlite3.Connection, doc: dict[str, Any]) -> None:
     for e in doc["entities"]:
-        add_node(conn, e["name"], "entity", subkind=e["kind"], text=e["description"], fields=e["fields"])
+        add_node(conn, e["name"], "entity", subkind=e["kind"], text=e["description"], fields=e["fields"],
+                 domain=e["domain"])
         for inv in e.get("invariants", []):
             add_node(conn, inv["id"], "requirement", subkind="invariant", owner=e["name"], text=inv["rule"])
             add_edge(conn, inv["id"], e["name"], "binds")
     for ev in doc.get("events", []):
-        add_node(conn, ev["name"], "event", text=ev["description"], fields=ev.get("fields", []))
+        add_node(conn, ev["name"], "event", text=ev["description"], fields=ev.get("fields", []), domain=ev["domain"])
     for r in doc.get("relations", []):
         for rule in r.get("rules", []):
             add_node(conn, rule["id"], "requirement", subkind="rule", owner=r["from"], text=rule["rule"],
@@ -31,7 +33,7 @@ def load_domain(conn: sqlite3.Connection, doc: dict[str, Any]) -> None:
             add_edge(conn, c["id"], name, "binds")
     for op in doc["morphisms"]:
         add_node(conn, op["id"], "morphism", text=op["description"], pre=op.get("pre", []),
-                 emits=op.get("emits", []))
+                 emits=op.get("emits", []), domain=op["domain"])
         for name in op["uses"]:
             add_edge(conn, op["id"], name, "uses")
         for post in op["post"]:

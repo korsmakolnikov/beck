@@ -245,7 +245,8 @@ def _moved(value: Any, old: str, new: str) -> Any:
 
 
 def _is_dsl(path: Path) -> bool:
-    return path.parent.name == ".beck" and path.name in ("domain.yaml", "architecture.yaml")
+    return (path.parent.name == ".beck" and path.name == "architecture.yaml") or (
+        path.parent.name == "domains" and path.parent.parent.name == ".beck")
 
 
 @dataclass

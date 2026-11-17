@@ -104,7 +104,7 @@ Everything beck needs lives in `.beck/`; minime's `.sources/`,
 
 * `config.yml`
 * shopping lists, one per branch
-* the DSLs: `domain.yaml` (the domain spec) and `architecture.yaml`; no
+* the DSLs: `domains/<domain>.yaml` (a spec per domain) and `architecture.yaml`; no
   components map (see [`docs/dsl.md`](docs/dsl.md))
 * `toolchain.yml`: how to run the tests (`src/beck/toolchain.py`)
 * `reports/`: the JUnit reports of `beck test` (never versioned)

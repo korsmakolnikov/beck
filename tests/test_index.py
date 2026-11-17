@@ -1,11 +1,13 @@
 """The index decides what each agent sees, so it is tested on the bookmarks example."""
 
+import shutil
 from pathlib import Path
 
 import pytest
 import yaml
 
 from beck.cli import main
+from beck.dsl.domains import load as load_domains
 from beck.index import execution
 from beck.index.build import build
 from beck.index.store import INTEGRATION
@@ -60,8 +62,7 @@ int archiver_check(int bookmark_id);
 
 
 def docs():
-    return (yaml.safe_load((EXAMPLE / "domain.yaml").read_text()),
-            yaml.safe_load((EXAMPLE / "architecture.yaml").read_text()))
+    return load_domains(EXAMPLE), yaml.safe_load((EXAMPLE / "architecture.yaml").read_text())
 
 
 @pytest.fixture
@@ -70,8 +71,8 @@ def project(tmp_path):
         (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / path).write_text(text)
     (tmp_path / ".beck").mkdir()
-    for name in ("domain.yaml", "architecture.yaml"):
-        (tmp_path / ".beck" / name).write_text((EXAMPLE / name).read_text())
+    shutil.copytree(EXAMPLE / "domains", tmp_path / ".beck" / "domains")
+    (tmp_path / ".beck" / "architecture.yaml").write_text((EXAMPLE / "architecture.yaml").read_text())
     return tmp_path
 
 
@@ -113,7 +114,7 @@ def test_units_go_from_the_particular_to_the_general(index):
     conn, _ = index
     assert execution.units(conn, "bookmark-tagger") == [
         # a property is an invariant: of its entity, in the entity's model unit
-        execution.Unit("model:Bookmark", "Bookmark", ("tag-belongs-to-the-same-user",
+        execution.Unit("model:Bookmark", "tagging/Bookmark", ("tag-belongs-to-the-same-user",
                                                       "tagging-twice-equals-tagging-once")),
         execution.Unit("morphism:tag-bookmark", "tag-bookmark",
                        ("tagged-bookmark-carries-the-requested-tags", "tag-missing-bookmark")),

@@ -85,7 +85,7 @@ def test_the_answer_of_the_user_is_wrapped_for_the_same_command():
 
 def test_an_answer_does_not_resend_the_context():
     doc = protocol.answer("kent", "WriteDomain", *CAUSE, QUESTION, "No.")
-    doc["context"] = {"file": ".beck/domain.yaml"}
+    doc["context"] = {"folder": ".beck/domains"}
     with pytest.raises(protocol.ProtocolError, match="send {}"):
         protocol.check_input(doc)
 

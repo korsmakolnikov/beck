@@ -1,5 +1,6 @@
 """The fitness generator judges the architecture of every component, so it is tested."""
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -196,8 +197,8 @@ def test_a_rule_written_by_kent_is_no_longer_pending(python_project, arch):
 
 def test_cli(python_project, capsys):
     (python_project / ".beck").mkdir()
-    for name in ("domain.yaml", "architecture.yaml"):
-        (python_project / ".beck" / name).write_text((EXAMPLE / name).read_text())
+    shutil.copytree(EXAMPLE / "domains", python_project / ".beck" / "domains")
+    (python_project / ".beck" / "architecture.yaml").write_text((EXAMPLE / "architecture.yaml").read_text())
     assert main(["fitness", "generate", "--project", str(python_project)]) == 0
     out = capsys.readouterr().out
     assert "wrote tests/fitness/test_architecture.py" in out

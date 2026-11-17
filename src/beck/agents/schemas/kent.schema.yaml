@@ -149,10 +149,12 @@ $defs:
 
   WriteDomain-in:
     type: object
-    required: [file, shopping_list]
+    required: [folder, shopping_list]
     additionalProperties: false
     properties:
-      file: {$ref: "common.schema.yaml#/$defs/path"}
+      folder:
+        description: Where the domain specs go, one per domain, <folder>/<domain id>.yaml.
+        $ref: "common.schema.yaml#/$defs/path"
       shopping_list: {$ref: "common.schema.yaml#/$defs/path"}
       errors: {$ref: "#/$defs/validation"}
       revision: {$ref: "common.schema.yaml#/$defs/text"}
@@ -160,11 +162,11 @@ $defs:
 
   WriteArchitecture-in:
     type: object
-    required: [file, domain, shopping_list]
+    required: [file, domains, shopping_list]
     additionalProperties: false
     properties:
       file: {$ref: "common.schema.yaml#/$defs/path"}
-      domain: {$ref: "common.schema.yaml#/$defs/path"}
+      domains: {$ref: "common.schema.yaml#/$defs/path"}
       shopping_list: {$ref: "common.schema.yaml#/$defs/path"}
       errors: {$ref: "#/$defs/validation"}
       revision: {$ref: "common.schema.yaml#/$defs/text"}
@@ -172,11 +174,11 @@ $defs:
 
   WriteInterfaces-in:
     type: object
-    required: [architecture, domain]
+    required: [architecture, domains]
     additionalProperties: false
     properties:
       architecture: {$ref: "common.schema.yaml#/$defs/path"}
-      domain: {$ref: "common.schema.yaml#/$defs/path"}
+      domains: {$ref: "common.schema.yaml#/$defs/path"}
       errors: {$ref: "#/$defs/validation"}
   WriteInterfaces-out:
     properties:
