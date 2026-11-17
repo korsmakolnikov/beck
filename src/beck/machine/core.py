@@ -95,12 +95,17 @@ class State:
     phase: str = "new"
     facts: dict[str, dict[str, Any]] = field(default_factory=dict)
     seq: int = 0
+    history: tuple[str, ...] = ()       # the phases it went through, the last one first left last
+
+    def before(self, *skipped: str) -> str | None:
+        """The latest phase it was in, other than the skipped ones (where a parked component goes back to)."""
+        return next((p for p in reversed((*self.history, self.phase)) if p not in skipped), None)
 
 
 @dataclass(frozen=True)
 class Transition:
     sources: frozenset[str] | None      # the phases it may happen in; None: any but the final ones
-    target: str | Callable[[Event], str] | None   # the phase it leads to (or of its payload); None: it stays
+    target: str | Callable[[State, Event], str] | None   # the phase it leads to (or from the state and the event)
 
 
 class InvalidTransition(Exception):
@@ -128,8 +133,9 @@ class StateMachine:
         if not allowed:
             raise InvalidTransition(f"{event.type} in {event.stream} at phase {state.phase!r} "
                                     f"(it may happen at {sorted(t.sources) if t.sources is not None else 'any'})")
-        target = t.target(event) if callable(t.target) else t.target
-        return State(target or state.phase, {**state.facts, event.type: event.payload}, event.seq)
+        target = (t.target(state, event) if callable(t.target) else t.target) or state.phase
+        history = state.history + (state.phase,) if target != state.phase else state.history
+        return State(target, {**state.facts, event.type: event.payload}, event.seq, history[-20:])
 
     def execute(self, state: State, command: str) -> None:
         """The guard of a command: it runs only in its phases."""
@@ -156,7 +162,7 @@ class Machine:
     states: dict[str, StateMachine] = field(default_factory=dict)   # by prefix
 
     def moves(self, prefix: str, *events: str, at: tuple[str, ...] | None = None,
-              to: str | Callable[[Event], str] | None = None) -> None:
+              to: str | Callable[[State, Event], str] | None = None) -> None:
         """Transitions of the state machine of `prefix`: these events, in the phases `at` (None: any but the
         final ones), lead to `to` (None: the phase stays)."""
         sm = self.states.setdefault(prefix, StateMachine(prefix))
@@ -547,7 +553,7 @@ class Engine:
         event = self.ctx.store.append(r.type, r.payload, stream=where, actor=r.actor, cause=cause, tokens=r.tokens,
                                       policy=policy)
         if moved is not None:
-            self._states[where] = State(moved.phase, moved.facts, event.seq)
+            self._states[where] = State(moved.phase, moved.facts, event.seq, moved.history)
         return event
 
     # --- the state machines ---

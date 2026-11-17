@@ -88,6 +88,8 @@ def test_components_land_squashed_in_dependency_order_and_close(repo):
                                                            "ComponentReady",
                                                  "ComponentLanded", "ComponentClosed"]
         assert not (repo / f".beck/worktrees/{component}").exists()
+        state = engine.state(f"component:{component}")   # its state machine went the whole way
+        assert state.phase == "closed" and state.history[:3] == ("new", "started", "implemented")
     landed = [e.payload["component"] for e in store.read(types_=("ComponentLanded",))]
     assert landed == ["store", "cart"]
     review = next(e for a, e in team.calls if a == "martin")

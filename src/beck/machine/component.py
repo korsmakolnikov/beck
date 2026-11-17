@@ -33,6 +33,25 @@ from beck.machine.cycle import stream as cycle_stream
 
 components = Machine()
 
+# --- the state machine of a component (component:<id>), its implementation (beck.machine.refactor and
+# beck.machine.closing add the rest) --------------------------------------------------------------------------
+#
+#   new ─ComponentStarted→ started ─UnitOpened, UnitClosed…→ started ─ComponentImplemented→ implemented
+#   ComponentParked: from any phase but closed → parked; ComponentResumed: back where it was parked
+#   new units after an implementation (a restart added requirements): implemented → started
+P = "component:"
+WORKING = ("started", "implemented", "regressed", "reopened")
+components.moves(P, "ComponentStarted", at=("new", "parked"), to="started")
+components.moves(P, "ComponentParked", to="parked")
+components.moves(P, "ComponentResumed", at=("parked",), to=lambda s, _: s.before("parked", "new") or "started")
+components.moves(P, "UnitOpened", "UnitClosed", at=WORKING, to="started")
+components.moves(P, "ComponentImplemented", at=WORKING, to="implemented")
+components.finals(P, "closed")
+components.runs(P, "StartComponent", "new", "parked")
+components.runs(P, "ResumeComponent", "parked")
+for _command in ("OpenUnit", "OpenCycle", "CloseUnit", "FinishComponent"):
+    components.runs(P, _command, *WORKING)
+
 
 def stream(component: str) -> str:
     return f"component:{component}"

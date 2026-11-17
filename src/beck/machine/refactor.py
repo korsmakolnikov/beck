@@ -44,6 +44,46 @@ from beck.unimplemented import unimplemented
 
 refactor = Machine()
 
+# --- the state machine of a component, from its implementation to its close (component:<id>) -----------------
+#
+#   implemented ─(coverage: measured, gaps, tests…)→ implemented ─ComponentVerified→ verified ─ComponentSquashed→
+#   squashed ─ComponentMeasured→ measured ─ComponentReviewed→ reviewing ⇄ refactoring (RefactorDeclared,
+#   RefactorCommitted) ─ChecksPassed→ checked ─ComponentReady→ ready ⇄ conflicted ─ComponentLanded→ landed
+#   ─ComponentClosed→ closed. RegressionFound, from the implementation to the close → regressed.
+P = "component:"
+LATER = ("implemented", "verified", "squashed", "measured", "reviewing", "refactoring", "checked", "ready",
+         "conflicted", "landed", "closed")
+refactor.moves(P, "CoverageMeasured", "CoverageGapsFound", "CoverageTestsDeclared", "CoverageRejected",
+               "CoverageTestsVerified", "CoverageTestsCommitted", "CoverageGivenUp", "CoverageDecreased",
+               at=("implemented",))
+refactor.moves(P, "ComponentVerified", at=("implemented",), to="verified")
+refactor.moves(P, "ComponentSquashed", at=("verified",), to="squashed")
+refactor.moves(P, "ComponentMeasured", at=("verified", "squashed"), to="measured")
+refactor.moves(P, "ComponentReviewed", at=("measured", "reopened"), to="reviewing")
+refactor.moves(P, "RefactorDeclared", at=("reviewing", "refactoring"), to="refactoring")
+refactor.moves(P, "RefactorRejected", "RefactorVerified", "MeasureWorsened", at=("refactoring",))
+refactor.moves(P, "RefactorCommitted", at=("refactoring",), to="reviewing")
+refactor.moves(P, "ChecksFailed", at=("reviewing",))
+refactor.moves(P, "ChecksPassed", at=("reviewing",), to="checked")
+refactor.moves(P, "ComponentReady", at=("checked", "conflicted"), to="ready")
+refactor.moves(P, "LandingConflicted", at=("ready", "conflicted"), to="conflicted")
+refactor.moves(P, "LandingDeferred", at=("ready",))
+refactor.moves(P, "ConflictResolved", "ConflictRejected", at=("conflicted",))
+refactor.moves(P, "ComponentLanded", at=("ready",), to="landed")
+refactor.moves(P, "ComponentClosed", at=("landed",), to="closed")
+refactor.moves(P, "RegressionFound", at=LATER, to="regressed")
+refactor.moves(P, "RegressionUnassigned", at=("regressed", *LATER))
+refactor.moves(P, "TradeoffAccepted", "TradeoffRejected", at=("parked",))
+refactor.runs(P, "SquashComponent", "verified")
+refactor.runs(P, "MeasureComponent", "verified", "squashed")
+refactor.runs(P, "VerifyRefactor", "refactoring")
+refactor.runs(P, "CommitRefactor", "refactoring")
+refactor.runs(P, "CheckComponent", "reviewing")
+refactor.runs(P, "AutosquashComponent", "checked")
+refactor.runs(P, "LandComponent", "ready")
+refactor.runs(P, "ContinueLanding", "conflicted")
+refactor.runs(P, "CloseComponent", "landed")
+
 
 def _git(root: Path, *args: str, check: bool = True, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, check=check,

@@ -36,6 +36,9 @@ from beck.toolchain import load
 from beck.unimplemented import unimplemented
 
 closing = Machine()
+
+# the state machine of a component: a correction of the review reopens it (beck.machine.refactor holds the rest)
+closing.moves("component:", "ComponentReopened", at=("closed",), to="reopened")
 BRANCH = "branch"
 
 

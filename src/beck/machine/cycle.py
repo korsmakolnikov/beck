@@ -48,7 +48,7 @@ cycle.moves(C, "CycleClosed", at=("committed",), to="closed")
 cycle.moves(C, "ChangeRequested", at=("red", "green"))
 cycle.moves(C, "RedRewound", at=("green",), to="red")
 cycle.moves(C, "CycleReopened", at=("red", "red-declared", "red-verified", "green", "green-declared", "green-verified",
-                                  "committed", "closed", "blocked"), to=lambda e: str(e.payload["phase"]))
+                                  "committed", "closed", "blocked"), to=lambda _, e: str(e.payload["phase"]))
 cycle.moves(C, "CycleBlocked", to="blocked")
 cycle.moves(C, "CycleDropped", to="dropped")
 cycle.finals(C, "closed", "dropped")
