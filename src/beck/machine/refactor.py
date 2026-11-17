@@ -574,8 +574,27 @@ def next_refactor(event: Event, ctx: Ctx) -> list[Command]:
         return []
     items = _items_left(ctx, component)
     if items:
+        handed = _handed(ctx, component, items[0])
+        if handed >= ctx.limits[0]:   # nothing rejects it, nothing closes it: no turn more will
+            return [Command("BlockRefactor", "beck", {"component": component, "reason": (
+                f"the same item was handed to martin {handed} times and is still open: {_keys(items[0])}")},
+                event.stream)]
         return [_refactor_turn(component, items[0], None)]
     return [Command("CheckComponent", "beck", {"component": component}, event.stream)]
+
+
+def _keys(item: dict[str, Any]) -> list[str]:
+    """What an item of the review is, as `addressed` names it: a weak test's test, a finding's id."""
+    return [w["test"] for w in item.get("weak_tests", [])] + [f["id"] for f in item.get("findings", [])]
+
+
+def _handed(ctx: Ctx, component: str, item: dict[str, Any]) -> int:
+    """How many turns since the last review were handed this item (the hello world pilot: 1,223)."""
+    events = ctx.events(stream=stream(component))
+    last = max((e.seq for e in events if e.type == "ComponentReviewed"), default=0)
+    return sum(1 for e in events if e.type == "AgentTurnRequested" and e.seq > last
+               and e.payload["command"] == "RefactorComponent"
+               and _keys(e.payload["args"]["context"]) == _keys(item))
 
 
 @refactor.translator("RefactorComponent")
@@ -583,7 +602,10 @@ def refactor_declared(command: Event, output: dict[str, Any], ctx: Ctx) -> list[
     component = command.payload["args"]["component"]
     if output["outcome"] == "change_requested":
         return [Result("ChangeRequested", {"agent": "martin", "component": component, **output["change"]}, actor="martin")]
-    return [Result("RefactorDeclared", {"component": component, **output["result"]}, actor="martin")]
+    # what the turn addressed is the item beck handed it, not the agent's words: the hello world pilot's martin
+    # named the requirement instead of the weak test, the item never closed, and beck handed it 1,223 times
+    return [Result("RefactorDeclared", {"component": component, **output["result"],
+                                        "addressed": _keys(command.payload["args"]["context"])}, actor="martin")]
 
 
 @refactor.translator("FixStaticFindings")

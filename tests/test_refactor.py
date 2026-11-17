@@ -124,6 +124,38 @@ def test_a_refactor_that_breaks_its_phase_is_reverted_and_sent_back(repo):
     assert component_events(store, "store")[-1] == "ComponentClosed"
 
 
+def test_a_weak_test_closes_on_the_item_beck_handed_whatever_martin_names(repo):
+    # the hello world pilot, 2026-11-17: martin named the requirement, not the weak test, in `addressed`; the item
+    # never closed and beck handed it again 1,223 times
+    weak = {"test": "tests/test_store_adds.py::test_store_adds", "requirement": "store-adds", "why": "It asserts too little."}
+    team = Team(repo, {("ReviewComponent", "store"): [
+        lambda t, e, c: out("ReviewComponent", result={"findings": [], "weak_tests": [weak]})],
+        ("RefactorComponent", "store"): [lambda t, e, c: out("RefactorComponent", result={
+            "phase": "none", "addressed": ["store-adds"], "why": "The test already asserts the total."})]})
+    engine, store = setup(repo, team)
+    run(engine)
+    [committed] = store.read(types_=("RefactorCommitted",))
+    assert committed.payload["addressed"] == [weak["test"]]
+    assert len([e for a, e in team.calls if e["command"] == "RefactorComponent"]) == 1
+    assert component_events(store, "store")[-1] == "ComponentClosed"
+
+
+def test_an_item_handed_again_and_again_blocks_the_refactor(repo):
+    # whatever keeps an item open with no rejection, the repetition rule's times end the turns
+    from beck.machine.refactor import next_refactor
+    engine, store = setup(repo, Team(repo))
+    item = {"findings": [finding("store", "store-adds")]}
+    review = store.append("ComponentReviewed", {"component": "store", **item, "weak_tests": []},
+                          stream="component:store")
+    assert next_refactor(review, engine.ctx)[0].name == "RefactorComponent"
+    for _ in range(3):
+        store.append("AgentTurnRequested", {"command": "RefactorComponent", "target": "martin",
+                                            "args": {"session": "martin/store", "context": item, "component": "store"}},
+                     stream="component:store")
+    [command] = next_refactor(review, engine.ctx)
+    assert command.name == "BlockRefactor" and "handed to martin 3 times" in command.args["reason"]
+
+
 def test_a_finding_already_met_closes_with_no_commit(repo):
     # the replay of 2026-11-16: martin found F1 already fixed and had no way to say so, seven times
     team = Team(repo, {("ReviewComponent", "store"): [
