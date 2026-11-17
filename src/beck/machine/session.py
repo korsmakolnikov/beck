@@ -48,6 +48,64 @@ from beck.toolchain import load as load_toolchain
 from beck.unimplemented import unreferenced
 
 session = Machine()
+
+# --- the state machine of the session (the stream `session`): its phases, up to the execution ------------------
+#
+#   started ─ConfigLoaded→ configured ─ProjectClassified→ classified ─InterviewAnswered…→ interviewing
+#   ─InterviewCompleted→ interviewed ─BranchNameProposed→ naming ─BranchNamed→ named ─BranchCreated→ branched
+#   ─ToolchainLoaded→ toolchain ─EnvironmentUp→ environment ─SuiteVerified→ surveyed ─ShoppingListWritten→ listed
+#   ─ShoppingListApproved→ list-approved ─DomainWritten→ domain ─DomainApproved→ domain-approved
+#   ─ArchitectureWritten→ architecture (interfaces, fitness functions) ─ArchitectureApproved→ architecture-approved
+#   ─IndexBuilt→ indexed ─ModelCommitted→ committed ─ExecutionDerived→ executing
+# A revision or a failure stays in its phase and loops (DomainInvalid, DomainRevised, InterfacesBroken…).
+S_ = "session"
+_steps: list[tuple[tuple[str, ...], tuple[str, ...], str | None]] = [
+    (("SessionStarted",), ("new",), "started"),
+    (("ConfigLoaded",), ("started",), "configured"),
+    (("ConfigInvalid",), ("started",), "invalid"),
+    (("ProjectClassified",), ("configured",), "classified"),
+    (("InterviewAnswered",), ("classified", "interviewing"), "interviewing"),
+    (("FollowUpsProposed",), ("interviewing",), None),
+    (("InterviewCompleted",), ("interviewing",), "interviewed"),
+    (("ProjectScaffolded", "ScaffoldFailed"), ("interviewed",), None),
+    (("BranchNameProposed",), ("interviewed",), "naming"),
+    (("BranchNamed",), ("naming", "named"), "named"),
+    (("BranchCreated",), ("named",), "branched"),
+    (("ToolchainDetected", "ToolchainConfirmed"), ("branched",), None),
+    (("ToolchainLoaded",), ("branched",), "toolchain"),
+    (("EnvironmentDown",), ("toolchain",), None),
+    (("EnvironmentUp",), ("toolchain",), "environment"),
+    (("CoverageUnwired", "CoverageWired", "DependenciesInstalled", "CoverageMeasured", "SuiteBroken"),
+     ("environment",), None),
+    (("SuiteVerified",), ("environment",), "surveyed"),
+    (("CodeAreaDelimited",), ("surveyed",), None),
+    (("ShoppingListWritten",), ("surveyed", "listed"), "listed"),
+    (("ShoppingListRevised",), ("listed",), None),
+    (("ShoppingListApproved",), ("listed",), "list-approved"),
+    (("DomainWritten",), ("list-approved", "domain"), "domain"),
+    (("DomainInvalid", "DomainValidated", "DomainRevised"), ("domain",), None),
+    (("DomainApproved",), ("domain",), "domain-approved"),
+    (("ArchitectureWritten",), ("domain-approved", "architecture"), "architecture"),
+    (("ArchitectureInvalid", "ArchitectureValidated", "ArchitectureRevised", "InterfacesWritten", "InterfacesBroken",
+      "InterfacesCompiled", "FitnessFunctionsGenerated", "FitnessFunctionsWritten", "FitnessFunctionsFailed",
+      "FitnessFunctionsPassed"), ("architecture",), None),
+    (("ArchitectureApproved",), ("architecture",), "architecture-approved"),
+    (("IndexBuilt",), ("architecture-approved",), "indexed"),
+    (("IdsAnchored",), ("architecture-approved", "indexed"), None),
+    (("ModelCommitted",), ("indexed",), "committed"),
+    (("ExecutionDerived",), ("committed", "executing"), "executing"),
+    (("DslDriftDetected", "DslSyncProposed", "DslSyncApproved", "DslSyncRejected", "IndexReconciled", "IndexRebuilt"),
+     ("executing",), None),
+]
+for _events, _at, _to in _steps:
+    session.moves(S_, *_events, at=_at, to=_to)
+session.moves(S_, "ModelBlocked")   # the model's loop is blocked: the user decides, the phase stays
+session.finals(S_, "invalid")
+for _command, _at_phase in (("CreateBranch", "named"), ("BuildIndex", "architecture-approved"),
+                            ("CommitModel", "indexed"), ("ValidateDomain", "domain"),
+                            ("ValidateArchitecture", "architecture"), ("CompileInterfaces", "architecture"),
+                            ("RunFitnessFunctions", "architecture")):
+    session.runs(S_, _command, _at_phase)
 S = "session"
 
 STANDARD = [

@@ -515,11 +515,16 @@ costs less than TDD. The replays act as integration tests.
 
 ## beck's own architecture (approved 2026-11-13)
 
-* **State machines**: one for the session (phases 1, 2, 3 and 6); one per
-  component (phases 4 and 5), holding the red/green machine of the cycle
-  (unclebob) and the blue phase of the component (martin, once per component, after
-  the cycles; it may move into unclebob's cycle later); a scheduler of the
-  slots.
+* **State machines** (implemented, explicit: `moves` and `runs` in each
+  machine's module, `StateMachine` in `src/beck/machine/core.py`): the
+  session's (`session`: from the framing to the execution), one per
+  component (`component:<id>`: from its start to its close, parked and
+  resumed), one per cycle (`cycle:<component>/<requirement>`: red, green,
+  closed), the feature branch's (`branch`: the suite, the checks, the
+  review), the restarts' (`restart`) and the flakiness hunts'
+  (`flaky:<test>`). The engine folds each stream once and advances it at
+  every append; an event out of its phase aborts the input, a command out of
+  its phase is refused.
 * **Policies**: facades of handlers, by event type. A policy that needs an
   agent or the user asks for it (a request, recorded as an event); a
   deterministic one has beck act at once (a commit, a worktree, a test run).

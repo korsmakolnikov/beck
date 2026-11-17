@@ -31,6 +31,17 @@ from beck.testrun import run as run_tests
 from beck.toolchain import load
 
 flaky = Machine()
+
+# the state machine of a test suspected of flakiness (flaky:<test>): unsure while the hunt widens, then found,
+# cleared or left unresolved
+F = "flaky:"
+flaky.moves(F, "FlakinessUnsure", at=("new", "unsure"), to="unsure")
+flaky.moves(F, "SuiteRunsApproved", "SuiteRunsRefused", at=("unsure",))
+flaky.moves(F, "FlakyTestFound", at=("new", "unsure"), to="found")
+flaky.moves(F, "FlakinessCleared", at=("unsure",), to="cleared")
+flaky.moves(F, "FlakinessUnresolved", at=("unsure",), to="unresolved")
+flaky.finals(F, "found", "cleared", "unresolved")
+flaky.runs(F, "HuntFlakiness", "new", "unsure")
 STAGES = ("alone", "component", "suite")
 
 

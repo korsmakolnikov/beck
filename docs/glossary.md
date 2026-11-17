@@ -68,10 +68,14 @@ events, the DSLs and the prompts change with it.
   it.
 * **Command handler**: validates a command and hands it to its state
   machine.
-* **State machine**: `execute(state, command) → events` validates the
-  command against the state; `apply(state, event) → state` is the callback
-  that folds each event. A new state that is not semantically valid is
-  dropped and the command handler gets an error.
+* **State machine**: one per kind of stream (`session`, `component:<id>`,
+  `cycle:<component>/<requirement>`, `branch`, `restart`, `flaky:<test>`),
+  declared by the module whose events move it (`moves`: an event, the
+  phases it may happen in, the phase it leads to). `apply(state, event)`
+  folds an instance's phase from its stream; an event its phase does not
+  allow is not semantically valid: the input aborts and nothing of it is
+  recorded but the crash. `execute` is a command's guard (`runs`: the
+  phases it may execute in) and its handler.
 * **Event store wrapper**: persists the events of a command atomically, then
   hands them to the router. If it cannot persist them it returns the error
   and no policy runs.

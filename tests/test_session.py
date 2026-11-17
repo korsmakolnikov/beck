@@ -213,6 +213,9 @@ def test_a_whole_iteration_from_the_interview_to_the_close(project):
     started = list(store.read(types_=("SessionStarted",)))[0]
     assert all(e.correlation_id == started.id for e in store.read() if e.causation_id)
     assert not [c for c in engine.pending()]
+    # the state machines went the whole way
+    assert [engine.state(s).phase for s in ("session", "component:adder", "branch")] == ["executing", "closed",
+                                                                                       "closed"]
 
 
 def test_a_shopping_list_written_after_the_questions_of_kent_is_approved(project):

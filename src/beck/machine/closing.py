@@ -39,6 +39,29 @@ closing = Machine()
 
 # the state machine of a component: a correction of the review reopens it (beck.machine.refactor holds the rest)
 closing.moves("component:", "ComponentReopened", at=("closed",), to="reopened")
+
+# the state machine of the feature branch (the stream `branch`): the suite, the project's checks, the review
+#
+#   new ─SuiteGreen→ suite-green (SuiteFailed: suite-failed, until green) ─StaticChecksPassed→ checks-passed
+#   (StaticChecksFailed → checks-failed ─BranchFixesDeclared→ fixing ─BranchFixesCommitted, checks again)
+#   ─BranchSquashed→ squashed ─ReviewAccepted→ accepted ─BranchSquashed→ squashed ─IterationClosed→ closed
+#   CorrectionsRequested → correcting ─CorrectionsPlanned, then the suite again
+B = "branch"
+closing.moves(B, "SuiteFailed", at=("new", "suite-failed", "correcting"), to="suite-failed")
+closing.moves(B, "SuiteGreen", at=("new", "suite-failed", "correcting"), to="suite-green")
+closing.moves(B, "StaticChecksFailed", at=("suite-green", "fixing"), to="checks-failed")
+closing.moves(B, "BranchFixesDeclared", at=("checks-failed",), to="fixing")
+closing.moves(B, "BranchFixesCommitted", at=("fixing",))
+closing.moves(B, "StaticChecksPassed", at=("suite-green", "fixing"), to="checks-passed")
+closing.moves(B, "BranchSquashed", at=("checks-passed", "accepted"), to="squashed")
+closing.moves(B, "ReviewAccepted", at=("squashed", "checks-passed"), to="accepted")
+closing.moves(B, "CorrectionsRequested", at=("squashed", "checks-passed"), to="correcting")
+closing.moves(B, "CorrectionsPlanned", at=("correcting",))
+closing.moves(B, "IterationClosed", at=("squashed",), to="closed")
+closing.finals(B, "closed")
+closing.runs(B, "RunStaticChecks", "suite-green", "fixing")
+closing.runs(B, "CommitBranchFixes", "fixing")
+closing.runs(B, "AutosquashBranch", "checks-passed", "accepted")
 BRANCH = "branch"
 
 

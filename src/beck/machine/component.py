@@ -52,6 +52,16 @@ components.runs(P, "ResumeComponent", "parked")
 for _command in ("OpenUnit", "OpenCycle", "CloseUnit", "FinishComponent"):
     components.runs(P, _command, *WORKING)
 
+# the state machine of the restarts (the stream `restart`): proposed, approved or rejected, applied
+R = "restart"
+components.moves(R, "RestartProposed", to="proposed")   # two blocked components may each propose one
+components.moves(R, "RestartRejected", at=("proposed",), to="rejected")
+components.moves(R, "RestartApproved", at=("proposed",), to="approved")
+components.moves(R, "ExecutionDerived", at=("approved",))
+components.moves(R, "RestartApplied", at=("approved",), to="applied")
+components.runs(R, "ApplyRestart", "approved")
+components.runs(R, "DiscardRestart", "rejected")
+
 
 def stream(component: str) -> str:
     return f"component:{component}"
