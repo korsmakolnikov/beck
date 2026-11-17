@@ -402,3 +402,17 @@ def test_a_command_its_phase_does_not_allow_is_refused():
     sm.execute(State("red-declared"), "VerifyRed")
     with pytest.raises(InvalidTransition, match="VerifyRed at phase 'green'"):
         sm.execute(State("green"), "VerifyRed")
+
+
+def test_a_usage_limit_asks_the_user_at_once(repo):
+    # the hello world pilot, 2026-11-17: the CLI's 5-hour limit failed martin's turn three times in a row before
+    # beck asked; no retry passes a usage limit before it resets
+    from beck.machine.core import TurnFailed
+
+    def limited(a):
+        raise TurnFailed("You've hit your 5-hour limit · resets 6:20pm")
+    agent = Agent(repo, {"WriteRedTest": [limited]})
+    engine, store, _ = machine(repo, agent)
+    asyncio.run(engine.run_until_idle())
+    [ask] = [c for c in engine.pending() if c.payload["target"] == "user"]
+    assert "a usage limit" in ask.payload["args"]["question"]["text"] and len(agent.calls) == 1

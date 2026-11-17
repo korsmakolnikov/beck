@@ -27,6 +27,7 @@ import asyncio
 import functools
 import logging
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -324,13 +325,17 @@ def handle_go_on(command: Issued, ctx: Ctx) -> list[Result]:
     return [Result(a["as"], dict(a.get("payload", {})), actor="user")]
 
 
+USAGE_LIMIT = re.compile(r"hit your .*limit|usage limit|rate limit", re.IGNORECASE)
+
+
 @conversation.policy("AgentTurnFailed")
 def retry_a_failed_turn(event: Event, ctx: Ctx) -> list[Command]:
-    """The same command again; the same failure three times in a row asks the user."""
+    """The same command again; the same failure three times in a row asks the user, and so does at once a usage
+    limit of the CLI: no retry passes it before it resets."""
     turn = ctx.store.get(event.causation_id or "")
     failures = [e.payload["signature"] for e in ctx.events(stream=event.stream, types=("AgentTurnFailed",))
                 if e.payload["command"] == event.payload["command"]]
-    why = blocked(failures, *ctx.limits)
+    why = "a usage limit" if USAGE_LIMIT.search(event.payload["error"]) else blocked(failures, *ctx.limits)
     if why:
         actions = [action("retry", "Run the agent's turn again, as it was.")]
         if turn.payload["args"].get("component"):
