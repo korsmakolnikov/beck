@@ -1,12 +1,10 @@
 """The consumption's projection: the ledger of the turns, the totals per agent and per window, the dashboard."""
 
-import io
+import asyncio
 
 import pytest
-from rich.console import Console
 
 from beck import config as beck_config
-from beck.dashboard import render
 from beck.events.project import Project
 from beck.usage import NUMBERS, Usage, window_of
 
@@ -101,17 +99,58 @@ def test_the_window_must_divide_an_hour(tmp_path):
     assert beck_config.load(tmp_path / "x", global_file=tmp_path / "none.yml")["usage"]["window_minutes"] == 10
 
 
-def test_the_dashboard_shows_the_agents_the_windows_and_the_ledger(recorded):
+def test_the_dashboard_attaches_reads_at_each_signal_and_follows_the_log(recorded):
+    # the user, 2026-11-17: the dashboard projects nothing; it attaches to the session's socket, learns from the
+    # handshake where the read models and the log are, reads them again at each signal, follows the log
+    from beck.dashboard import Dashboard
+    from beck.socket import Server
     root, it, store = recorded
     usage = Usage(root)
     usage.catch_up(store, it)
-    out = io.StringIO()
-    Console(file=out, width=140).print(render(usage, store, it, "branch", 140))
-    text = out.getvalue()
-    assert "unclebob" in text and "martin" in text and "tokens per 10 minutes" in text
-    assert "rejected" in text and "failed" in text
-    last = list(usage.events(it))[-1]
-    assert last["event_id"][:8] in text
+    log = root / ".beck" / "beck.log"
+    log.write_text("first line\n")
+
+    async def play():
+        server = Server(root, lambda m: {"ok": True}, {"iteration": it, "db": str(root / ".beck" / "beck.db"),
+                                                       "log": str(log)})
+        await server.start()
+        app = Dashboard(root)
+        async with app.run_test(size=(160, 40)) as pilot:
+            for _ in range(50):
+                await pilot.pause(0.05)
+                if app.redraws:
+                    break
+            assert "turns 2" in str(app.query_one("#totals").render())
+            started = next(iter(store.read(types_=("SessionStarted",))))
+            c = store.append("AgentTurnRequested", {"command": "WriteArchitecture", "target": "kent",
+                                                    "args": {"session": "k", "context": {}}}, cause=started)
+            store.append("AgentTurnEnded", {"agent": "kent", "model": "opus", "tokens": {"input": 1, "output": 1}},
+                         cause=c)
+            usage.catch_up(store, it)
+            with log.open("a") as f:
+                f.write("second line\n")
+            server.signal()
+            for _ in range(50):
+                await pilot.pause(0.05)
+                if app.redraws > 1 and "second line" in "\n".join(app.query_one("#log").lines):
+                    break
+            assert "turns 3" in str(app.query_one("#totals").render())
+            assert "first line" in app.query_one("#log").lines and "second line" in app.query_one("#log").lines
+            await server.stop()
+            for _ in range(50):
+                await pilot.pause(0.05)
+                if app.ended:
+                    break
+            assert app.ended
+    asyncio.run(play())
+
+
+def test_the_dashboard_needs_attach_and_a_session(tmp_path, capsys):
+    from beck.cli import main
+    assert main(["dashboard", "--project", str(tmp_path)]) == 2
+    assert "--attach" in capsys.readouterr().err
+    with pytest.raises(SystemExit, match="no beck session runs"):
+        main(["dashboard", "--attach", "--project", str(tmp_path)])
 
 
 def test_the_engine_projects_after_each_commit_and_a_broken_hook_does_not_stop_it(recorded):

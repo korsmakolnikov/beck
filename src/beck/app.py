@@ -10,6 +10,7 @@ Ctrl-C is safe: the session is resumed from its events.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import sys
 from pathlib import Path
@@ -18,6 +19,7 @@ from typing import Any, TextIO
 import beck
 from beck import config as beck_config
 from beck.drivers.claude import ClaudeCode
+from beck.events import log
 from beck.events.project import Project
 from beck.events.store import Event, EventStore
 from beck.machine import user
@@ -60,11 +62,14 @@ async def serving(engine: Engine, coro: Any) -> Any:
                                             "log": str(project / ".beck" / "beck.log")})
     hook = lambda new: server.signal() if any(e.type in KINDS for e in new) else None  # noqa: E731
     engine.after_commit.append(hook)
+    handler = log.setup(project / ".beck" / "beck.log")   # the log the dashboard follows
     await server.start()
     try:
         return await coro
     finally:
         engine.after_commit.remove(hook)
+        logging.getLogger("beck").removeHandler(handler)
+        handler.close()
         await server.stop()
 
 

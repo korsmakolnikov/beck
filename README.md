@@ -238,9 +238,11 @@ Implemented: `src/beck/events/`, with `beck sessions`, `beck events` and
   totals per iteration, agent, model and command (`usage`) and per time
   window (`usage_window`, `usage.window_minutes`, 10 by default). Every
   number is a sum of ledger rows, and every row names its event: `beck usage
-  <iteration> --events` lists them, `beck trace` follows one. The ledger is
-  the dashboard's outbox: `beck dashboard` wakes when a row lands after its
-  cursor. Nothing there is a fact: `beck usage --rebuild` projects it again.
+  <iteration> --events` lists them, `beck trace` follows one. The session
+  projects them after each commit and signals the dashboards attached to its
+  socket (`beck dashboard --attach`, run in the session's folder), which read
+  them again and follow the log; the dashboard projects nothing. Nothing
+  there is a fact: `beck usage --rebuild` projects them again.
 * The flow log stays, only as a human-readable log.
 
 ## Parallelism and commits
@@ -495,7 +497,8 @@ beck pending <iteration>              the decisions of the user it waits for
 beck answer <iteration> <id> <words>  answer one: yes, or the words
 beck replay <iteration> [--agents …]  implement it again: its start and the user's answers as recorded
 beck usage <iteration> [--by …]       what the agents consumed (--events: the events it comes from; --json)
-beck dashboard [<iteration>]          the consumption, live (--once: print it once)
+beck dashboard --attach               the consumption of the session running here, live, with its log
+beck send test|check …                an agent's tests or checks, run once by the session (its socket)
 ```
 
 On a terminal beck asks each decision and goes on; with `--batch` (or

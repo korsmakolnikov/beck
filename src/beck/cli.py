@@ -329,7 +329,8 @@ def _usage(args: argparse.Namespace) -> int:
     except beck_config.ConfigError:
         minutes = beck_config.DEFAULTS["usage"]["window_minutes"]
     usage, store = Usage(project.root, minutes), project.open(it.id)
-    (usage.rebuild if args.rebuild else usage.catch_up)(store, it.id)
+    if args.rebuild:   # the read models are the session's to project: this rebuilds them from the events
+        usage.rebuild(store, it.id)
     if args.events:
         where = {k: v for k, v in (("agent", args.agent), ("model", args.model), ("command", args.command),
                                    ("component", args.component), ("kind", args.kind), ("win", args.window)) if v}
@@ -356,12 +357,16 @@ def _usage(args: argparse.Namespace) -> int:
 
 
 def _dashboard(args: argparse.Namespace) -> int:
-    from beck import dashboard
-    _project(args)
-    try:
-        return dashboard.run(Path(args.project), args.iteration, once=args.once, every=args.every)
-    except KeyError as error:
-        sys.exit(str(error.args[0]))
+    from beck import dashboard, socket
+    if not args.attach:
+        print("beck dashboard shows the session running in a folder: run it there with --attach\n",
+              file=sys.stderr)
+        args.parser.print_help(sys.stderr)
+        return 2
+    root = Path(args.project)
+    if not socket.path(root).exists():
+        sys.exit(f"beck: no beck session runs in {root.resolve()}: start one (beck start, beck attach, beck tui)")
+    return dashboard.run(root)
 
 
 def _replay(args: argparse.Namespace) -> int:
@@ -478,7 +483,7 @@ def main(argv: list[str] | None = None) -> int:
     rp.add_argument("--project", default=".", help="the recorded project's root (default: .)")
     rp.set_defaults(run=_replay)
 
-    us = sub.add_parser("usage", help="what the agents consumed in an iteration, from the usage projection")
+    us = sub.add_parser("usage", help="what the agents consumed in an iteration: the read models the session projects")
     us.add_argument("iteration")
     us.add_argument("--by", choices=["agent", "model", "command", "window"], default="agent")
     us.add_argument("--events", action="store_true",
@@ -486,17 +491,17 @@ def main(argv: list[str] | None = None) -> int:
     for f in ("agent", "model", "command", "component", "kind"):
         us.add_argument(f"--{f}", help=f"with --events: only this {f}")
     us.add_argument("--window", help="with --events: only the window starting at this time (2026-11-16T18:50)")
-    us.add_argument("--rebuild", action="store_true", help="drop the iteration's projection and project it again")
+    us.add_argument("--rebuild", action="store_true",
+                    help="drop the iteration's read models and project them again from the events")
     us.add_argument("--json", action="store_true", help="JSON lines, for an agent")
     us.add_argument("--project", default=".", help="the project's root (default: .)")
     us.set_defaults(run=_usage)
 
-    db = sub.add_parser("dashboard", help="the consumption of an iteration, live (Ctrl-C to leave)")
-    db.add_argument("iteration", nargs="?", help="an iteration's id or its first characters (default: the last)")
-    db.add_argument("--once", action="store_true", help="print it once and exit")
-    db.add_argument("--every", type=float, default=1.0, help="seconds between two looks at the outbox")
-    db.add_argument("--project", default=".", help="the project's root (default: .)")
-    db.set_defaults(run=_dashboard)
+    db = sub.add_parser("dashboard", help="the consumption of the session running here, live (Ctrl-C to leave)")
+    db.add_argument("--attach", action="store_true",
+                    help="attach to the socket of the session running in the folder: the only way to use it")
+    db.add_argument("--project", default=".", help="the session's folder (default: .)")
+    db.set_defaults(run=_dashboard, parser=db)
 
     args = parser.parse_args(argv)
     return args.run(args)
