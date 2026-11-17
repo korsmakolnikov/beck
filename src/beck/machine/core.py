@@ -616,13 +616,14 @@ class Engine:
             issued = Issued(payload, command.stream, cause)
             with log.about(cause):
                 results = self._guard("handler", command.name, lambda: handler(issued, self.ctx))  # type: ignore[arg-type]
-            logger.info("%s ran %s", policy, command.name)
+                logger.info("%s ran %s", policy, command.name)
             for r in results:
                 self._append(r, cause, policy, command.stream)
             return
         kind = "DecisionRequested" if command.target == "user" else "AgentTurnRequested"
         self._append(Result(kind, payload), cause, policy, command.stream)
-        logger.info("%s asked %s for %s", policy, command.target, command.name)
+        with log.about(cause):
+            logger.info("%s asked %s for %s", policy, command.target, command.name)
 
     def command(self, name: str, args: dict[str, Any], cause_id: str, actor: str) -> dict[str, Any]:
         """A command from outside (the socket: an agent's `beck send`): its handler, and the policies of its

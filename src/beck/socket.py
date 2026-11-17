@@ -105,6 +105,9 @@ class Server:
     def signal(self) -> None:
         """The read models changed: every dashboard reads them again."""
         for w in list(self._dashboards):
+            if w.is_closing():   # a dashboard that left
+                self._dashboards.remove(w)
+                continue
             try:
                 w.write(b'{"signal": "read"}\n')
             except Exception:
@@ -127,9 +130,10 @@ class Server:
                 await writer.drain()
         except (ConnectionResetError, json.JSONDecodeError):
             pass
-        finally:
-            if writer not in self._dashboards:
-                writer.close()
+        finally:   # the client left: a dashboard is signalled no more
+            if writer in self._dashboards:
+                self._dashboards.remove(writer)
+            writer.close()
 
 
 def send_probe(where: Path) -> None:
