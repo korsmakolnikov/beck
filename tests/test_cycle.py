@@ -376,3 +376,29 @@ def test_a_green_with_nothing_to_commit_closes_on_the_head(repo):
     assert commit(repo, "fixup! feat(u): implement u", allow_empty=True) == head
     with pytest.raises(RuntimeError, match="nothing to commit"):
         commit(repo, "test(u): doubles")
+
+
+def test_the_cycle_s_state_machine_follows_its_phases(repo):
+    agent = Agent(repo, {"WriteRedTest": [red()], "WriteGreenCode": [green()]})
+    engine, store, opened = machine(repo, agent)
+    assert engine.state(opened.stream).phase == "red"
+    asyncio.run(engine.run_until_idle())
+    state = engine.state(opened.stream)
+    assert state.phase == "closed" and state.facts["RedVerified"]["test"] == TEST
+
+
+def test_an_event_its_phase_does_not_allow_aborts_the_input(repo):
+    # a green declared while the cycle waits for its red: the new state is not valid, nothing is recorded but the crash
+    engine, store, opened = machine(repo, Agent(repo, {}))
+    engine.record("GreenDeclared", {"component": "u", "requirement": "doubles", "test": TEST}, stream=opened.stream)
+    [crash] = [e.payload for e in store.read(types_=("BeckCrashed",))]
+    assert crash["where"] == "apply" and "GreenDeclared in cycle:u/doubles at phase 'red'" in crash["error"]
+    assert not list(store.read(types_=("GreenDeclared",))) and engine.state(opened.stream).phase == "red"
+
+
+def test_a_command_its_phase_does_not_allow_is_refused():
+    from beck.machine.core import InvalidTransition, State
+    sm = cycle.states["cycle:"]
+    sm.execute(State("red-declared"), "VerifyRed")
+    with pytest.raises(InvalidTransition, match="VerifyRed at phase 'green'"):
+        sm.execute(State("green"), "VerifyRed")

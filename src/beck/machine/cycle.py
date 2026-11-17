@@ -26,6 +26,39 @@ from beck.machine.signatures import blocked, signature
 
 cycle = Machine()
 
+# --- the state machine of a cycle (cycle:<component>/<requirement>) -----------------------------------------
+#
+#   new ─CycleOpened→ red ─RedDeclared→ red-declared ─RedVerified→ red-verified ─RedCommitted→ green
+#        RedRejected: red-declared → red             (RedCommitted on an already green test: GreenCommitted at once)
+#   green ─GreenDeclared→ green-declared ─GreenVerified→ green-verified ─GreenCommitted→ committed ─CycleClosed→ closed
+#        GreenRejected: green-declared → green       RedRewound: green → red      ChangeRequested: the phase stays
+#   CycleReopened (a restart, a regression): to red or green, as its payload says; CycleBlocked → blocked;
+#   CycleDropped (the requirement left the domain) → dropped
+C = "cycle:"
+cycle.moves(C, "CycleOpened", at=("new",), to="red")
+cycle.moves(C, "RedDeclared", at=("red",), to="red-declared")
+cycle.moves(C, "RedRejected", at=("red-declared",), to="red")
+cycle.moves(C, "RedVerified", at=("red-declared",), to="red-verified")
+cycle.moves(C, "RedCommitted", at=("red-verified",), to="green")
+cycle.moves(C, "GreenDeclared", at=("green",), to="green-declared")
+cycle.moves(C, "GreenRejected", at=("green-declared",), to="green")
+cycle.moves(C, "GreenVerified", at=("green-declared",), to="green-verified")
+cycle.moves(C, "GreenCommitted", at=("green-verified", "green"), to="committed")
+cycle.moves(C, "CycleClosed", at=("committed",), to="closed")
+cycle.moves(C, "ChangeRequested", at=("red", "green"))
+cycle.moves(C, "RedRewound", at=("green",), to="red")
+cycle.moves(C, "CycleReopened", at=("red", "red-declared", "red-verified", "green", "green-declared", "green-verified",
+                                  "committed", "closed", "blocked"), to=lambda e: str(e.payload["phase"]))
+cycle.moves(C, "CycleBlocked", to="blocked")
+cycle.moves(C, "CycleDropped", to="dropped")
+cycle.finals(C, "closed", "dropped")
+cycle.runs(C, "VerifyRed", "red-declared")
+cycle.runs(C, "CommitRed", "red-verified")
+cycle.runs(C, "VerifyGreen", "green-declared")
+cycle.runs(C, "CommitGreen", "green-verified")
+cycle.runs(C, "RewindRed", "green")
+cycle.runs(C, "BlockCycle", "red", "red-declared", "green", "green-declared")
+
 RED = ("RedRejected",)
 GREEN = ("GreenRejected",)
 

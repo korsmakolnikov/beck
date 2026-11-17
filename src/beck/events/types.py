@@ -41,7 +41,8 @@ SCHEMAS: dict[str, dict[str, Any]] = {
     # what the turn changed in its folder, as a binary git patch (files added, changed, removed)
     "TurnChanged": _object({"agent": _STRING, "patch": _STRING}),
     "AgentTurnFailed": _object({"agent": _STRING, "command": _STRING, "error": _STRING, "signature": _STRING}),
-    "BeckCrashed": _object({"where": {"enum": ["policy", "handler", "translator", "turn"]}, "name": _STRING,
+    "BeckCrashed": _object({"where": {"enum": ["policy", "handler", "translator", "turn", "apply", "guard"]},
+                            "name": _STRING,
                             "error": _STRING, "traceback": _STRING, "signature": _STRING},
                            {"input": {"enum": ["turn", "answer", "command", "start", "input"]}}),
     "ToolCalled": _object({"agent": _STRING, "tool": _STRING, "input": {"type": "object"}}),

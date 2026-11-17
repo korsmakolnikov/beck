@@ -89,6 +89,59 @@ class Agents(Protocol):
                    cwd: Path) -> Turn: ...
 
 
+@dataclass(frozen=True)
+class State:
+    """An instance of a state machine (one stream): its phase and the last payload of each event that moved it."""
+    phase: str = "new"
+    facts: dict[str, dict[str, Any]] = field(default_factory=dict)
+    seq: int = 0
+
+
+@dataclass(frozen=True)
+class Transition:
+    sources: frozenset[str] | None      # the phases it may happen in; None: any but the final ones
+    target: str | Callable[[Event], str] | None   # the phase it leads to (or of its payload); None: it stays
+
+
+class InvalidTransition(Exception):
+    """An event its state machine does not allow in its phase: the new state is not valid."""
+
+
+@dataclass
+class StateMachine:
+    """The state machine of a kind of stream (`cycle:`, `component:`, `session`...): `apply(state, event)` moves
+    an instance's phase by the transitions; the guards say in which phases a command may execute. Events
+    outside its transitions (a test run, a turn's facts) do not move it."""
+    prefix: str
+    transitions: dict[str, Transition] = field(default_factory=dict)
+    guards: dict[str, frozenset[str]] = field(default_factory=dict)
+    final: frozenset[str] = frozenset()
+
+    def owns(self, stream: str) -> bool:
+        return stream == self.prefix or (self.prefix.endswith(":") and stream.startswith(self.prefix))
+
+    def apply(self, state: State, event: Event) -> State:
+        t = self.transitions.get(event.type)
+        if t is None:
+            return state
+        allowed = t.sources is None and state.phase not in self.final or t.sources is not None and state.phase in t.sources
+        if not allowed:
+            raise InvalidTransition(f"{event.type} in {event.stream} at phase {state.phase!r} "
+                                    f"(it may happen at {sorted(t.sources) if t.sources is not None else 'any'})")
+        target = t.target(event) if callable(t.target) else t.target
+        return State(target or state.phase, {**state.facts, event.type: event.payload}, event.seq)
+
+    def execute(self, state: State, command: str) -> None:
+        """The guard of a command: it runs only in its phases."""
+        phases = self.guards.get(command)
+        if phases is not None and state.phase not in phases:
+            raise InvalidTransition(f"{command} at phase {state.phase!r} (it runs at {sorted(phases)})")
+
+    def merge(self, other: StateMachine) -> StateMachine:
+        return StateMachine(self.prefix, {**self.transitions, **other.transitions}, {**self.guards, **other.guards},
+                            self.final | other.final)
+
+
 Policy = Callable[[Event, "Ctx"], list[Command]]
 Handler = Callable[["Issued", "Ctx"], "list[Result] | Reply"]
 Translator = Callable[[Event, dict[str, Any], "Ctx"], list[Result]]
@@ -100,6 +153,23 @@ class Machine:
     policies: dict[str, list[tuple[str, Policy]]] = field(default_factory=dict)
     handlers: dict[str, Handler] = field(default_factory=dict)
     translators: dict[str, Translator] = field(default_factory=dict)
+    states: dict[str, StateMachine] = field(default_factory=dict)   # by prefix
+
+    def moves(self, prefix: str, *events: str, at: tuple[str, ...] | None = None,
+              to: str | Callable[[Event], str] | None = None) -> None:
+        """Transitions of the state machine of `prefix`: these events, in the phases `at` (None: any but the
+        final ones), lead to `to` (None: the phase stays)."""
+        sm = self.states.setdefault(prefix, StateMachine(prefix))
+        for e in events:
+            sm.transitions[e] = Transition(frozenset(at) if at is not None else None, to)
+
+    def runs(self, prefix: str, command: str, *at: str) -> None:
+        """The guard of a command for beck: it executes only in these phases of its stream's state machine."""
+        self.states.setdefault(prefix, StateMachine(prefix)).guards[command] = frozenset(at)
+
+    def finals(self, prefix: str, *phases: str) -> None:
+        sm = self.states.setdefault(prefix, StateMachine(prefix))
+        sm.final = sm.final | frozenset(phases)
 
     def policy(self, *types: str) -> Callable[[Policy], Policy]:
         def register(fn: Policy) -> Policy:
@@ -121,11 +191,14 @@ class Machine:
         return register
 
     def merge(self, other: Machine) -> Machine:
-        merged = Machine({k: list(v) for k, v in self.policies.items()}, dict(self.handlers), dict(self.translators))
+        merged = Machine({k: list(v) for k, v in self.policies.items()}, dict(self.handlers), dict(self.translators),
+                         dict(self.states))
         for t, ps in other.policies.items():
             merged.policies.setdefault(t, []).extend(ps)
         merged.handlers.update(other.handlers)
         merged.translators.update(other.translators)
+        for prefix, sm in other.states.items():
+            merged.states[prefix] = merged.states[prefix].merge(sm) if prefix in merged.states else sm
         return merged
 
 
@@ -140,6 +213,13 @@ class Ctx:
     components_in_parallel: int = 4
     upto: int | None = None             # policies see the events up to their own
     flakiness: tuple[int, int] = (3, 5)  # the flakiness detector: the window, the runs of each hunt
+    states: Callable[[str], State] | None = None   # the state of a stream's machine, now (set by the engine)
+
+    def state(self, stream: str) -> State:
+        """The state of the stream's machine: its phase and the facts that moved it."""
+        if self.states is None:
+            raise RuntimeError("no engine: no state machine")
+        return self.states(stream)
 
     def events(self, *, stream: str | None = None, types: tuple[str, ...] = ()) -> list[Event]:
         events = self.store.read(stream=stream, types_=types)
@@ -394,6 +474,8 @@ class Engine:
         self.crashes: list[Event] = []          # this run's BeckCrashed
         self._crashed: set[str] = set()         # the requests whose processing crashed in this run
         self._recovered = False
+        self._states: dict[str, State] = {}     # the state machines' instances, by stream: folded once, then advanced
+        self.ctx.states = self.state
         from beck import socket  # what a client of this process sends the socket reaches the engine directly
         socket._LOCAL[Path(ctx.project).resolve()] = self.serve
 
@@ -418,10 +500,14 @@ class Engine:
                 self._react()
         except _Aborted as aborted:
             self._cursor = cursor
+            self._states.clear()   # folded again from what the store kept
             on = None if kind == "command" else cause   # a command's crash leaves its agent's turn as it was
             with store.transaction():
                 for r in facts:   # the input's own facts: processed again after the fix
-                    self._append(r, cause, None, stream)
+                    try:
+                        self._append(r, cause, None, stream)
+                    except _Aborted:   # a fact its machine refuses is not recorded: only the crash says it
+                        logger.warning("%s refused by its state machine: not recorded", r.type)
                 crash_event = self._append(Result(aborted.crashed.type, {**aborted.crashed.payload, "input": kind}),
                                            on, None, stream)
             self.crashes.append(crash_event)
@@ -448,8 +534,44 @@ class Engine:
             raise _Aborted(crash(where, name, error)) from error
 
     def _append(self, r: Result, cause: Event | None, policy: str | None, stream: str) -> Event:
-        return self.ctx.store.append(r.type, r.payload, stream=r.stream or stream, actor=r.actor, cause=cause,
-                                     tokens=r.tokens, policy=policy)
+        """Appends an event its state machine allows (else the input aborts) and advances the machine."""
+        where = r.stream or stream
+        sm = self._machine_of(where)
+        moved: State | None = None
+        if sm is not None and r.type in sm.transitions:
+            try:
+                moved = sm.apply(self.state(where), Event(0, "", r.type, where, r.actor, None, "", None, None, None,
+                                                         r.payload, ""))
+            except InvalidTransition as error:
+                raise _Aborted(crash("apply", r.type, error)) from error
+        event = self.ctx.store.append(r.type, r.payload, stream=where, actor=r.actor, cause=cause, tokens=r.tokens,
+                                      policy=policy)
+        if moved is not None:
+            self._states[where] = State(moved.phase, moved.facts, event.seq)
+        return event
+
+    # --- the state machines ---
+
+    def _machine_of(self, stream: str) -> StateMachine | None:
+        return next((sm for sm in self.machine.states.values() if sm.owns(stream)), None)
+
+    def state(self, stream: str, before: int | None = None) -> State:
+        """The state of a stream's machine, folded from its events (all, or those before a seq)."""
+        sm = self._machine_of(stream)
+        if sm is None:
+            return State()
+        cached = self._states.get(stream)
+        if cached is not None and (before is None or cached.seq < before):
+            return cached
+        state = State()
+        for e in self.ctx.store.read(stream=stream):
+            if before is not None and e.seq >= before:
+                break
+            if e.type in sm.transitions:
+                state = sm.apply(state, e)
+        if before is None:
+            self._states[stream] = state
+        return state
 
     # --- the router ---
 
@@ -476,6 +598,12 @@ class Engine:
     def _submit(self, command: Command, cause: Event, policy: str) -> None:
         payload = {"command": command.name, "target": command.target, "args": command.args}
         if command.target == "beck":
+            sm = self._machine_of(command.stream)
+            if sm is not None:
+                try:
+                    sm.execute(self.state(command.stream), command.name)
+                except InvalidTransition as error:
+                    raise _Aborted(crash("guard", command.name, error)) from error
             handler = self.machine.handlers.get(command.name)
             if handler is None:
                 raise _Aborted(crash("handler", command.name, KeyError(f"no handler for {command.name}")))
@@ -521,10 +649,12 @@ class Engine:
 
     def record(self, type_: str, payload: dict[str, Any], *, stream: str = "session", actor: str = "beck",
                cause: Event | None = None) -> Event:
-        """A fact from outside, as an input: recorded, and every policy it sets off, in one transaction."""
+        """A fact from outside, as an input: recorded, and every policy it sets off, in one transaction. A fact
+        its state machine refuses is not recorded: the BeckCrashed is returned instead."""
         before = self.ctx.store.last()
         self._process(cause, [Result(type_, payload, actor=actor, stream=stream)], kind="input")
-        return next(e for e in self.ctx.store.read(after=before.seq if before else 0) if e.type == type_)
+        new = list(self.ctx.store.read(after=before.seq if before else 0))
+        return next((e for e in new if e.type == type_), None) or next(e for e in new if e.type == "BeckCrashed")
 
     # --- the requests ---
 
