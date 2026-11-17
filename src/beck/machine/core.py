@@ -1,26 +1,30 @@
-"""The reactor: policies turn events into commands, executors turn commands into events.
+"""The engine: the command handler, the event store's wrapper and the router (docs/glossary.md, "The core").
 
-    event E ──policy P──► CommandIssued (cause E, policy P)
-                             │  beck: a deterministic handler acts at once
-                             │  an agent: a turn, JSON in and JSON out
-                             │  the user: waits for an answer
-                             ▼
-                  result events + CommandDone (cause: the CommandIssued), in one transaction
+    an input (an agent's output, the user's answer, a command on the socket, the session's start)
+      └─ one transaction: its events, then the policies of every new event, in order
+           a policy's command for beck: its handler runs at once, its events join the queue
+           a policy's command for an agent: AgentTurnRequested (the agent is a side effect)
+           a policy's command for the user: DecisionRequested
+      └─ committed: the after-commit hooks (the read models, the dashboard's signal), then the requested
+         turns start (AgentTurnStarted: the input and the folder's snapshot) as slots free up
 
-* A policy never reacts twice to the same event: the CommandIssued it wrote
-  is the anchor (`store.issued`). A policy reads the state as it was at its
-  event (`Ctx.upto`), so a replay issues exactly what the first run did;
-  the scheduler alone reads the present (`component.schedule`).
-* A command without its CommandDone is pending: `run_until_idle` executes
-  it, also after a Ctrl-C (`beck attach`). Handlers must tolerate running
-  again after a crash between their side effect and their events.
-* An agent's turn gets $BECK_CAUSE = the CommandIssued id: the `beck test`
-  runs of the turn join the chain.
+* Commands are never stored: only events, each with what its replay needs. A policy runs once, in the
+  transaction of its event; it reads the state as at its event (`Ctx.upto`), the scheduler alone the
+  present (`component.schedule`).
+* A crash in a policy, a handler or a translator aborts the input's transaction: the input's own facts (a
+  turn's output, the user's answer) are recorded with a BeckCrashed, and nothing else. `beck attach`,
+  after the fix, processes them again: the agent is not asked again.
+* Recovery rebuilds the state from the events and runs no policy again: a requested turn not started
+  starts; a turn started that never ended (beck died while the agent worked) gets its folder put back to
+  the turn's snapshot and the same input again; an input whose processing crashed is processed again.
+* An agent's turn gets $BECK_CAUSE = its AgentTurnRequested: what it sends on the socket (`beck send`)
+  joins the chain.
 """
 
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import os
 import subprocess
@@ -59,6 +63,14 @@ class Result:
 
 
 @dataclass(frozen=True)
+class Reply:
+    """What a handler answers a command from outside with: its events, and a value for the client (the
+    summary an agent reads)."""
+    results: list[Result]
+    value: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class Turn:
     output: Any                 # the agent's JSON, not checked yet
     model: str
@@ -78,7 +90,7 @@ class Agents(Protocol):
 
 
 Policy = Callable[[Event, "Ctx"], list[Command]]
-Handler = Callable[[Event, "Ctx"], list[Result]]
+Handler = Callable[["Issued", "Ctx"], "list[Result] | Reply"]
 Translator = Callable[[Event, dict[str, Any], "Ctx"], list[Result]]
 
 
@@ -163,7 +175,7 @@ def answer_the_agent(event: Event, ctx: Ctx) -> list[Command]:
     """The answer, wrapped, goes back to the session that asked, for the same command."""
     ask = ctx.store.get(event.causation_id or "")
     turn = ctx.store.get(ask.payload["args"]["turn"])
-    if turn.type != "CommandIssued":  # beck's own question: kent routes the words to an action of its menu
+    if turn.type != "AgentTurnRequested":  # beck's own question: kent routes the words to an action of its menu
         route = ask.payload["args"].get("route")
         return [_route_turn(ask, event.payload["text"], None)] if route else []
     args = {k: v for k, v in turn.payload["args"].items() if k not in ("context", "retry", "answer")}
@@ -218,7 +230,7 @@ GO_ON = {"SuiteVerified", "EnvironmentUp", "SuiteGreen", "StaticChecksPassed", "
 
 
 @conversation.handler("GoOn")
-def handle_go_on(command: Event, ctx: Ctx) -> list[Result]:
+def handle_go_on(command: Issued, ctx: Ctx) -> list[Result]:
     """The user's decision to go on as if the step had passed: the step's own event, as the user's."""
     a = command.payload["args"]
     if a["as"] not in GO_ON:
@@ -257,12 +269,6 @@ def retry_a_rejected_turn(event: Event, ctx: Ctx) -> list[Command]:
     turn = ctx.store.get(event.causation_id or "")
     own = name in OWN_RETRIES and not (name == "FixStaticFindings" and turn.payload["args"].get("branch"))
     if own or "context" not in turn.payload["args"]:
-        return []
-    later = [e for e in ctx.store.read(stream=event.stream, types_=("CommandIssued",))
-             if e.seq > event.seq and e.payload["command"] == name]
-    component = turn.payload["args"].get("component")
-    closed = bool(component) and bool(list(ctx.store.read(stream=f"component:{component}", types_=("ComponentClosed",))))
-    if later or closed:   # stale: a later turn took it over, or its component closed (an attach replays old rejections)
         return []
     rejected = [e.payload["signature"] for e in ctx.events(stream=event.stream, types=("SignalRejected",))
                 if e.payload["command"] == name]
@@ -320,98 +326,230 @@ def crash(where: str, name: str, error: BaseException) -> Result:
                                   "signature": signature([where, name, text])})
 
 
-class _Crashed(Exception):
-    """A turn whose translator raised: the turn's results, its tokens kept, and the crash, without CommandDone."""
-
-    def __init__(self, results: list[Result]):
-        super().__init__()
-        self.results = results
+REQUESTS = ("AgentTurnRequested", "DecisionRequested")    # beck asked an agent, or the user
+TURN_FACTS = {"AgentTurnStarted", "ToolCalled", "AgentTurnEnded", "TurnChanged", "AgentTurnFailed"}
 
 
-class Reactor:
-    """Runs the machine. beck's own exceptions never end the session: each is recorded as BeckCrashed and
-    is not tried again in this run; the command stays pending (the policy unanchored), so `beck attach`,
-    after the fix, runs it again."""
+@dataclass(frozen=True)
+class Issued:
+    """A command for beck as its handler reads it: never stored. `id` is the event it answers (its results'
+    cause), so a handler's `because_of: command.id` names that event."""
+    payload: dict[str, Any]             # command, target, args
+    stream: str
+    cause: Event
+
+    @property
+    def id(self) -> str:
+        return self.cause.id
+
+    @property
+    def correlation_id(self) -> str:
+        return self.cause.correlation_id
+
+    @property
+    def causation_id(self) -> str:
+        return self.cause.id
+
+
+def request_of(store: EventStore, event: Event, kind: str = "AgentTurnRequested") -> Event:
+    """The request an event descends from: the agent's turn (or the user's decision) its chain of causes
+    starts from, the nearest. A verifier's verdict answers the declaration, which answers the turn."""
+    current: Event | None = event
+    while current is not None:
+        if current.type == kind:
+            return current
+        current = store.get(current.causation_id) if current.causation_id else None
+    raise KeyError(f"{event.type} {event.id} descends from no {kind}")
+
+
+class _Aborted(Exception):
+    """An input's processing crashed: its transaction is rolled back, the crash recorded with its facts."""
+
+    def __init__(self, crashed: Result):
+        super().__init__(crashed.payload["error"])
+        self.crashed = crashed
+
+
+def opened(store: EventStore, request: Event) -> bool:
+    """Whether a request still waits for the outside: a turn with no outcome, a decision with no answer. (One
+    whose processing crashed waits for the fix: `beck attach` processes it again, nobody answers it twice.)"""
+    effects = store.caused_by(request.id)
+    if request.type == "AgentTurnRequested":
+        return not any(e.type in ("AgentTurnEnded", "AgentTurnFailed") for e in effects)
+    return not any(e.actor == "user" for e in effects)
+
+
+class Engine:
+    """Runs the machine on the event store (the module's doc). beck's own exceptions never end the session:
+    each is a BeckCrashed, its input is not processed again in this run, and `beck attach` resumes it."""
 
     def __init__(self, ctx: Ctx, machine: Machine, agents: Agents, slots: int = 4,
-                 projectors: list[Callable[[], object]] | None = None):
-        self.ctx, self.machine, self.agents, self.slots = ctx, conversation.merge(machine), agents, slots
-        self.projectors = projectors or []      # read models fed from the events: they never stop the session
-        self._cursor = 0
+                 after_commit: list[Callable[[list[Event]], object]] | None = None):
+        from beck.machine.tools import tools  # the commands the agents send (beck send)
+        self.ctx, self.machine, self.agents, self.slots = ctx, conversation.merge(tools).merge(machine), agents, slots
+        self.after_commit = after_commit or []  # read models and signals: they never stop the session
+        last = ctx.store.last()
+        self._cursor = last.seq if last else 0  # the policies have run on everything before
         self._running: dict[str, asyncio.Task[list[Result]]] = {}
         self.crashes: list[Event] = []          # this run's BeckCrashed
-        self._crashed: set[str] = set()         # the commands that crashed in this run
+        self._crashed: set[str] = set()         # the requests whose processing crashed in this run
+        self._recovered = False
+        from beck import socket  # what a client of this process sends the socket reaches the engine directly
+        socket._LOCAL[Path(ctx.project).resolve()] = self.serve
 
-    # --- policies ---
+    # --- the store's wrapper ---
 
-    def react(self) -> bool:
-        """Runs the policies on the events after the cursor; True when it issued something (or recorded a crash)."""
-        issued = False
+    def _process(self, cause: Event | None, facts: list[Result], then: Callable[[], list[Result]] | None = None,
+                 again: list[Event] | None = None, kind: str = "input", name: str = "") -> bool:
+        """One input in one transaction: its facts, what `then` makes of them, every policy of the new events
+        (and of `again`, events recorded before whose processing crashed). False when it crashed."""
         store = self.ctx.store
-        for project in self.projectors:
+        cursor = self._cursor
+        stream = cause.stream if cause is not None else "session"
+        try:
+            with store.transaction():
+                for r in facts:
+                    self._append(r, cause, None, stream)
+                for e in again or []:
+                    self._policies(e)
+                if then is not None:
+                    for r in self._guard("translator", name or kind, then):
+                        self._append(r, cause, None, stream)
+                self._react()
+        except _Aborted as aborted:
+            self._cursor = cursor
+            on = None if kind == "command" else cause   # a command's crash leaves its agent's turn as it was
+            with store.transaction():
+                for r in facts:   # the input's own facts: processed again after the fix
+                    self._append(r, cause, None, stream)
+                crash_event = self._append(Result(aborted.crashed.type, {**aborted.crashed.payload, "input": kind}),
+                                           on, None, stream)
+            self.crashes.append(crash_event)
+            if on is not None:
+                self._crashed.add(on.id)
+            last = store.last()
+            self._cursor = last.seq if last else 0   # the recorded facts wait for the fix: no policy on them now
+            return False
+        new = list(store.read(after=cursor))
+        for hook in self.after_commit:
             try:
-                project()
+                hook(new)
             except Exception:
-                logger.exception("a projector crashed: it can be rebuilt from the events")
-        for event in list(store.read(after=self._cursor)):
-            self._cursor = event.seq
-            for name, policy in self.machine.policies.get(event.type, []):
-                if store.issued(event.id, name):
-                    continue
-                with log.about(event):
-                    try:
-                        commands = policy(event, Ctx(**{**self.ctx.__dict__, "upto": event.seq}))
-                    except Exception as error:
-                        logger.exception("policy %s crashed on %s", name, event.type)
-                        r = crash("policy", name, error)
-                        self.crashes.append(store.append(r.type, r.payload, stream=event.stream, cause=event))
-                        issued = True
-                        continue
-                    for c in commands:
-                        store.append("CommandIssued", {"command": c.name, "target": c.target, "args": c.args},
-                                     stream=c.stream, cause=event, policy=name)
-                        logger.info("%s issued %s for %s", name, c.name, c.target)
-                        issued = True
-        return issued
+                logger.exception("an after-commit hook crashed: what it feeds can be rebuilt from the events")
+        return True
 
-    # --- commands ---
+    def _guard(self, where: str, name: str, fn: Callable[[], Any]) -> Any:
+        try:
+            return fn()
+        except _Aborted:
+            raise
+        except Exception as error:
+            logger.exception("%s %s crashed", where, name)
+            raise _Aborted(crash(where, name, error)) from error
 
-    def pending(self) -> list[Event]:
-        done = {e.causation_id for e in self.ctx.store.read(types_=("CommandDone",))}
-        return [e for e in self.ctx.store.read(types_=("CommandIssued",)) if e.id not in done]
+    def _append(self, r: Result, cause: Event | None, policy: str | None, stream: str) -> Event:
+        return self.ctx.store.append(r.type, r.payload, stream=r.stream or stream, actor=r.actor, cause=cause,
+                                     tokens=r.tokens, policy=policy)
 
-    def _finish(self, command: Event, results: list[Result]) -> None:
-        store = self.ctx.store
-        with store.transaction():
+    # --- the router ---
+
+    def _react(self) -> None:
+        """The policies of every event after the cursor, in order, the commands they issue executed at once."""
+        while True:
+            events = list(self.ctx.store.read(after=self._cursor))
+            if not events:
+                return
+            for event in events:
+                self._cursor = event.seq
+                self._policies(event)
+
+    def _policies(self, event: Event) -> None:
+        for name, policy in self.machine.policies.get(event.type, []):
+            at = Ctx(**{**self.ctx.__dict__, "upto": event.seq})
+            with log.about(event):
+                commands: list[Command] = self._guard("policy", name, functools.partial(policy, event, at))
+            for c in commands:
+                self._submit(c, event, name)
+
+    # --- the command handler ---
+
+    def _submit(self, command: Command, cause: Event, policy: str) -> None:
+        payload = {"command": command.name, "target": command.target, "args": command.args}
+        if command.target == "beck":
+            handler = self.machine.handlers.get(command.name)
+            if handler is None:
+                raise _Aborted(crash("handler", command.name, KeyError(f"no handler for {command.name}")))
+            issued = Issued(payload, command.stream, cause)
+            with log.about(cause):
+                results = self._guard("handler", command.name, lambda: handler(issued, self.ctx))  # type: ignore[arg-type]
+            logger.info("%s ran %s", policy, command.name)
             for r in results:
-                store.append(r.type, r.payload, stream=r.stream or command.stream, actor=r.actor, cause=command,
-                             tokens=r.tokens)
-            store.append("CommandDone", {"command": command.payload["command"]}, stream=command.stream,
-                         cause=command)
+                self._append(r, cause, policy, command.stream)
+            return
+        kind = "DecisionRequested" if command.target == "user" else "AgentTurnRequested"
+        self._append(Result(kind, payload), cause, policy, command.stream)
+        logger.info("%s asked %s for %s", policy, command.target, command.name)
 
-    def _execute(self, command: Event) -> list[Result]:
-        name = command.payload["command"]
+    def command(self, name: str, args: dict[str, Any], cause_id: str, actor: str) -> dict[str, Any]:
+        """A command from outside (the socket: an agent's `beck send`): its handler, and the policies of its
+        events, in one transaction. The handler's answer for the client, or the crash."""
+        store = self.ctx.store
+        cause = store.get(cause_id)
         handler = self.machine.handlers.get(name)
         if handler is None:
             raise KeyError(f"no handler for {name}")
-        with log.about(command):
-            return handler(command, self.ctx)
+        issued = Issued({"command": name, "target": "beck", "args": {**args, "actor": actor}}, cause.stream, cause)
+        answer: dict[str, Any] = {}
 
-    async def _turn(self, command: Event) -> list[Result]:
-        agent, name, args = command.payload["target"], command.payload["command"], command.payload["args"]
-        if "answer" in args:
-            envelope = protocol.answer(agent, name, command.id, command.correlation_id, args["answer"]["question"],
-                                       args["answer"]["text"])
-        else:
-            envelope = protocol.envelope(agent, name, command.id, command.correlation_id, args["context"],
-                                         tuple(args["retry"]) if args.get("retry") else None)  # type: ignore[arg-type]
-        env = {"BECK_CAUSE": command.id, "BECK_ITERATION": self.ctx.iteration, "BECK_ACTOR": agent,
+        def run() -> list[Result]:
+            out = handler(issued, self.ctx)  # type: ignore[arg-type]
+            if isinstance(out, Reply):
+                answer.update(out.value)
+                return out.results
+            return out
+        if not self._process(cause, [], run, kind="command", name=name):
+            return {"ok": False, "error": self.crashes[-1].payload["error"]}
+        return {"ok": True, **answer}
+
+    def serve(self, message: dict[str, Any]) -> dict[str, Any]:
+        """The socket's requests: an agent's `beck send test` or `beck send check`."""
+        names = {"test": "RunTests", "check": "RunChecks"}
+        if message.get("command") not in names:
+            return {"ok": False, "error": f"unknown command {message.get('command')!r}: {', '.join(names)}"}
+        return self.command(names[message["command"]], message.get("args", {}), message["cause"],
+                            message.get("actor", "user"))
+
+    def record(self, type_: str, payload: dict[str, Any], *, stream: str = "session", actor: str = "beck",
+               cause: Event | None = None) -> Event:
+        """A fact from outside, as an input: recorded, and every policy it sets off, in one transaction."""
+        before = self.ctx.store.last()
+        self._process(cause, [Result(type_, payload, actor=actor, stream=stream)], kind="input")
+        return next(e for e in self.ctx.store.read(after=before.seq if before else 0) if e.type == type_)
+
+    # --- the requests ---
+
+    def pending(self) -> list[Event]:
+        """The requests still waiting: the agents' turns and the user's decisions."""
+        store = self.ctx.store
+        return [r for r in store.read(types_=REQUESTS) if opened(store, r)]
+
+    def answer(self, request_id: str, results: list[Result]) -> None:
+        """The user's answer to a pending decision (a question, an approval), and all it causes."""
+        request = self.ctx.store.get(request_id)
+        if request.type != "DecisionRequested" or not opened(self.ctx.store, request):
+            raise ValueError(f"{request_id} is not a pending decision of the user")
+        self._process(request, results, kind="answer", name=request.payload["command"])   # the answer: a fact
+
+    async def _turn(self, request: Event, started: Event) -> list[Result]:
+        """The agent's turn: its facts (tools, its output and its tokens, what it changed), not yet judged."""
+        agent, name = request.payload["target"], request.payload["command"]
+        envelope, cwd = started.payload["envelope"], Path(started.payload["folder"])
+        env = {"BECK_CAUSE": request.id, "BECK_ITERATION": self.ctx.iteration, "BECK_ACTOR": agent,
                "BECK_PROJECT": str(self.ctx.project)}
-        cwd = self.ctx.workspace.worktree(args["component"]) if args.get("component") and agent != "kent" else self.ctx.project
-        before = await asyncio.to_thread(snapshot, cwd)
-        started = time.monotonic()
+        before = started.payload.get("snapshot")
+        clock = time.monotonic()
         try:
-            turn = await self.agents.turn(agent, args["session"], envelope, env, cwd)
+            turn = await self.agents.turn(agent, request.payload["args"]["session"], envelope, env, cwd)
         except TurnFailed as error:
             text = str(error)[:2000] or "the turn failed"
             patch = await asyncio.to_thread(changes, cwd, before)   # a failed turn may have changed files too
@@ -422,82 +560,125 @@ class Reactor:
                  for t in turn.tools]
         ended = Result("AgentTurnEnded", {"agent": agent, "model": turn.model, "tokens": turn.tokens,
                                           "output": turn.output,
-                                          "duration_ms": int((time.monotonic() - started) * 1000),
+                                          "duration_ms": int((time.monotonic() - clock) * 1000),
                                           **({"session": turn.session} if turn.session else {}),
                                           **({"definition": turn.definition} if turn.definition else {})},
                        actor=agent, tokens=turn.tokens)
         patch = await asyncio.to_thread(changes, cwd, before)
-        if patch:
-            ended_and_changed = [ended, Result("TurnChanged", {"agent": agent, "patch": patch}, actor=agent)]
-        else:
-            ended_and_changed = [ended]
-        checked = protocol.check_output(agent, name, turn.output)
+        return [*tools, ended, *([Result("TurnChanged", {"agent": agent, "patch": patch}, actor=agent)] if patch else [])]
+
+    def _judge(self, request: Event, output: Any) -> list[Result]:
+        """An agent's output, distilled: rejected, a question, or what its translator makes of it."""
+        agent, name = request.payload["target"], request.payload["command"]
+        checked = protocol.check_output(agent, name, output)
         if checked.output is None:
-            return [*tools, *ended_and_changed,
-                    Result("SignalRejected", {"agent": agent, "command": name, "errors": checked.errors,
+            return [Result("SignalRejected", {"agent": agent, "command": name, "errors": checked.errors,
                                               "signature": signature(checked.errors)}, actor=agent)]
         if checked.output["outcome"] == "question":
-            return [*tools, *ended_and_changed, Result("QuestionAsked", {"agent": agent, "command": name,
-                                                    "question": checked.output["question"]}, actor=agent)]
-        try:
-            translated = self.machine.translators[name](command, checked.output, self.ctx)
-        except Exception as error:
-            logger.exception("translator %s crashed", name)
-            raise _Crashed([*tools, *ended_and_changed, crash("translator", name, error)]) from error
-        return [*tools, *ended_and_changed, *translated]
+            return [Result("QuestionAsked", {"agent": agent, "command": name,
+                                             "question": checked.output["question"]}, actor=agent)]
+        return self.machine.translators[name](request, checked.output, self.ctx)
 
-    def _record_crash(self, command: Event, results: list[Result]) -> None:
+    def _start(self, request: Event, again: bool) -> Event:
+        """AgentTurnStarted: the input the agent gets and its folder's snapshot; a turn started again first
+        gets its folder back to the snapshot of its first start."""
+        agent, name, args = request.payload["target"], request.payload["command"], request.payload["args"]
+        cwd = self.ctx.workspace.worktree(args["component"]) if args.get("component") and agent != "kent" \
+            else self.ctx.project
+        earlier = [e for e in self.ctx.store.caused_by(request.id) if e.type == "AgentTurnStarted"]
+        if again and earlier and earlier[0].payload.get("snapshot"):
+            restore(Path(earlier[0].payload["folder"]), earlier[0].payload["snapshot"])
+        if "answer" in args:
+            envelope = protocol.answer(agent, name, request.id, request.correlation_id, args["answer"]["question"],
+                                       args["answer"]["text"])
+        else:
+            envelope = protocol.envelope(agent, name, request.id, request.correlation_id, args["context"],
+                                         tuple(args["retry"]) if args.get("retry") else None)  # type: ignore[arg-type]
+        snap = snapshot(Path(cwd))
+        payload: dict[str, Any] = {"agent": agent, "command": name, "envelope": envelope, "folder": str(cwd),
+                                   **({"snapshot": snap} if snap else {}), **({"again": True} if again else {})}
+        with self.ctx.store.transaction():
+            started = self._append(Result("AgentTurnStarted", payload, actor="beck"), request, None, request.stream)
+        self._cursor = max(self._cursor, started.seq)
+        return started
+
+    # --- recovery ---
+
+    def _recover(self) -> None:
+        """The state rebuilt from the events, the work in flight resumed (the module's doc)."""
         store = self.ctx.store
-        with store.transaction():
-            for r in results:
-                e = store.append(r.type, r.payload, stream=r.stream or command.stream, actor=r.actor, cause=command,
-                                 tokens=r.tokens)
-                if e.type == "BeckCrashed":
-                    self.crashes.append(e)
-        self._crashed.add(command.id)
+        for root in store.read(types_=("SessionStarted",)):
+            if not [e for e in store.caused_by(root.id) if e.type != "BeckCrashed"] and root.id not in self._crashed:
+                self._process(None, [], again=[root], kind="start")
+        for request in list(store.read(types_=REQUESTS)):
+            effects = store.caused_by(request.id)
+            if not effects or effects[-1].type != "BeckCrashed" or request.id in self._crashed:
+                continue
+            facts = [e for e in effects if e.type not in ("BeckCrashed", "AgentTurnStarted")]
+            if request.type == "AgentTurnRequested":
+                ended = next((e for e in reversed(facts) if e.type == "AgentTurnEnded"), None)
+                if ended is None and not any(e.type == "AgentTurnFailed" for e in facts):
+                    continue   # crashed before it ran: the launcher starts it
+                judged = (lambda r=request, o=ended.payload["output"]: self._judge(r, o)) if ended else None
+                self._process(request, [], judged, again=facts, kind="turn", name=request.payload["command"])
+            else:
+                self._process(request, [], again=facts, kind="answer")
 
-    def answer(self, command_id: str, results: list[Result]) -> None:
-        """The user's answer to a pending command of theirs (a question, an approval)."""
-        command = self.ctx.store.get(command_id)
-        if command.payload["target"] != "user" or command not in self.pending():
-            raise ValueError(f"{command_id} is not a pending command of the user")
-        self._finish(command, results)
+    def _in_flight(self, request: Event) -> bool:
+        effects = self.ctx.store.caused_by(request.id)
+        return any(e.type == "AgentTurnStarted" for e in effects) and not any(
+            e.type in ("AgentTurnEnded", "AgentTurnFailed") for e in effects)
 
     async def run_until_idle(self) -> None:
-        """Reacts and executes until nothing is left but the user's answers."""
+        """Processes and runs the turns until nothing is left but the user's answers."""
+        if not self._recovered:
+            self._recovered = True
+            self._recover()
         while True:
-            progressed = self.react()
-            for command in self.pending():
-                target = command.payload["target"]
-                if command.id in self._crashed:
+            for request in self.pending():
+                if request.type != "AgentTurnRequested" or request.id in self._running or request.id in self._crashed:
                     continue
-                if target == "beck":
-                    try:
-                        results = self._execute(command)
-                    except Exception as error:
-                        logger.exception("handler %s crashed", command.payload["command"])
-                        self._record_crash(command, [crash("handler", command.payload["command"], error)])
-                    else:
-                        self._finish(command, results)
-                    progressed = True
-                elif target != "user" and command.id not in self._running and len(self._running) < self.slots:
-                    self._running[command.id] = asyncio.create_task(self._turn(command))
-            if progressed:
-                continue
+                if len(self._running) >= self.slots:
+                    break
+                started = self._start(request, again=self._in_flight(request))
+                self._running[request.id] = asyncio.create_task(self._turn(request, started))
             if not self._running:
                 return
             done, _ = await asyncio.wait(self._running.values(), return_when=asyncio.FIRST_COMPLETED)
-            for cid, task in list(self._running.items()):
-                if task in done:
-                    del self._running[cid]
-                    command = self.ctx.store.get(cid)
-                    try:
-                        results = task.result()
-                    except _Crashed as crashed:
-                        self._record_crash(command, crashed.results)
-                    except Exception as error:
-                        logger.exception("turn %s crashed", command.payload["command"])
-                        self._record_crash(command, [crash("turn", command.payload["command"], error)])
-                    else:
-                        self._finish(command, results)
+            for rid, task in list(self._running.items()):
+                if task not in done:
+                    continue
+                del self._running[rid]
+                request = self.ctx.store.get(rid)
+                try:
+                    facts = task.result()
+                except Exception as error:
+                    logger.exception("turn %s crashed", request.payload["command"])
+                    self._process(request, [], functools.partial(self._raise, "turn", request, error), kind="turn",
+                                  name=request.payload["command"])
+                    continue
+                ended = next((r for r in facts if r.type == "AgentTurnEnded"), None)
+                judged = (lambda r=request, o=ended.payload["output"]: self._judge(r, o)) if ended else None
+                self._process(request, facts, judged, kind="turn", name=request.payload["command"])
 
+    @staticmethod
+    def _raise(where: str, request: Event, error: BaseException) -> list[Result]:
+        raise _Aborted(crash(where, request.payload["command"], error))
+
+
+def restore(folder: Path, tree: str) -> None:
+    """The folder's files put back as the snapshot holds them: the tracked and untracked files of the tree,
+    and nothing else (the ignored files are left alone)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        env = {**os.environ, "GIT_INDEX_FILE": str(Path(tmp) / "index")}
+        now = subprocess.run(["git", "add", "-A", "."], cwd=folder, env=env, capture_output=True)
+        if now.returncode != 0:
+            return
+        present = set(subprocess.run(["git", "ls-files"], cwd=folder, env=env, capture_output=True,
+                                     text=True).stdout.splitlines())
+        subprocess.run(["git", "read-tree", tree], cwd=folder, env=env, check=True, capture_output=True)
+        kept = set(subprocess.run(["git", "ls-files"], cwd=folder, env=env, capture_output=True,
+                                  text=True).stdout.splitlines())
+        for path in present - kept:
+            (folder / path).unlink(missing_ok=True)
+        subprocess.run(["git", "checkout-index", "-a", "-f"], cwd=folder, env=env, check=True, capture_output=True)

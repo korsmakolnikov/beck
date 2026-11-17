@@ -1,13 +1,13 @@
 """`beck test`: the agents run the tests through beck, and the run becomes evidence.
 
-The run writes its JUnit report under .beck/reports/ and a TestsRun event
-into the store of the open iteration, with the report's hash and the git
-tree of the working tree (outside .beck/) when the run ended: a verifier
-that finds a different tree knows the files changed after the run.
-
-The event's cause is $BECK_CAUSE (the event that launched the agent), so the
-run joins the chain of the policy that asked for it. beck never decides
-whether a phase is valid here: it records; the verifiers judge.
+The run writes its JUnit report under .beck/reports/ and, given the engine's
+store, a TestsRun event with the report's hash and the git tree of the
+working tree (outside .beck/) when the run ended: a verifier that finds a
+different tree knows the files changed after the run. Only the engine
+writes the store: an agent's run reaches it through the session's socket
+(`beck send test`), and its cause is the agent's turn, so the run joins the
+chain of the policy that asked for it. beck never decides whether a phase
+is valid here: it records; the verifiers judge.
 
 The agent never reads the runner's console output, which goes to the run's
 log: it reads the summary of beck.junit (`ALL_OK`, or the tests that did not
@@ -70,24 +70,25 @@ def open_iteration(project: Project) -> str:
 
 @dataclass(frozen=True)
 class Run:
-    event: Event
+    event: Event | None   # None when no store recorded it
     exit_code: int
-    summary: str      # what the agent reads
+    summary: str          # what the agent reads
+    payload: dict[str, Any]
+
+    @property
+    def recorded(self) -> Event:
+        """The run's event: beck's own runs are always recorded."""
+        assert self.event is not None, "a run with no store"
+        return self.event
 
 
 def run(root: Path, toolchain: Toolchain, tests: list[str], *, actor: str, component: str | None = None,
-        requirement: str | None = None, store_root: Path | None = None, cause_id: str | None = None,
-        iteration: str | None = None, coverage_of: list[str] | None = None) -> Run:
-    """Runs in root (a component's worktree); the reports and the event go to store_root's .beck/ (default: root).
-
-    cause_id and iteration default to $BECK_CAUSE and the open iteration (an agent's run); beck passes them
-    when a policy asks it to run tests. coverage_of: the paths to measure, when the toolchain measures.
-    """
+        requirement: str | None = None, store_root: Path | None = None, store: EventStore | None = None,
+        cause: Event | None = None, coverage_of: list[str] | None = None, hunt: bool = False) -> Run:
+    """Runs in root (a component's worktree); the reports go to store_root's .beck/ (default: root), the
+    TestsRun, caused by `cause`, to `store` (the engine's), if given. coverage_of: the paths to measure."""
     store_root = store_root or root
-    project = Project(store_root)
-    store = EventStore(project.store_path(iteration or open_iteration(project)))
-    try:
-        cause = store.get(cause_id) if cause_id else _cause(store)
+    if True:   # the body as it was
         reports = store_root / ".beck" / "reports"
         reports.mkdir(parents=True, exist_ok=True)
         name = str(uuid.uuid4())
@@ -134,13 +135,14 @@ def run(root: Path, toolchain: Toolchain, tests: list[str], *, actor: str, compo
             payload["coverage"] = str(coverage.relative_to(store_root))
             payload["coverage_format"] = toolchain.coverage.format
         payload.update({k: v for k, v in (("component", component), ("requirement", requirement)) if v})
-        event = store.append("TestsRun", payload, stream=f"cycle:{component}/{requirement}" if component and requirement
-                             else f"component:{component}" if component else "session",
-                             actor=actor, cause=cause, sha=git(root, "rev-parse", "HEAD"))
-        return Run(event, exit_code, text)
-    finally:
-        store.close()
-        project.close()
+        if hunt:
+            payload["hunt"] = True
+        event = None
+        if store is not None:
+            event = store.append("TestsRun", payload, stream=f"cycle:{component}/{requirement}" if component and requirement
+                                 else f"component:{component}" if component else "session",
+                                 actor=actor, cause=cause, sha=git(root, "rev-parse", "HEAD"))
+        return Run(event, exit_code, text, payload)
 
 
 def _run(command: list[str], root: Path, env: dict[str, str], out: Any, timeout: float) -> tuple[int, bool]:

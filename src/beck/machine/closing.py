@@ -27,7 +27,7 @@ from beck.events.project import Project
 from beck.events.store import Event
 from beck.junit import UnreadableReport, parse, summary
 from beck.machine.component import execution, state, stream
-from beck.machine.core import Command, Ctx, Machine, Result, action, ask_routed
+from beck.machine.core import Command, Ctx, Issued, Machine, Result, action, ask_routed
 from beck.machine.cycle import stream as cycle_stream
 from beck.machine.refactor import _declared_tests, _git, _head, autosquash_onto, components_machine
 from beck.machine.signatures import blocked, signature
@@ -68,20 +68,20 @@ def full_suite(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @closing.handler("RunFullSuite")
-def handle_full_suite(command: Event, ctx: Ctx) -> list[Result]:
+def handle_full_suite(command: Issued, ctx: Ctx) -> list[Result]:
     toolchain = load(ctx.project)
     result = run_tests(ctx.project, toolchain, toolchain.suite_paths(ctx.project), actor="beck",
-                       cause_id=command.id, iteration=ctx.iteration)
+                       store=ctx.store, cause=command.cause)
     report = None
-    if "report" in result.event.payload:
+    if "report" in result.recorded.payload:
         try:
-            report = parse(ctx.project / result.event.payload["report"], ctx.project)
+            report = parse(ctx.project / result.recorded.payload["report"], ctx.project)
         except UnreadableReport:
             pass
     if report is not None and not report.not_passed and report.count("passed"):
         return [Result("SuiteGreen", {})]
     failing = [c.id for c in report.not_passed] if report else []
-    failure = summary(report) if report else f"NO_REPORT: see {result.event.payload['log']}"
+    failure = summary(report) if report else f"NO_REPORT: see {result.recorded.payload['log']}"
     return [Result("SuiteFailed", {"tests": failing, "failure": failure[:4000]})]
 
 
@@ -139,7 +139,7 @@ def after_a_closing_question(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @closing.handler("ReopenComponent")
-def handle_reopen_component(command: Event, ctx: Ctx) -> list[Result]:
+def handle_reopen_component(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     component = a["component"]
     n = len([e for e in ctx.store.read(stream=stream(component), types_=("ComponentReopened",))]) + 2
@@ -166,12 +166,12 @@ def static_checks_of_the_branch(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @closing.handler("RunStaticChecks")
-def handle_static_checks(command: Event, ctx: Ctx) -> list[Result]:
+def handle_static_checks(command: Issued, ctx: Ctx) -> list[Result]:
     toolchain = load(ctx.project)
     if not toolchain.check:
         return [Result("StaticChecksPassed", {})]
     result = static_checks.run(ctx.project, toolchain, ["."], whole_project=True, actor="beck",
-                               cause_id=command.id, iteration=ctx.iteration)
+                               store=ctx.store, cause=command.cause)
     if result.exit_code == 0:
         return [Result("StaticChecksPassed", {})]
     findings = [str(f) for r in result.results if r.findings for f in r.findings] or [result.summary]
@@ -188,7 +188,7 @@ def fix_the_branch(event: Event, ctx: Ctx) -> list[Command]:
                            [action("run-again", "Run the project's static checks again (the user fixed them)."),
                             action("go-on", "Go on to the review: the findings stay as they are.")],
                            BRANCH, event.id)]
-    context = {"findings": event.payload["findings"], "check": "beck check --all"}
+    context = {"findings": event.payload["findings"], "check": "beck send check --all"}
     return [Command("FixStaticFindings", "martin", {"session": "martin/branch", "context": context, "branch": True},
                     BRANCH)]
 
@@ -218,7 +218,7 @@ def blame_target(root: Path, file: str) -> str:
 
 
 @closing.handler("CommitBranchFixes")
-def handle_branch_fixes(command: Event, ctx: Ctx) -> list[Result]:
+def handle_branch_fixes(command: Issued, ctx: Ctx) -> list[Result]:
     root = ctx.project
     tracked = _git(root, "diff", "--name-only", "HEAD", "--", ".", ":!.beck").stdout.split()
     new = _git(root, "ls-files", "--others", "--exclude-standard", "--", ".", ":!.beck").stdout.split()
@@ -241,7 +241,7 @@ def check_again(event: Event, ctx: Ctx) -> list[Command]:
 
 
 def _rounds(ctx: Ctx) -> int:
-    return len([e for e in ctx.events(types=("CommandIssued",)) if e.payload["command"] == "PresentForReview"])
+    return len([e for e in ctx.events(types=("DecisionRequested",)) if e.payload["command"] == "PresentForReview"])
 
 
 @closing.policy("StaticChecksPassed")
@@ -286,9 +286,9 @@ def _last_coverage(ctx: Ctx) -> list[Event]:
 
 
 @closing.handler("AutosquashBranch")
-def handle_autosquash_branch(command: Event, ctx: Ctx) -> list[Result]:
+def handle_autosquash_branch(command: Issued, ctx: Ctx) -> list[Result]:
     autosquash_onto(ctx.project, squash_base(ctx))
-    results = [Result("BranchSquashed", {"sha": _head(ctx.project)})]
+    results = [Result("BranchSquashed", {"sha": _head(ctx.project), "then": command.payload["args"]["then"]})]
     if command.payload["args"]["then"] == "close":
         Project(ctx.project).end_iteration(ctx.iteration)
         results.append(Result("IterationClosed", {}))
@@ -297,8 +297,7 @@ def handle_autosquash_branch(command: Event, ctx: Ctx) -> list[Result]:
 
 @closing.policy("BranchSquashed")
 def present(event: Event, ctx: Ctx) -> list[Command]:
-    issued = ctx.store.get(event.causation_id or "")
-    if issued.payload["args"]["then"] != "review":
+    if event.payload["then"] != "review":
         return []
     return [_present(ctx)]
 
@@ -332,12 +331,13 @@ def correct_components(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @closing.handler("ReopenForMartin")
-def handle_reopen_for_martin(command: Event, ctx: Ctx) -> list[Result]:
+def handle_reopen_for_martin(command: Issued, ctx: Ctx) -> list[Result]:
     """A correction for martin: the component reopens with a review holding one finding, the correction."""
     a = command.payload["args"]
-    reopened = handle_reopen_component(Event(**{**command.__dict__, "payload": {
-        **command.payload, "args": {"component": a["component"], "requirements": [], "phase": "green",
-                                    "reason": f"the user's correction: {a['description']}"}}}), ctx)
+    reopened = handle_reopen_component(Issued({**command.payload, "args": {
+        "component": a["component"], "requirements": [], "phase": "green",
+        "reason": f"the user's correction: {a['description']}"}}, command.stream, command.cause), ctx)
+    assert isinstance(reopened, list)
     tree = Path(reopened[0].payload["worktree"])
     files = _git(tree, "ls-files", "--", *ctx.workspace.scope(a["component"])).stdout.split()
     files.sort(key=lambda f: (tree / f).stat().st_size if (tree / f).is_file() else 0, reverse=True)

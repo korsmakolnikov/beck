@@ -1,6 +1,6 @@
 ---
 description: TDD implementer of one unit of requirements, one cycle per requirement.
-tools: [Read, Edit, Write, Glob, Grep, "Bash(beck test:*)"]
+tools: [Read, Edit, Write, Glob, Grep, "Bash(beck send:*)"]
 ---
 
 # unclebob

@@ -24,9 +24,8 @@ the others in order; a decision the recording lacks stops the replay: answer
 it with `beck answer`, then `--resume <replay>` goes on. The report compares
 the two runs: their events, and each agent's turns, tokens and time.
 
-An iteration recorded before the events held the turns (no `output`) is read
-from the agents' Claude Code transcripts instead, the paths moved and the
-DSL files migrated (`beck.dsl.validate.migrate`); the report counts them.
+Only the iterations recorded by the event-sourced core replay (its events hold the requests, the outputs,
+the changes and the runs); the older ones are implemented again from scratch.
 """
 
 from __future__ import annotations
@@ -34,7 +33,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import shlex
 import subprocess
 import sys
 import tempfile
@@ -46,31 +44,26 @@ from typing import Any, TextIO
 
 import yaml
 
-from beck.app import finished, pending_decisions, reactor_for
-from beck.drivers.claude import INPUT_CHARS, parse_answer, session_id
-from beck.dsl.validate import migrate
+from beck import socket
+from beck.app import engine_for, finished, pending_decisions
 from beck.events.project import Project
 from beck.events.store import Event, EventStore
 from beck.machine.core import Agents, Result, Turn
-from beck.shell import parts
-
-FILE_TOOLS = {"Write", "Edit", "MultiEdit"}
-REPLAYED_SHELL = ("beck ", "git rm ")   # an agent's commands with effects: the rest only read
 
 
 class Diverged(BaseException):
-    """The new code asks for what the recording does not hold; a BaseException, so the reactor lets it through."""
+    """The new code asks for what the recording does not hold; a BaseException, so the engine lets it through."""
 
 
 @dataclass
 class Recorded:
-    command: Event
+    request: Event                          # the original AgentTurnRequested
     variant: tuple[str, int]                # ("first", 0), ("retry", n), ("answer", 0)
     output: Any = None
-    tools: list[dict[str, Any]] = field(default_factory=list)   # {"tool", "input", "ok"}
     tokens: dict[str, int] = field(default_factory=dict)
     model: str = "default"
-    patch: str | None = None                # from the events: the turn's changes (None: read from a transcript)
+    patch: str = ""                         # the turn's changes (TurnChanged)
+    runs: list[tuple[str, dict[str, Any]]] = field(default_factory=list)   # its beck send test/check, in order
     used: bool = False
 
 
@@ -82,61 +75,18 @@ def _variant(args: dict[str, Any]) -> tuple[str, int]:
     return ("first", 0)
 
 
-def transcripts_root() -> Path:
-    return Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude")) / "projects"
-
-
-def _transcript(sid: str, root: Path) -> list[dict[str, Any]]:
-    lines: list[dict[str, Any]] = []
-    for path in sorted(root.glob(f"*/{sid}.jsonl")):
-        for line in path.read_text(errors="replace").splitlines():
-            try:
-                lines.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-    return lines
-
-
-def _content(m: dict[str, Any]) -> Any:
-    message = m.get("message")
-    return message.get("content") if isinstance(message, dict) else None
-
-
-def read_turn(transcript: list[dict[str, Any]], command_id: str) -> tuple[Any, list[dict[str, Any]]] | None:
-    """The answer and the tool calls of the turn whose envelope names command_id; None when it is not there.
-
-    A turn runs from its envelope (a user message as text) to the next one; its answer is its last text.
-    """
-    messages = [m for m in transcript if m.get("type") in ("user", "assistant") and not m.get("isSidechain")]
-    starts = [i for i, m in enumerate(messages) if m["type"] == "user" and isinstance(_content(m), str)
-              and f'"event_id": "{command_id}"' in _content(m)]
-    if not starts:
-        return None
-    i = starts[-1] + 1                       # the last: a turn resumed after "already in use" sent it twice
-    uses: list[dict[str, Any]] = []
-    errors: set[str] = set()
-    answer: str | None = None
-    while i < len(messages) and not (messages[i]["type"] == "user" and isinstance(_content(messages[i]), str)):
-        for block in _content(messages[i]) or []:
-            if not isinstance(block, dict):
-                continue
-            if block.get("type") == "tool_use":
-                uses.append({"id": block.get("id"), "tool": block.get("name", "?"), "input": block.get("input", {})})
-            elif block.get("type") == "tool_result" and block.get("is_error"):
-                errors.add(str(block.get("tool_use_id")))
-            elif block.get("type") == "text" and messages[i]["type"] == "assistant":
-                answer = block.get("text", "")
-        i += 1
-    if answer is None:
-        return None
-    return parse_answer(answer), [{"tool": u["tool"], "input": u["input"], "ok": u["id"] not in errors} for u in uses]
+def _sent(run: Event) -> tuple[str, dict[str, Any]]:
+    """What an agent sent the socket, from the run it made: the command again."""
+    p = run.payload
+    if run.type == "TestsRun":
+        return "test", {"tests": p["tests"], "component": p.get("component"), "requirement": p.get("requirement")}
+    return "check", {"paths": p["paths"], "component": p.get("component"), "all": p["whole_project"]}
 
 
 class Recording:
-    """The original iteration's answers: the agents' turns and the user's decisions, from its events."""
+    """The original iteration's answers, from its events: the agents' turns and the user's decisions."""
 
-    def __init__(self, store: EventStore, iteration: str, root: Path, transcripts: Path | None = None,
-                 turns: bool = True):
+    def __init__(self, store: EventStore, root: Path, turns: bool = True):
         self.root = root
         events = list(store.read())
         caused: dict[str | None, list[Event]] = defaultdict(list)
@@ -145,43 +95,27 @@ class Recording:
         self.config = next((e.payload["config"] for e in events if e.type == "ConfigLoaded"), None)
         self.turns: dict[tuple[str, str, str], list[Recorded]] = defaultdict(list)
         self.decisions: dict[str, list[tuple[Event, list[Result]]]] = defaultdict(list)
-        self.missing: list[Event] = []      # old turns whose transcript was not found
-        self.legacy = 0                     # turns read from a transcript: recorded before the events held them
         self.failed = 0
-        cache: dict[str, list[dict[str, Any]]] = {}
         for e in events:
-            if e.type != "CommandIssued" or e.payload["target"] == "beck":
+            if e.type == "DecisionRequested":
+                answer = [r for r in caused[e.id] if r.actor == "user"]
+                if answer:
+                    self.decisions[e.payload["command"]].append(
+                        (e, [Result(r.type, r.payload, actor=r.actor) for r in answer]))
                 continue
-            target, name, args = e.payload["target"], e.payload["command"], e.payload["args"]
-            results = [r for r in caused[e.id] if r.type != "CommandDone"]
-            if target == "user":
-                if results:
-                    self.decisions[name].append((e, [Result(r.type, r.payload, actor=r.actor) for r in results]))
+            if e.type != "AgentTurnRequested" or not turns:
                 continue
-            if not turns:
-                continue
-            ended = next((r for r in results if r.type == "AgentTurnEnded"), None)
+            effects = caused[e.id]
+            ended = next((r for r in reversed(effects) if r.type == "AgentTurnEnded"), None)
             if ended is None:                # the CLI failed: nothing to replay
                 self.failed += 1
                 continue
-            tokens, model = ended.payload.get("tokens", {}), ended.payload.get("model", "default")
-            key = (target, name, args["session"])
-            if "output" in ended.payload:
-                patch = next((r.payload["patch"] for r in results if r.type == "TurnChanged"), "")
-                tools = [{"tool": r.payload["tool"], "input": r.payload["input"], "ok": True}
-                         for r in results if r.type == "ToolCalled"]
-                self.turns[key].append(Recorded(e, _variant(args), ended.payload["output"], tools, tokens, model,
-                                                patch))
-                continue
-            sid = session_id(iteration, target, args["session"])
-            if sid not in cache:
-                cache[sid] = _transcript(sid, transcripts or transcripts_root())
-            turn = read_turn(cache[sid], e.id)
-            if turn is None:
-                self.missing.append(e)
-                continue
-            self.legacy += 1
-            self.turns[key].append(Recorded(e, _variant(args), turn[0], turn[1], tokens, model))
+            patch = next((r.payload["patch"] for r in reversed(effects) if r.type == "TurnChanged"), "")
+            runs = [_sent(r) for r in effects if r.type in ("TestsRun", "ChecksRun") and not r.payload.get("hunt")]
+            args = e.payload["args"]
+            self.turns[(e.payload["target"], e.payload["command"], args["session"])].append(
+                Recorded(e, _variant(args), ended.payload["output"], ended.payload.get("tokens", {}),
+                         ended.payload.get("model", "default"), patch, runs))
 
     def take(self, agent: str, name: str, session: str, variant: tuple[str, int]) -> Recorded | None:
         """The next recorded turn of the session with this variant, skipping those the new code did not ask for."""
@@ -193,9 +127,9 @@ class Recording:
                 return r
         return None
 
-    def decide(self, command: Event) -> list[Result] | None:
+    def decide(self, request: Event) -> list[Result] | None:
         """The recorded answer to a decision of the user: by key or question when it has one, else in order."""
-        name, args = command.payload["command"], command.payload["args"]
+        name, args = request.payload["command"], request.payload["args"]
         queue = self.decisions.get(name, [])
 
         def same(original: Event) -> bool:
@@ -213,19 +147,13 @@ class Recording:
 
     def consume(self, store: EventStore) -> None:
         """Marks used what a replay already took, to resume it: its replayed turns (no CLI session) and decisions."""
-        events = list(store.read())
-        caused: dict[str | None, list[Event]] = defaultdict(list)
-        for e in events:
-            caused[e.causation_id].append(e)
-        for e in events:
-            if e.type != "CommandIssued" or e.payload["target"] == "beck":
-                continue
-            results = caused[e.id]
-            if e.payload["target"] == "user":
-                if any(r.type == "CommandDone" for r in results):
+        for e in list(store.read(types_=("AgentTurnRequested", "DecisionRequested"))):
+            effects = store.caused_by(e.id)
+            if e.type == "DecisionRequested":
+                if any(r.actor == "user" for r in effects):
                     self.decide(e)
                 continue
-            ended = next((r for r in results if r.type == "AgentTurnEnded"), None)
+            ended = next((r for r in effects if r.type == "AgentTurnEnded"), None)
             if ended is not None and "session" not in ended.payload:
                 self.take(e.payload["target"], e.payload["command"], e.payload["args"]["session"],
                           _variant(e.payload["args"]))
@@ -244,18 +172,14 @@ def _moved(value: Any, old: str, new: str) -> Any:
     return value
 
 
-def _is_dsl(path: Path) -> bool:
-    return (path.parent.name == ".beck" and path.name == "architecture.yaml") or (
-        path.parent.name == "domains" and path.parent.parent.name == ".beck")
-
-
 @dataclass
 class ReplayAgents:
-    """The Agents of a replay: each turn's recorded answer, its file changes applied again in the new folder."""
+    """The Agents of a replay: each turn's recorded output, its changes applied again in the new folder and its
+    `beck send` commands sent again, so that its runs are the evidence of this replay."""
     recording: Recording
     root: Path                          # the replay's root
     iteration: str
-    live: Agents | None = None          # --live: the turns the recording lacks go to the real agents
+    live: Agents | None = None          # mixed: the turns the recording lacks go to the real agents
     drifted: list[str] = field(default_factory=list)
     turns: int = 0
     lived: list[str] = field(default_factory=list)
@@ -272,66 +196,23 @@ class ReplayAgents:
         if r is None:
             raise Diverged(f"no recorded {agent} {envelope['command']} for session {session} "
                            f"({'/'.join(map(str, _variant(args)))})")
-        old, new = str(self.recording.root), str(self.root)
         if r.patch:
             await asyncio.to_thread(self._patch, r.patch, cwd)
-        tools = []
-        for t in r.tools:
-            moved = _moved(t["input"], old, new)
-            if r.patch is not None:          # from the events: the patch made the changes, the commands run again
-                if t["tool"] == "Bash":
-                    await asyncio.to_thread(self._run_beck, moved, cwd, env)
-            elif t["ok"]:
-                await asyncio.to_thread(self._apply, t["tool"], moved, cwd, env)
-            text = json.dumps(moved)
-            tools.append({"tool": t["tool"], "input": moved if len(text) <= INPUT_CHARS else {"truncated": text[:INPUT_CHARS]}})
+        for what, sent in r.runs:
+            answer = socket.send(self.root, {"command": what, "cause": env["BECK_CAUSE"], "actor": agent,
+                                             "args": {**sent, "cwd": str(cwd)}})
+            if not answer.get("ok"):
+                self.drifted.append(f"{agent} {envelope['command']}: beck send {what}: {answer.get('error')}")
         self.turns += 1
+        old, new = str(self.recording.root), str(self.root)
         # no CLI session: none exists for a replayed turn, and a live turn of the session must start one
-        return Turn(_moved(r.output, old, new), r.model, r.tokens, None, tools)
+        return Turn(_moved(r.output, old, new), r.model, r.tokens, None, [])
 
     def _patch(self, patch: str, cwd: Path) -> None:
         done = subprocess.run(["git", "apply", "--whitespace=nowarn", "-"], cwd=cwd, input=patch, text=True,
                               capture_output=True)
         if done.returncode != 0:
             self.drifted.append(f"{cwd}: the patch does not apply: {done.stderr.strip()[:200]}")
-
-    def _run_beck(self, input_: dict[str, Any], cwd: Path, env: dict[str, str]) -> None:
-        where = cwd
-        for part in parts(str(input_.get("command", ""))):
-            if part.startswith("cd "):
-                where = where / Path(shlex.split(part)[1])
-            elif part.startswith("beck "):
-                subprocess.run(part, shell=True, cwd=where, env={**os.environ, **env}, capture_output=True, timeout=900)
-
-    def _apply(self, tool: str, input_: dict[str, Any], cwd: Path, env: dict[str, str]) -> None:
-        if tool in FILE_TOOLS and _is_dsl(Path(input_["file_path"])):   # recorded before a change of the DSLs
-            input_ = {k: migrate(v) if k in ("content", "old_string", "new_string") else v for k, v in input_.items()}
-            if "edits" in input_:
-                input_["edits"] = [{k: migrate(v) if isinstance(v, str) else v for k, v in e.items()}
-                                   for e in input_["edits"]]
-        if tool == "Write":
-            path = Path(input_["file_path"])
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(input_["content"])
-        elif tool in ("Edit", "MultiEdit"):
-            path = Path(input_["file_path"])
-            edits = input_.get("edits") or [input_]
-            text = path.read_text() if path.is_file() else ""
-            for e in edits:
-                if e["old_string"] not in text:
-                    self.drifted.append(f"{path}: {e['old_string'][:60]!r}")
-                    return
-                text = (text.replace(e["old_string"], e["new_string"]) if e.get("replace_all")
-                        else text.replace(e["old_string"], e["new_string"], 1))
-            path.write_text(text)
-        elif tool == "Bash":
-            where = cwd
-            for part in parts(str(input_.get("command", ""))):
-                if part.startswith("cd "):
-                    where = where / Path(shlex.split(part)[1])
-                elif part.startswith(REPLAYED_SHELL):
-                    subprocess.run(part, shell=True, cwd=where, env={**os.environ, **env}, capture_output=True,
-                                   timeout=900)
 
 
 @dataclass
@@ -346,11 +227,11 @@ class Outcome:
 MODES = ("live", "recorded", "mixed")
 
 
-def replay(original: Project, iteration: str, into: Path, out: TextIO, transcripts: Path | None = None,
-           mode: str = "live", models: dict[str, str] | None = None, resume: str | None = None) -> Outcome:
+def replay(original: Project, iteration: str, into: Path, out: TextIO, mode: str = "live",
+           models: dict[str, str] | None = None, resume: str | None = None) -> Outcome:
     it = original.find(iteration)
     source = original.open(it.id)
-    recording = Recording(source, it.id, original.root, transcripts, turns=mode != "live")
+    recording = Recording(source, original.root, turns=mode != "live")
     if resume:
         project = Project(into)
         new = project.find(resume)
@@ -364,11 +245,11 @@ def replay(original: Project, iteration: str, into: Path, out: TextIO, transcrip
         project, new, store = _start(original, source, recording, into, out, it.id, mode, models or {})
     live = _live(store, project, new.id) if mode != "recorded" else None
     agents: Agents = live if mode == "live" and live is not None else ReplayAgents(recording, project.root, new.id, live)
-    reactor = reactor_for(project, new.id, store, agents)
+    engine = engine_for(project, new.id, store, agents)
     outcome = Outcome(project.root, new.id, "stuck")
     started = time.monotonic()
     try:
-        outcome = asyncio.run(_drive(reactor, recording, store, outcome))
+        outcome = asyncio.run(_drive(engine, recording, store, outcome))
     except Diverged as error:
         outcome.end, outcome.detail = "diverged", str(error)
     outcome.seconds = int(time.monotonic() - started)
@@ -396,8 +277,7 @@ def _start(original: Project, source: EventStore, recording: Recording, into: Pa
     turns = sum(map(len, recording.turns.values()))
     out.write(f"beck: replaying {iteration[:8]} as {new.id[:8]} in {into} ({mode}"
               + (f", {', '.join(f'{a}={m}' for a, m in models.items())}" if models else "") + ")"
-              + (f"; {turns} turns recorded ({recording.legacy} from transcripts), {recording.failed} failed turns "
-                 f"skipped, {len(recording.missing)} without a transcript" if mode != "live" else "") + "\n")
+              + (f"; {turns} turns recorded, {recording.failed} failed turns skipped" if mode != "live" else "") + "\n")
     return project, new, store
 
 
@@ -413,18 +293,18 @@ def _live(store: EventStore, project: Project, iteration: str) -> Agents:
                       docs=docs_dir())
 
 
-async def _drive(reactor: Any, recording: Recording, store: EventStore, outcome: Outcome) -> Outcome:
+async def _drive(engine: Any, recording: Recording, store: EventStore, outcome: Outcome) -> Outcome:
     while True:
-        await reactor.run_until_idle()
-        if reactor.crashes:
-            c = reactor.crashes[0].payload
+        await engine.run_until_idle()
+        if engine.crashes:
+            c = engine.crashes[0].payload
             outcome.end, outcome.detail = "crashed", f"{c['where']} {c['name']}: {c['error']}"
             return outcome
         end = finished(store)
         if end is not None:
             outcome.end = end.type
             return outcome
-        waiting = pending_decisions(reactor)
+        waiting = pending_decisions(engine)
         if not waiting:
             outcome.detail = "nothing to do and nothing to answer"
             return outcome
@@ -433,10 +313,10 @@ async def _drive(reactor: Any, recording: Recording, store: EventStore, outcome:
             if results is None:
                 raise Diverged(f"no recorded answer to the user's {command.payload['command']}: "
                                f"{json.dumps(command.payload['args'])[:300]}")
-            reactor.answer(command.id, results)
+            engine.answer(command.id, results)
 
 
-COMPARED = ("CommandIssued", "SignalRejected", "BeckCrashed", "AgentTurnFailed", "RedRewound", "CycleReopened",
+COMPARED = ("AgentTurnRequested", "SignalRejected", "BeckCrashed", "AgentTurnFailed", "RedRewound", "CycleReopened",
             "CycleDropped", "ComponentParked", "RefactorRejected", "RestartProposed", "RegressionFound",
             "GreenCommitted", "ComponentLanded")
 
@@ -444,7 +324,7 @@ COMPARED = ("CommandIssued", "SignalRejected", "BeckCrashed", "AgentTurnFailed",
 def _counts(store: EventStore) -> Counter[str]:
     c: Counter[str] = Counter()
     for e in store.read():
-        if e.type in COMPARED and e.type != "CommandIssued":
+        if e.type in COMPARED:
             c[e.type] += 1
     return c
 

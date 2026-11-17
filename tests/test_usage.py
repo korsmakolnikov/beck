@@ -12,7 +12,7 @@ from beck.usage import NUMBERS, Usage, window_of
 
 
 def turn(store, started, agent, command, tokens=(10, 5), ms=2000, model="sonnet", component="u"):
-    c = store.append("CommandIssued", {"command": command, "target": agent,
+    c = store.append("AgentTurnRequested", {"command": command, "target": agent,
                                        "args": {"session": "s", "context": {},
                                                 "component": component}}, cause=started, policy="p")
     store.append("AgentTurnEnded", {"agent": agent, "model": model, "duration_ms": ms,
@@ -28,7 +28,7 @@ def recorded(tmp_path):
     c = turn(store, started, "martin", "ReviewComponent", tokens=(1, 2), model="opus")
     store.append("SignalRejected", {"agent": "martin", "command": "ReviewComponent", "errors": ["e"], "signature": "x"},
                  cause=c)
-    c = store.append("CommandIssued", {"command": "WriteGreenCode", "target": "unclebob",
+    c = store.append("AgentTurnRequested", {"command": "WriteGreenCode", "target": "unclebob",
                                        "args": {"session": "s", "context": {}}}, cause=started, policy="q")
     store.append("AgentTurnFailed", {"agent": "unclebob", "command": "WriteGreenCode", "error": "e",
                                      "signature": "y"}, cause=c)
@@ -114,17 +114,17 @@ def test_the_dashboard_shows_the_agents_the_windows_and_the_ledger(recorded):
     assert last["event_id"][:8] in text
 
 
-def test_the_reactor_projects_and_a_broken_projector_does_not_stop_it(recorded):
-    from beck.machine.core import Ctx, Machine, Reactor
+def test_the_engine_projects_after_each_commit_and_a_broken_hook_does_not_stop_it(recorded):
+    from beck.machine.core import Ctx, Engine, Machine
     root, it, store = recorded
     usage = Usage(root)
     calls = []
 
-    def broken():
-        calls.append(1)
+    def broken(new):
+        calls.append(new)
         raise RuntimeError("no")
 
-    reactor = Reactor(Ctx(store, root, it, None), Machine(), None,
-                      projectors=[broken, lambda: usage.catch_up(store, it)])
-    reactor.react()
-    assert calls and usage.total(it)["turns"] == 2
+    engine = Engine(Ctx(store, root, it, None), Machine(), None,
+                    after_commit=[broken, lambda new: usage.catch_up(store, it)])
+    engine.record("SessionAttached", {"from_seq": 0})
+    assert [e.type for e in calls[0]] == ["SessionAttached"] and usage.total(it)["turns"] == 2

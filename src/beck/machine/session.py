@@ -38,7 +38,7 @@ from beck.index.anchor import LANGUAGES
 from beck.index.build import build as build_index
 from beck.index.store import INTEGRATION, connect, data
 from beck.machine.closing import workflow
-from beck.machine.core import Command, Ctx, Machine, Result, action, ask_routed
+from beck.machine.core import Command, Ctx, Issued, Machine, Result, action, ask_routed
 from beck.machine.signatures import blocked, signature
 from beck.scaffold import LANGUAGES as LAID
 from beck.scaffold import ScaffoldError, scaffold
@@ -124,7 +124,7 @@ def load_config(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @session.handler("LoadConfig")
-def handle_load_config(command: Event, ctx: Ctx) -> list[Result]:
+def handle_load_config(command: Issued, ctx: Ctx) -> list[Result]:
     try:
         return [Result("ConfigLoaded", {"config": beck_config.load(ctx.project)})]
     except beck_config.ConfigError as error:
@@ -150,7 +150,7 @@ def classify_project(root: Path) -> str:
 
 
 @session.handler("ClassifyProject")
-def handle_classify(command: Event, ctx: Ctx) -> list[Result]:
+def handle_classify(command: Issued, ctx: Ctx) -> list[Result]:
     return [Result("ProjectClassified", {"kind": classify_project(ctx.project)})]
 
 
@@ -200,7 +200,7 @@ def follow_ups(command: Event, output: dict[str, Any], ctx: Ctx) -> list[Result]
 
 
 @session.handler("CompleteInterview")
-def handle_complete(command: Event, ctx: Ctx) -> list[Result]:
+def handle_complete(command: Issued, ctx: Ctx) -> list[Result]:
     return [Result("InterviewCompleted", {})]
 
 
@@ -216,7 +216,7 @@ def _propose_branch(ctx: Ctx) -> Command:
 
 
 @session.handler("ScaffoldProject")
-def handle_scaffold(command: Event, ctx: Ctx) -> list[Result]:
+def handle_scaffold(command: Issued, ctx: Ctx) -> list[Result]:
     language = _language(ctx) or "python"
     name = (_answer(ctx, "name") or ctx.project.name).strip()
     if not (ctx.project / ".git").exists():   # a repository with an empty first commit, for the branch
@@ -260,7 +260,7 @@ def create_branch(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @session.handler("CreateBranch")
-def handle_create_branch(command: Event, ctx: Ctx) -> list[Result]:
+def handle_create_branch(command: Issued, ctx: Ctx) -> list[Result]:
     name = command.payload["args"]["name"]
     current = _git(ctx.project, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
     if current != name:
@@ -278,7 +278,7 @@ def prepare_toolchain(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @session.handler("PrepareToolchain")
-def handle_prepare_toolchain(command: Event, ctx: Ctx) -> list[Result]:
+def handle_prepare_toolchain(command: Issued, ctx: Ctx) -> list[Result]:
     if (ctx.project / ".beck" / "toolchain.yml").is_file():
         return [Result("ToolchainLoaded", {"language": load_toolchain(ctx.project).language})]
     try:
@@ -298,7 +298,7 @@ def write_toolchain(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @session.handler("WriteToolchain")
-def handle_write_toolchain(command: Event, ctx: Ctx) -> list[Result]:
+def handle_write_toolchain(command: Issued, ctx: Ctx) -> list[Result]:
     language = command.payload["args"]["language"]
     (ctx.project / ".beck" / "toolchain.yml").write_text(f"toolchain: 1\nlanguage: {language}\n")
     return [Result("ToolchainLoaded", {"language": language})]
@@ -313,7 +313,7 @@ COMPOSE = ("compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose
 
 
 @session.handler("BringEnvironmentUp")
-def handle_bring_up(command: Event, ctx: Ctx) -> list[Result]:
+def handle_bring_up(command: Issued, ctx: Ctx) -> list[Result]:
     compose = next((f for f in COMPOSE if (ctx.project / f).is_file()), None)
     if compose is None:
         return [Result("EnvironmentUp", {})]
@@ -350,22 +350,22 @@ def verify_suite(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @session.handler("VerifySuite")
-def handle_verify_suite(command: Event, ctx: Ctx) -> list[Result]:
+def handle_verify_suite(command: Issued, ctx: Ctx) -> list[Result]:
     try:
         toolchain = load_toolchain(ctx.project)
     except ToolchainError as error:
         return [Result("SuiteBroken", {"failure": str(error)})]
     roots = toolchain.source_roots(ctx.project)
-    result = run_tests(ctx.project, toolchain, [], actor="beck", cause_id=command.id, iteration=ctx.iteration,
+    result = run_tests(ctx.project, toolchain, [], actor="beck", store=ctx.store, cause=command.cause,
                        coverage_of=roots)
-    counts = result.event.payload.get("counts", {})
+    counts = result.recorded.payload.get("counts", {})
     if result.exit_code == 0 or (not counts.get("tests") and _kind(ctx) == "greenfield"):
         wired = [e for e in ctx.events(types=("CoverageWired",))]
         if not toolchain.coverage and not wired:   # kent finds or adds the tool; the toolchain only wires it
             return [Result("CoverageUnwired", {"language": toolchain.language})]
-        if wired and "coverage" in result.event.payload:
+        if wired and "coverage" in result.recorded.payload:
             _commit_the_wiring(ctx, wired[-1].payload["tool"])
-        return _baseline_coverage(ctx, result.event) + [Result("SuiteVerified", {"tests": counts.get("tests", 0)})]
+        return _baseline_coverage(ctx, result.recorded) + [Result("SuiteVerified", {"tests": counts.get("tests", 0)})]
     return [Result("SuiteBroken", {"failure": result.summary})]
 
 
@@ -397,7 +397,7 @@ def install_dependencies(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @session.handler("InstallDependencies")
-def handle_install_dependencies(command: Event, ctx: Ctx) -> list[Result]:
+def handle_install_dependencies(command: Issued, ctx: Ctx) -> list[Result]:
     try:
         toolchain = load_toolchain(ctx.project)
     except ToolchainError as error:
@@ -469,7 +469,7 @@ def survey(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @session.handler("ReconcileIndex")
-def handle_reconcile(command: Event, ctx: Ctx) -> list[Result]:
+def handle_reconcile(command: Issued, ctx: Ctx) -> list[Result]:
     """The files that hold anchored symbols and changed since the last index: the DSLs may have drifted."""
     old = connect(index_path(ctx))
     hashes = {r["path"]: r["hash"] for r in old.execute("SELECT path, hash FROM file")}
@@ -510,14 +510,14 @@ def rebuild_after_sync(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @session.handler("DiscardDslSync")
-def handle_discard_dsl_sync(command: Event, ctx: Ctx) -> list[Result]:
+def handle_discard_dsl_sync(command: Issued, ctx: Ctx) -> list[Result]:
     for name in ("domains", "architecture.yaml"):
         _git(ctx.project, "checkout", "--", f".beck/{name}", check=False)
     return []
 
 
 @session.handler("RebuildIndex")
-def handle_rebuild_index(command: Event, ctx: Ctx) -> list[Result]:
+def handle_rebuild_index(command: Issued, ctx: Ctx) -> list[Result]:
     domain, arch = _dsls(ctx)
     conn, _ = build_index(ctx.project, domain, arch, index_path(ctx))
     if conn is not None:
@@ -617,7 +617,7 @@ def _errors(doc: Any, problems: list[Any]) -> list[str]:
 
 
 @session.handler("ValidateDomain")
-def handle_validate_domain(command: Event, ctx: Ctx) -> list[Result]:
+def handle_validate_domain(command: Issued, ctx: Ctx) -> list[Result]:
     specs, _ = _dsls(ctx)
     errors = [str(p) for p in validate_domains(specs)]
     if errors:
@@ -669,7 +669,7 @@ def validate_the_architecture(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @session.handler("ValidateArchitecture")
-def handle_validate_architecture(command: Event, ctx: Ctx) -> list[Result]:
+def handle_validate_architecture(command: Issued, ctx: Ctx) -> list[Result]:
     domain, arch = _dsls(ctx)
     readable = isinstance(arch, dict) and "__yaml_error__" not in arch
     errors = _errors(arch, validate_architecture(arch, domain) if readable else [])
@@ -709,7 +709,7 @@ def compile_interfaces(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @session.handler("CompileInterfaces")
-def handle_compile(command: Event, ctx: Ctx) -> list[Result]:
+def handle_compile(command: Issued, ctx: Ctx) -> list[Result]:
     toolchain = load_toolchain(ctx.project)
     # an unimplemented no id references has no cycle to implement it: the suite stays green, the program does not run
     errors = [f"{file}:{line}: an unimplemented no id references" for file, line in unreferenced(ctx.project)]
@@ -774,7 +774,7 @@ def generate_fitness(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @session.handler("GenerateFitnessFunctions")
-def handle_generate_fitness(command: Event, ctx: Ctx) -> list[Result]:
+def handle_generate_fitness(command: Issued, ctx: Ctx) -> list[Result]:
     _, arch = _dsls(ctx)
     written = write_fitness(ctx.project, arch)
     return [Result("FitnessFunctionsGenerated", {"files": written.files, "untranslated": [
@@ -802,12 +802,11 @@ def run_fitness(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @session.handler("RunFitnessFunctions")
-def handle_run_fitness(command: Event, ctx: Ctx) -> list[Result]:
+def handle_run_fitness(command: Issued, ctx: Ctx) -> list[Result]:
     dirs = [d for d in ("tests/fitness", "test/fitness") if (ctx.project / d).is_dir()]
     if not dirs:
         return [Result("FitnessFunctionsPassed", {})]
-    result = run_tests(ctx.project, load_toolchain(ctx.project), dirs, actor="beck", cause_id=command.id,
-                       iteration=ctx.iteration)
+    result = run_tests(ctx.project, load_toolchain(ctx.project), dirs, actor="beck", store=ctx.store, cause=command.cause)
     if result.exit_code == 0:
         return [Result("FitnessFunctionsPassed", {})]
     errors = result.summary.splitlines()[:40]
@@ -830,7 +829,7 @@ def build_the_index(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @session.handler("BuildIndex")
-def handle_build_index(command: Event, ctx: Ctx) -> list[Result]:
+def handle_build_index(command: Issued, ctx: Ctx) -> list[Result]:
     domain, arch = _dsls(ctx)
     conn, report = build_index(ctx.project, domain, arch, index_path(ctx))
     if conn is not None:
@@ -883,7 +882,7 @@ def derive_execution(conn: sqlite3.Connection) -> dict[str, Any]:
 
 
 @session.handler("CommitModel")
-def handle_commit_model(command: Event, ctx: Ctx) -> list[Result]:
+def handle_commit_model(command: Issued, ctx: Ctx) -> list[Result]:
     versioned = _config(ctx)["versioned"]
     excluded = [] if versioned else [":!.beck"]
     _git(ctx.project, "add", "-A", "--", ".", *excluded)
@@ -899,7 +898,7 @@ def handle_commit_model(command: Event, ctx: Ctx) -> list[Result]:
 
 
 @session.handler("BlockModel")
-def handle_block_model(command: Event, ctx: Ctx) -> list[Result]:
+def handle_block_model(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     return [Result("ModelBlocked", {"step": a["step"], "reason": a["reason"]})]
 

@@ -7,12 +7,11 @@ import sys
 from pathlib import Path
 
 import pytest
+from agent_tools import send_test
 
 from beck.events.project import Project
 from beck.machine.component import Workspace, implementation
-from beck.machine.core import Ctx, Reactor, Result, Turn
-from beck.testrun import run as run_tests
-from beck.toolchain import load
+from beck.machine.core import Ctx, Engine, Result, Turn
 
 PYTEST = f'[{sys.executable}, -m, pytest, -q, -p, no:cacheprovider, "--junitxml={{report}}", "{{tests}}"]'
 REQUIREMENTS = {"store": ["store-adds"], "cart": ["cart-totals", "cart-empties"]}
@@ -84,8 +83,8 @@ class Agents:
         return getattr(self, command)(envelope, cwd)
 
     def test(self, cwd, component, requirement):
-        run_tests(cwd, load(self.project), [f"tests/test_{fn(requirement)}.py::test_{fn(requirement)}"], actor="unclebob",
-                  component=component, requirement=requirement, store_root=self.project)
+        send_test(cwd, [f"tests/test_{fn(requirement)}.py::test_{fn(requirement)}"], component=component,
+                  requirement=requirement)
 
     def WriteRedTest(self, envelope, cwd):
         requirement = envelope["context"]["requirement"]
@@ -135,8 +134,9 @@ def setup(repo, agents, slots=2, exclusive=False, waits=False, rederive=None, in
                                                "dependencies": [], "files": {"source": [], "tests": []}},
                           rederive_of=rederive or (lambda: None))
     ctx = Ctx(store, repo, it.id, workspace, components_in_parallel=slots)
-    store.append("ExecutionDerived", initial or execution(exclusive, waits))
-    return Reactor(ctx, implementation, agents), store
+    engine = Engine(ctx, implementation, agents)
+    engine.record("ExecutionDerived", initial or execution(exclusive, waits))
+    return engine, store
 
 
 def types(store, *only):
@@ -145,16 +145,17 @@ def types(store, *only):
 
 def component_events(store, component):
     return [e.type for e in store.read(stream=f"component:{component}")
-            if e.type not in ("CommandIssued", "CommandDone", "AgentTurnEnded", "TestsRun", "ChecksRun")]
+            if e.type not in ("AgentTurnRequested", "DecisionRequested", "AgentTurnStarted", "AgentTurnEnded", "TestsRun",
+                              "ChecksRun")]
 
 
-def run(reactor):
-    asyncio.run(reactor.run_until_idle())
+def run(engine):
+    asyncio.run(engine.run_until_idle())
 
 
 def test_two_components_run_in_parallel_through_their_units(repo):
-    reactor, store = setup(repo, Agents(repo))
-    run(reactor)
+    engine, store = setup(repo, Agents(repo))
+    run(engine)
     assert component_events(store, "cart") == ["ComponentStarted", "UnitOpened", "UnitClosed", "UnitOpened", "UnitClosed",
                                           "ComponentImplemented"]
     assert component_events(store, "store")[-1] == "ComponentImplemented"
@@ -166,25 +167,25 @@ def test_two_components_run_in_parallel_through_their_units(repo):
 
 
 def test_the_slots_limit_the_components_running(repo):
-    reactor, store = setup(repo, Agents(repo), slots=1)
-    run(reactor)
+    engine, store = setup(repo, Agents(repo), slots=1)
+    run(engine)
     assert component_events(store, "store")[-1] == "ComponentImplemented" and component_events(store, "cart") == []
 
 
 def test_components_sharing_a_file_never_run_together(repo):
-    reactor, store = setup(repo, Agents(repo), slots=2, exclusive=True)
-    run(reactor)
+    engine, store = setup(repo, Agents(repo), slots=2, exclusive=True)
+    run(engine)
     assert component_events(store, "cart") == []
 
 
 def test_a_component_waits_for_its_concrete_dependencies_to_land(repo):
     # the session of 2026-11-15: match-program, whose dependencies are concrete, started beside them and tested
     # against their unimplemented (NotImplementedError); unclebob asked for an architecture change three times
-    reactor, store = setup(repo, Agents(repo), slots=2, waits=True)
-    run(reactor)
+    engine, store = setup(repo, Agents(repo), slots=2, waits=True)
+    run(engine)
     assert component_events(store, "store")[-1] == "ComponentImplemented" and component_events(store, "cart") == []
-    store.append("ComponentClosed", {"component": "store"}, stream="component:store")
-    run(reactor)
+    engine.record("ComponentClosed", {"component": "store"}, stream="component:store")
+    run(engine)
     assert component_events(store, "cart")[0] == "ComponentStarted"
 
 
@@ -206,36 +207,36 @@ def change_of(kind, target):
 def test_a_change_of_a_test_stops_only_its_component(repo):
     # the replay of 2026-11-16: martin asked to change a test of randomness, and the four components using it stopped
     from beck.machine.component import _affected
-    reactor, _ = setup(repo, Agents(repo, {}))
-    assert _affected(reactor.ctx, "store", "store", "test") == ["store"]
-    assert _affected(reactor.ctx, "store", "store", "interface") == ["store", "cart"]
+    engine, _ = setup(repo, Agents(repo, {}))
+    assert _affected(engine.ctx, "store", "store", "test") == ["store"]
+    assert _affected(engine.ctx, "store", "store", "interface") == ["store", "cart"]
 
 
 def test_a_change_aimed_at_a_file_finds_the_component_that_holds_it(repo):
     from beck.machine.component import _owner
-    reactor, _ = setup(repo, Agents(repo, {}))
-    reactor.ctx.workspace.scope = lambda component: [f"src/shop/{component}"]   # as the index gives it, before any worktree
-    assert _owner(reactor.ctx, "src/shop/store/store.py") == "store"
-    assert _owner(reactor.ctx, "SystemRandomness.chance") is None
+    engine, _ = setup(repo, Agents(repo, {}))
+    engine.ctx.workspace.scope = lambda component: [f"src/shop/{component}"]   # as the index gives it, before any worktree
+    assert _owner(engine.ctx, "src/shop/store/store.py") == "store"
+    assert _owner(engine.ctx, "SystemRandomness.chance") is None
 
 
-def pending_of_user(reactor):
-    return [c for c in reactor.pending() if c.payload["target"] == "user"]
+def pending_of_user(engine):
+    return [c for c in engine.pending() if c.payload["target"] == "user"]
 
 
 def test_a_change_parks_the_component_and_its_dependents_until_the_user_approves(repo):
     agents = Agents(repo, {("WriteRedTest", "store-adds"): [change("store"), None]})
-    reactor, store = setup(repo, agents)
-    run(reactor)
+    engine, store = setup(repo, agents)
+    run(engine)
     parked = [e.payload["component"] for e in store.read(types_=("ComponentParked",))]
     assert sorted(parked) == ["cart", "store"]
-    [approval] = pending_of_user(reactor)
+    [approval] = pending_of_user(engine)
     assert approval.payload["command"] == "ApproveRestart"
     assert approval.payload["args"]["proposal"]["subject"] == "store.add returns the new total"
     assert (repo / "src/shop/store/contract.md").exists() and "contract.md" in git(repo, "status", "--short")
 
-    reactor.answer(approval.id, [Result("RestartApproved", {}, actor="user")])
-    run(reactor)
+    engine.answer(approval.id, [Result("RestartApproved", {}, actor="user")])
+    run(engine)
     assert git(repo, "log", "-1", "--format=%s") == "refactor: store.add returns the new total"
     restart = git(repo, "rev-parse", "HEAD")
     for component in ("store", "cart"):
@@ -253,17 +254,15 @@ def test_a_waiting_component_parked_with_its_dependency_is_not_started(repo):
     # the session of 2026-11-15: ParkComponents parked eight components at once, and the scheduler, reading the state as
     # at each ComponentParked, started the later ones (still waiting at that event), each of them up to three times
     agents = Agents(repo, {("WriteRedTest", "store-adds"): [change("store"), None]})
-    reactor, store = setup(repo, agents, slots=1)
-    run(reactor)
+    engine, store = setup(repo, agents, slots=1)
+    run(engine)
     assert component_events(store, "cart") == ["ComponentParked"]
-    assert [e.payload["args"]["component"] for e in store.read(types_=("CommandIssued",))
-            if e.payload["command"] == "StartComponent"] == ["store"]
-    [approval] = pending_of_user(reactor)
-    reactor.answer(approval.id, [Result("RestartApproved", {}, actor="user")])
-    run(reactor)
+    assert [e.payload["component"] for e in store.read(types_=("ComponentStarted",))] == ["store"]
+    [approval] = pending_of_user(engine)
+    engine.answer(approval.id, [Result("RestartApproved", {}, actor="user")])
+    run(engine)
     assert component_events(store, "store")[-1] == "ComponentImplemented"   # cart waits for its slot: store has not landed
-    starts = [e.payload["args"]["component"] for e in store.read(types_=("CommandIssued",))
-              if e.payload["command"] in ("StartComponent", "ResumeComponent")]
+    starts = [e.payload["component"] for e in store.read(types_=("ComponentStarted", "ComponentResumed"))]
     assert starts == ["store", "store"] and component_events(store, "cart") == ["ComponentParked"]
 
 
@@ -277,18 +276,18 @@ def without(requirement):
     return scheduled
 
 
-def approve(reactor):
-    [approval] = pending_of_user(reactor)
-    reactor.answer(approval.id, [Result("RestartApproved", {}, actor="user")])
-    run(reactor)
+def approve(engine):
+    [approval] = pending_of_user(engine)
+    engine.answer(approval.id, [Result("RestartApproved", {}, actor="user")])
+    run(engine)
 
 
 def test_a_restart_that_drops_a_requirement_plans_the_components_again(repo):
     # the session of 2026-11-15: kent took a requirement out of the domain, but the component's execution still held it
     agents = Agents(repo, {("WriteRedTest", "store-adds"): [change("store"), None]})
-    reactor, store = setup(repo, agents, rederive=lambda: without("cart-empties"))
-    run(reactor)
-    approve(reactor)
+    engine, store = setup(repo, agents, rederive=lambda: without("cart-empties"))
+    run(engine)
+    approve(engine)
     assert len(list(store.read(types_=("ExecutionDerived",)))) == 2
     rederived = list(store.read(types_=("ExecutionDerived",)))[-1]
     assert not [e for e in store.read(types_=("CycleOpened", "CycleReopened"))
@@ -298,9 +297,9 @@ def test_a_restart_that_drops_a_requirement_plans_the_components_again(repo):
 
 def test_the_open_cycle_of_a_dropped_requirement_is_dropped_on_resume(repo):
     agents = Agents(repo, {("WriteRedTest", "store-adds"): [change("store"), None]})
-    reactor, store = setup(repo, agents, rederive=lambda: without("store-adds"))
-    run(reactor)
-    approve(reactor)
+    engine, store = setup(repo, agents, rederive=lambda: without("store-adds"))
+    run(engine)
+    approve(engine)
     [dropped] = store.read(types_=("CycleDropped",))
     assert dropped.payload["component"] == "store" and dropped.payload["requirement"] == "store-adds"
     assert component_events(store, "store")[-1] == "ComponentImplemented"
@@ -312,12 +311,12 @@ def test_a_component_parked_before_it_started_runs_its_cycles_once_started(repo)
     # the session of 2026-11-15: @integration, parked as a dependent while still waiting, started at last and
     # opened its first cycle, but the cycle took it for parked and asked unclebob for nothing
     agents = Agents(repo, {("WriteRedTest", "store-adds"): [change("store"), None]})
-    reactor, store = setup(repo, agents, slots=1)
-    run(reactor)
-    approve(reactor)
+    engine, store = setup(repo, agents, slots=1)
+    run(engine)
+    approve(engine)
     assert component_events(store, "cart") == ["ComponentParked"]
-    store.append("ComponentClosed", {"component": "store"}, stream="component:store")
-    run(reactor)
+    engine.record("ComponentClosed", {"component": "store"}, stream="component:store")
+    run(engine)
     assert [e["context"]["requirement"] for a, e in agents.calls if e["command"] == "WriteRedTest"][-1] == "cart-empties"
     assert component_events(store, "cart")[-1] == "ComponentImplemented"
 
@@ -326,9 +325,9 @@ def test_a_dropped_cycle_takes_its_red_test_away(repo):
     # the session of 2026-11-15: the dropped requirement's red test stayed committed, failed the component's tests, and
     # the regression reopened the cycle of a requirement no longer in the domain
     agents = Agents(repo, {("WriteGreenCode", "store-adds"): [change("store"), None]})
-    reactor, store = setup(repo, agents, slots=1, rederive=lambda: without("store-adds"))
-    run(reactor)
-    approve(reactor)
+    engine, store = setup(repo, agents, slots=1, rederive=lambda: without("store-adds"))
+    run(engine)
+    approve(engine)
     tree = repo / ".beck/worktrees/store"
     assert not (tree / "tests/test_store_adds.py").exists()
     assert "test(store): store-adds" not in git(tree, "log", "--format=%s")
@@ -340,10 +339,10 @@ def test_a_green_that_keeps_asking_for_a_change_goes_back_to_red(repo):
     # the session of 2026-11-15: unclebob asked ten times, from the same green, for a change kent did not find,
     # since the committed red test was wrong; at the repetition rule's times beck takes the cycle back to red
     agents = Agents(repo, {("WriteGreenCode", "store-adds"): [change("store")] * 3 + [None]})
-    reactor, store = setup(repo, agents, slots=1)
-    run(reactor)
+    engine, store = setup(repo, agents, slots=1)
+    run(engine)
     for _ in range(2):
-        approve(reactor)
+        approve(engine)
     assert [e.payload["requirement"] for e in store.read(types_=("RedRewound",))] == ["store-adds"]
     assert len(list(store.read(types_=("RestartProposed",)))) == 2   # the third request is not resolved
     assert component_events(store, "store")[-1] == "ComponentImplemented"
@@ -351,14 +350,14 @@ def test_a_green_that_keeps_asking_for_a_change_goes_back_to_red(repo):
 
 def test_a_rejected_restart_is_discarded_and_proposed_again(repo):
     agents = Agents(repo, {("WriteRedTest", "store-adds"): [change("store"), None]})
-    reactor, store = setup(repo, agents)
-    run(reactor)
-    [approval] = pending_of_user(reactor)
-    reactor.answer(approval.id, [Result("RestartRejected", {"instructions": "keep add, add total"}, actor="user")])
-    run(reactor)
+    engine, store = setup(repo, agents)
+    run(engine)
+    [approval] = pending_of_user(engine)
+    engine.answer(approval.id, [Result("RestartRejected", {"instructions": "keep add, add total"}, actor="user")])
+    run(engine)
     proposals = [e for a, e in agents.calls if e["command"] == "ProposeRestart"]
     assert proposals[-1]["context"]["instructions"] == "keep add, add total"
-    assert len(pending_of_user(reactor)) == 1      # the new proposal waits for the user
+    assert len(pending_of_user(engine)) == 1      # the new proposal waits for the user
     assert git(repo, "log", "--format=%s") == "interfaces"
 
 
@@ -367,16 +366,16 @@ def test_kent_asks_and_the_wrapped_answer_goes_back_to_its_session(repo):
                                           "question": {"text": "Return the total or the cart?", "why": "Both fit."}}
     agents = Agents(repo, {("WriteRedTest", "store-adds"): [change("store"), None],
                            ("ProposeRestart", "interface"): [ask, None]})
-    reactor, store = setup(repo, agents)
-    run(reactor)
-    [question] = pending_of_user(reactor)
+    engine, store = setup(repo, agents)
+    run(engine)
+    [question] = pending_of_user(engine)
     assert question.payload["command"] == "Ask"
-    reactor.answer(question.id, [Result("QuestionAnswered", {"text": "The total."}, actor="user")])
-    run(reactor)
+    engine.answer(question.id, [Result("QuestionAnswered", {"text": "The total."}, actor="user")])
+    run(engine)
     kent = [e for a, e in agents.calls if a == "kent"]
     assert kent[-1]["answer"] == {"question": {"text": "Return the total or the cart?", "why": "Both fit."},
                                   "text": "The total."} and kent[-1]["context"] == {}
-    assert [c.payload["command"] for c in pending_of_user(reactor)] == ["ApproveRestart"]
+    assert [c.payload["command"] for c in pending_of_user(engine)] == ["ApproveRestart"]
 
 
 def test_a_blocked_cycle_parks_its_component_and_asks_kent(repo):
@@ -386,8 +385,8 @@ def test_a_blocked_cycle_parks_its_component_and_asks_kent(repo):
         {"protocol": 1, "command": "WriteRedTest", "outcome": "done",
          "result": {"test": "tests/test_store_adds.py::test_store_adds"}})[-1]
     agents = Agents(repo, {("WriteRedTest", "store-adds"): [passing]})
-    reactor, store = setup(repo, agents)
-    run(reactor)
+    engine, store = setup(repo, agents)
+    run(engine)
     assert types(store, "CycleBlocked") == ["CycleBlocked"]
     assert [e.payload["component"] for e in store.read(types_=("ComponentParked",))] == ["store"]
     kent = [e for a, e in agents.calls if a == "kent"]
@@ -403,43 +402,12 @@ def test_a_malformed_answer_outside_the_cycles_is_asked_again(repo):
                 "change": {"subject": "s", "components": []}}
     agents = Agents(repo, {("WriteRedTest", "store-adds"): [change("store"), None],
                            ("ProposeRestart", "interface"): [malformed, None]})
-    reactor, store = setup(repo, agents)
-    run(reactor)
+    engine, store = setup(repo, agents)
+    run(engine)
     assert len(list(store.read(types_=("SignalRejected",)))) == 1
     proposals = [e for a, e in agents.calls if e["command"] == "ProposeRestart"]
     assert len(proposals) == 2 and "change: 'kind' is a required property" in proposals[1]["retry"]["reason"]
-    assert [c.payload["command"] for c in pending_of_user(reactor)] == ["ApproveRestart"]
-
-
-def test_a_stale_rejection_is_not_asked_again(repo):
-    # the session of 2026-11-16: on attach, the retry of malformed answers picked up martin's old rejections, on
-    # (ExplainComponent: a turn of a component with no retry of its own; martin's are retried by beck.machine.refactor)
-    # components closed long before, whose worktrees were gone: six turns crashed
-    from beck.machine.core import retry_a_rejected_turn
-    reactor, store = setup(repo, Agents(repo))
-    run(reactor)
-    turn = store.append("CommandIssued", {"command": "ProposeRestart", "target": "kent",
-                                          "args": {"session": "s", "context": {"kind": "interface", "details": {}}}},
-                        stream="restart")
-    rejected = store.append("SignalRejected", {"agent": "kent", "command": "ProposeRestart", "errors": ["e"],
-                                               "signature": "x"}, stream="restart", cause=turn)
-    assert retry_a_rejected_turn(rejected, reactor.ctx)                        # the latest: asked again
-    store.append("CommandIssued", {"command": "ProposeRestart", "target": "kent",
-                                   "args": {"session": "s", "context": {"kind": "interface", "details": {}}}},
-                 stream="restart")
-    assert retry_a_rejected_turn(rejected, reactor.ctx) == []                  # a later turn: stale
-    cart = store.append("CommandIssued", {"command": "ExplainComponent", "target": "martin",
-                                          "args": {"session": "m", "component": "cart", "context": {}}}, stream="component:cart")
-    open_ = store.append("SignalRejected", {"agent": "martin", "command": "ExplainComponent", "errors": ["e"],
-                                            "signature": "z"}, stream="component:cart", cause=cart)
-    assert retry_a_rejected_turn(open_, reactor.ctx)                           # its component still open: asked again
-    closed = store.append("CommandIssued", {"command": "ExplainComponent", "target": "martin",
-                                            "args": {"session": "m", "component": "store", "context": {}}},
-                          stream="component:store")
-    store.append("ComponentClosed", {"component": "store"}, stream="component:store")
-    old = store.append("SignalRejected", {"agent": "martin", "command": "ExplainComponent", "errors": ["e"],
-                                          "signature": "y"}, stream="component:store", cause=closed)
-    assert retry_a_rejected_turn(old, reactor.ctx) == []                       # its component closed
+    assert [c.payload["command"] for c in pending_of_user(engine)] == ["ApproveRestart"]
 
 
 def test_a_rejected_restart_brings_back_a_file_kent_removed(repo):
@@ -450,29 +418,29 @@ def test_a_rejected_restart_brings_back_a_file_kent_removed(repo):
     assert "Bash(git rm:*)" in allowed_tools("kent") and "Bash(git rm:*)" in allowed_tools("martin")
     assert "Bash(git rm:*)" not in allowed_tools("unclebob")
     git(repo, "rm", "-q", "src/shop/store/store_adds.py")
-    reactor, store = setup(repo, Agents(repo))
-    discard_restart(None, reactor.ctx)
+    engine, store = setup(repo, Agents(repo))
+    discard_restart(None, engine.ctx)
     assert (repo / "src/shop/store/store_adds.py").is_file() and git(repo, "status", "--short") == ""
 
 
-def restart(repo, store, component, scheduled):
+def restart(repo, engine, component, scheduled):
     """A restart applied to the parked `component` that scheduled the components again."""
-    cause = store.append("ComponentParked", {"component": component, "reason": "unimplemented left", "because_of": "x"},
-                         stream=f"component:{component}")
-    store.append("ExecutionDerived", scheduled, cause=cause)
-    store.append("RestartApplied", {"base": git(repo, "rev-parse", "HEAD"), "components": [component], "summary": "s"},
-                 cause=cause)
+    cause = engine.record("ComponentParked", {"component": component, "reason": "unimplemented left",
+                                              "because_of": "x"}, stream=f"component:{component}")
+    engine.record("ExecutionDerived", scheduled, cause=cause)
+    engine.record("RestartApplied", {"base": git(repo, "rev-parse", "HEAD"), "components": [component],
+                                     "summary": "s"}, cause=cause)
 
 
 def test_a_requirement_a_restart_adds_to_an_implemented_component_gets_its_cycle(repo):
     # the replay of 2026-11-16: kent gave program a new morphism; on resume beck took the implemented component for
     # finished, the unimplemented check reopened at green a requirement no cycle had opened, and its policy crashed
     agents = Agents(repo)
-    reactor, store = setup(repo, agents, initial=without("cart-empties"))
-    run(reactor)
+    engine, store = setup(repo, agents, initial=without("cart-empties"))
+    run(engine)
     assert component_events(store, "cart")[-1] == "ComponentImplemented"
-    restart(repo, store, "cart", execution())
-    run(reactor)
+    restart(repo, engine, "cart", execution())
+    run(engine)
     [opened] = [e for e in store.read(types_=("CycleOpened",)) if e.payload["requirement"] == "cart-empties"]
     assert opened.payload["unit"] == "morphism:empties"
     assert [e["context"]["requirement"] for a, e in agents.calls if e["command"] == "WriteRedTest"][-1] == "cart-empties"
@@ -487,10 +455,10 @@ def test_a_requirement_a_restart_adds_to_a_closed_unit_gets_its_cycle(repo):
     grown = execution()
     grown["components"][1]["units"] = [{"id": "morphism:totals", "requirements": ["cart-totals", "cart-empties"]}]
     agents = Agents(repo)
-    reactor, store = setup(repo, agents, initial=scheduled)
-    run(reactor)
-    restart(repo, store, "cart", grown)
-    run(reactor)
+    engine, store = setup(repo, agents, initial=scheduled)
+    run(engine)
+    restart(repo, engine, "cart", grown)
+    run(engine)
     assert [e.payload["requirement"] for e in store.read(types_=("CycleClosed",)) if e.payload["component"] == "cart"] == \
         ["cart-totals", "cart-empties"]
     assert component_events(store, "cart")[-1] == "ComponentImplemented"

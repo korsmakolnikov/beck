@@ -1,1 +1,1 @@
-"""The state machines of beck: policies, commands, handlers and the reactor that runs them."""
+"""The state machines of beck: policies, commands, handlers and the engine that runs them."""

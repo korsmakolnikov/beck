@@ -5,14 +5,14 @@ import asyncio
 from test_session import ANSWERS, Agents, drive, project, start  # noqa: F401
 
 from beck import views
-from beck.app import reactor_for
+from beck.app import engine_for
 from beck.events.project import Project
 from beck.tui import BeckApp
 
 
 def test_the_views_of_a_whole_iteration(project):
-    reactor, store, *_ = start(project, Agents(project))
-    drive(reactor, ANSWERS)
+    engine, store, *_ = start(project, Agents(project))
+    drive(engine, ANSWERS)
     rows = {t.agent: t for t in views.tokens(store)}
     assert set(rows) == {"kent", "unclebob", "martin"} and rows["unclebob"].turns == 2
     assert views.components(store) == [("adder", "done")]
@@ -25,7 +25,7 @@ def test_the_views_of_a_whole_iteration(project):
 def test_the_tui_asks_the_decisions_and_runs_to_the_close(project):
     p = Project(project)
     it, store, _ = p.start_iteration()
-    app = BeckApp(reactor_for(p, it.id, store, Agents(project)))
+    app = BeckApp(engine_for(p, it.id, store, Agents(project)))
 
     async def play():
         async with app.run_test() as pilot:

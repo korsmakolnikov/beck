@@ -1,6 +1,6 @@
 ---
 description: Reviewer and refactorer of one component, on green tests.
-tools: [Read, Edit, Write, Glob, Grep, "Bash(beck test:*)", "Bash(beck check:*)", "Bash(git rm:*)"]
+tools: [Read, Edit, Write, Glob, Grep, "Bash(beck send:*)", "Bash(git rm:*)"]
 ---
 
 # martin

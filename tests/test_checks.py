@@ -75,25 +75,34 @@ def project(tmp_path):
         "toolchain: 1\nlanguage: python\ncheck:\n"
         f"  - {{name: fake, command: [{sys.executable}, fake.py, '{{paths}}'], format: ruff}}\n"
         f"  - {{name: whole, command: [{sys.executable}, -c, 'print(\"lib/x.ex:1: nope\")'], scope: project}}\n")
-    Project(tmp_path).start_iteration()[1].close()
     return tmp_path
 
 
-def test_cli_runs_the_paths_checks_and_records_them(project, capsys):
-    assert main(["check", "good.py", "--project", str(project)]) == 0
-    assert capsys.readouterr().out.startswith("ALL_OK (fake)\n")
-    assert main(["check", "bad.py", "--project", str(project)]) == 1
-    assert capsys.readouterr().out.startswith("NOT_OK fake (1 findings)\n- bad.py:1:1 E1 bad")
+def session(project, monkeypatch):
+    from beck.machine.core import Ctx, Engine, Machine
     p = Project(project)
-    e = p.open(p.iterations()[0].id).last()
+    it, store, started = p.start_iteration()
+    Engine(Ctx(store, project, it.id, None), Machine(), None)
+    for k, v in (("BECK_CAUSE", started.id), ("BECK_ACTOR", "martin"), ("BECK_PROJECT", str(project))):
+        monkeypatch.setenv(k, v)
+    return p, it
+
+
+def test_cli_runs_the_paths_checks_and_records_them(project, capsys, monkeypatch):
+    p, it = session(project, monkeypatch)
+    assert main(["send", "check", "good.py", "--project", str(project)]) == 0
+    assert capsys.readouterr().out.startswith("ALL_OK (fake)\n")
+    assert main(["send", "check", "bad.py", "--project", str(project)]) == 1
+    assert capsys.readouterr().out.startswith("NOT_OK fake (1 findings)\n- bad.py:1:1 E1 bad")
+    e = p.open(it.id).last()
     assert e.type == "ChecksRun" and e.payload["checks"][0]["findings"] == 1 and len(e.payload["checks"]) == 1
 
 
-def test_cli_all_runs_the_project_checks_too(project, capsys):
-    assert main(["check", "--all", "--project", str(project)]) == 0  # exit 0, nothing parsed: ok
+def test_cli_all_runs_the_project_checks_too(project, capsys, monkeypatch):
+    p, it = session(project, monkeypatch)
+    assert main(["send", "check", "--all", "--project", str(project)]) == 0  # exit 0, nothing parsed: ok
     assert capsys.readouterr().out.startswith("ALL_OK (fake, whole)")
-    p = Project(project)
-    assert [c["name"] for c in p.open(p.iterations()[0].id).last().payload["checks"]] == ["fake", "whole"]
+    assert [c["name"] for c in p.open(it.id).last().payload["checks"]] == ["fake", "whole"]
 
 
 def test_cli_needs_paths_a_component_or_all(project):

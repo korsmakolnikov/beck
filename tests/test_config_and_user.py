@@ -39,7 +39,7 @@ def store(tmp_path):
 
 
 def command(store, name, **args):
-    return store.append("CommandIssued", {"command": name, "target": "user", "args": args})
+    return store.append("DecisionRequested", {"command": name, "target": "user", "args": args})
 
 
 def test_an_approval_is_yes_or_instructions(store):
@@ -77,6 +77,6 @@ def test_texts_and_confirmations(store):
     assert user.answer(b, "BM-1-calc")[0].payload == {"name": "BM-1-calc"}
     with pytest.raises(user.DecisionError):
         user.answer(b, "   ")
-    agent_command = store.append("CommandIssued", {"command": "WriteDomain", "target": "kent", "args": {}})
+    agent_command = store.append("AgentTurnRequested", {"command": "WriteDomain", "target": "kent", "args": {}})
     with pytest.raises(user.DecisionError, match="not a decision"):
         user.answer(agent_command, "yes")

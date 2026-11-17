@@ -176,7 +176,7 @@ unclebob:
   WriteRedTest:
     in:
       requirement: tag-missing-bookmark
-      run: beck test <the test> --component bookmark-tagger --requirement tag-missing-bookmark
+      run: beck send test <the test> --component bookmark-tagger --requirement tag-missing-bookmark
       unit:
         component:
           id: bookmark-tagger
@@ -195,7 +195,7 @@ unclebob:
     in:
       requirement: tag-missing-bookmark
       test: test/bookmark_tagger_test.exs:12
-      run: beck test test/bookmark_tagger_test.exs:12 --component bookmark-tagger --requirement tag-missing-bookmark
+      run: beck send test test/bookmark_tagger_test.exs:12 --component bookmark-tagger --requirement tag-missing-bookmark
       failure: NOT_OK (1 of 1 not passed)
     out:
       outcome: change_requested
@@ -213,7 +213,7 @@ unclebob:
         - test/bookmark_tagger_test.exs:12
         lines:
           lib/bookmarks/tagging/bookmark_tagger.ex: [31, 32]
-      run: beck test <the tests> --component bookmark-tagger
+      run: beck send test <the tests> --component bookmark-tagger
     out:
       outcome: done
       result:
@@ -254,8 +254,8 @@ martin:
     in:
       findings:
       - *id001
-      run: beck test --component tag-store
-      check: beck check --component tag-store
+      run: beck send test --component tag-store
+      check: beck send check --component tag-store
     out:
       outcome: done
       result:
@@ -268,14 +268,14 @@ martin:
       - mix.exs
       landed:
       - bookmark-tagger
-      run: beck test --component tag-store
+      run: beck send test --component tag-store
     out:
       outcome: done
   FixStaticFindings:
     in:
       findings:
       - lib/bookmarks/tagging/tag_store.ex:3:1 Readability.ModuleDoc Modules should have a @moduledoc tag.
-      check: beck check lib/bookmarks/tagging/tag_store.ex
+      check: beck send check lib/bookmarks/tagging/tag_store.ex
     out:
       outcome: done
 reader:

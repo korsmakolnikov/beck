@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from beck.events.store import Event, EventStore
-from beck.machine.core import Command, Ctx, Machine, Result
+from beck.machine.core import Command, Ctx, Issued, Machine, Result
 from beck.machine.cycle import cycle, green_stuck, undo_red
 from beck.machine.cycle import stream as cycle_stream
 
@@ -87,15 +87,12 @@ def execution(ctx: Ctx) -> dict[str, dict[str, Any]]:
 
 
 def state(ctx: Ctx, component: str) -> str:
-    """waiting | starting | started | parked | restarted | implemented | closed."""
+    """waiting | started | parked | restarted | implemented | closed."""
     s = "waiting"
-    for e in ctx.events(types=("CommandIssued", "ComponentStarted", "ComponentParked", "ComponentResumed", "ComponentImplemented",
+    for e in ctx.events(types=("ComponentStarted", "ComponentParked", "ComponentResumed", "ComponentImplemented",
                                "ComponentClosed", "RestartApplied", "ComponentReopened")):
         p = e.payload
-        if e.type == "CommandIssued":
-            if p["command"] in ("StartComponent", "ResumeComponent") and p["args"].get("component") == component:
-                s = "starting"
-        elif e.type == "RestartApplied":
+        if e.type == "RestartApplied":
             if component in p["components"] and s == "parked":
                 s = "restarted" if _ever_started(ctx, component) else "waiting"
         elif p.get("component") == component:
@@ -108,7 +105,7 @@ def _ever_started(ctx: Ctx, component: str) -> bool:
     return bool(ctx.events(stream=stream(component), types=("ComponentStarted",)))
 
 
-RUNNING = ("starting", "started", "implemented")
+RUNNING = ("started", "implemented")
 
 
 def _closed_requirements(ctx: Ctx, component: str) -> set[str]:
@@ -156,7 +153,7 @@ def schedule(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @components.handler("StartComponent")
-def start_component(command: Event, ctx: Ctx) -> list[Result]:
+def start_component(command: Issued, ctx: Ctx) -> list[Result]:
     component = command.payload["args"]["component"]
     path = ctx.project / ".beck" / "worktrees" / component
     branch = f"beck/{ctx.iteration[:8]}/{component}"
@@ -200,7 +197,7 @@ def _next_requirement(ctx: Ctx, component: str, unit: str) -> str | None:
 
 
 @components.handler("OpenUnit")
-def open_unit(command: Event, ctx: Ctx) -> list[Result]:
+def open_unit(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     requirement = _next_requirement(ctx, a["component"], a["unit"])
     results = [Result("UnitOpened", {"component": a["component"], "unit": a["unit"]})]
@@ -225,7 +222,7 @@ def next_cycle(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @components.handler("OpenCycle")
-def open_cycle(command: Event, ctx: Ctx) -> list[Result]:
+def open_cycle(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     requirement = _next_requirement(ctx, a["component"], a["unit"])
     assert requirement is not None
@@ -234,13 +231,13 @@ def open_cycle(command: Event, ctx: Ctx) -> list[Result]:
 
 
 @components.handler("CloseUnit")
-def close_unit(command: Event, ctx: Ctx) -> list[Result]:
+def close_unit(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     return [Result("UnitClosed", {"component": a["component"], "unit": a["unit"]})]
 
 
 @components.handler("FinishComponent")
-def finish_component(command: Event, ctx: Ctx) -> list[Result]:
+def finish_component(command: Issued, ctx: Ctx) -> list[Result]:
     return [Result("ComponentImplemented", {"component": command.payload["args"]["component"]})]
 
 
@@ -310,7 +307,7 @@ def _propose(chain: str, kind: str, details: dict[str, Any], instructions: str |
 
 
 @components.handler("ParkComponents")
-def park_components(command: Event, ctx: Ctx) -> list[Result]:
+def park_components(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     return [Result("ComponentParked", {"component": u, "reason": a["reason"], "because_of": a["because_of"]}, stream=stream(u))
             for u in a["components"]]
@@ -324,7 +321,7 @@ def restart_proposed(command: Event, output: dict[str, Any], ctx: Ctx) -> list[R
 def _chain_args(ctx: Ctx, event: Event) -> dict[str, Any]:
     """The args of the ProposeRestart an event of the restart descends from."""
     for e in reversed(ctx.store.causes(event.id)):
-        if e.type == "CommandIssued" and e.payload["command"] == "ProposeRestart":
+        if e.type == "AgentTurnRequested" and e.payload["command"] == "ProposeRestart":
             return e.payload["args"]
     raise KeyError(f"{event.id} is not in a restart")
 
@@ -343,7 +340,7 @@ def propose_again(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @components.handler("DiscardRestart")
-def discard_restart(command: Event, ctx: Ctx) -> list[Result]:
+def discard_restart(command: Issued, ctx: Ctx) -> list[Result]:
     _git(ctx.project, "reset", "-q", "--", ".", ":!.beck")   # a git rm is staged: unstage it, then restore
     _git(ctx.project, "checkout", "--", ".", ":!.beck")
     _git(ctx.project, "clean", "-fdq", "--", ".", ":!.beck")
@@ -360,7 +357,7 @@ def apply_restart(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @components.handler("ApplyRestart")
-def handle_apply(command: Event, ctx: Ctx) -> list[Result]:
+def handle_apply(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     _git(ctx.project, "add", "-A", "--", ".", ":!.beck")
     if subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=ctx.project).returncode != 0:
@@ -378,7 +375,7 @@ def handle_apply(command: Event, ctx: Ctx) -> list[Result]:
 
 
 @components.handler("ResumeComponent")
-def resume_component(command: Event, ctx: Ctx) -> list[Result]:
+def resume_component(command: Issued, ctx: Ctx) -> list[Result]:
     component = command.payload["args"]["component"]
     tree = ctx.workspace.worktree(component)
     base = _git(ctx.project, "rev-parse", "HEAD")

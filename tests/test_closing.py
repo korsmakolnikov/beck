@@ -8,7 +8,7 @@ from test_refactor import CHECKER, HEADS, Team, out
 from beck.events.project import Project
 from beck.machine.closing import workflow
 from beck.machine.component import Workspace
-from beck.machine.core import Ctx, Reactor, Result
+from beck.machine.core import Ctx, Engine, Issued, Result
 
 
 class Reviewers(Team):
@@ -28,12 +28,13 @@ def setup(repo, agents, toolchain_extra=""):
                                                    "entities": [],
                                                "dependencies": [], "files": {"source": [], "tests": []}})
     ctx = Ctx(store, repo, it.id, workspace, components_in_parallel=2)
-    store.append("ExecutionDerived", execution())
-    return Reactor(ctx, workflow, agents), store, project, it
+    engine = Engine(ctx, workflow, agents)
+    engine.record("ExecutionDerived", execution())
+    return engine, store, project, it
 
 
-def review(reactor):
-    [r] = [c for c in pending_of_user(reactor) if c.payload["command"] == "PresentForReview"]
+def review(engine):
+    [r] = [c for c in pending_of_user(engine) if c.payload["command"] == "PresentForReview"]
     return r
 
 
@@ -42,15 +43,15 @@ def branch(repo):
 
 
 def test_the_branch_is_presented_squashed_and_closed_on_acceptance(repo):
-    reactor, store, project, it = setup(repo, Reviewers(repo))
-    run(reactor)
-    r = review(reactor)
+    engine, store, project, it = setup(repo, Reviewers(repo))
+    run(engine)
+    r = review(engine)
     assert [c.split(" ", 1)[1] for c in r.payload["args"]["commits"]] == [HEADS["cart"], HEADS["store"]]
     assert [e.type for e in store.read(stream="branch") if e.type in ("SuiteGreen", "StaticChecksPassed",
                                                                        "BranchSquashed")] == [
         "SuiteGreen", "StaticChecksPassed", "BranchSquashed"]
-    reactor.answer(r.id, [Result("ReviewAccepted", {}, actor="user")])
-    run(reactor)
+    engine.answer(r.id, [Result("ReviewAccepted", {}, actor="user")])
+    run(engine)
     assert [e.type for e in store.read(types_=("IterationClosed",))] == ["IterationClosed"]
     assert project.iteration(it.id).ended_at is not None
     assert branch(repo) == [HEADS["cart"], HEADS["store"], "interfaces"]
@@ -68,49 +69,49 @@ def test_the_project_s_checks_are_fixed_as_fixups_and_folded_before_the_review(r
         team.test(cwd, "store", "store-adds")
         return result
     team = Reviewers(repo, {("WriteGreenCode", "store-adds"): [with_todo]})
-    reactor, store, *_ = setup(repo, team, toolchain_extra=(
+    engine, store, *_ = setup(repo, team, toolchain_extra=(
         f"check:\n  - {{name: todo, command: [{sys.executable}, checker.py, src], format: text, scope: project}}\n"))
-    run(reactor)
+    run(engine)
     [failed] = store.read(types_=("StaticChecksFailed",))
     assert failed.payload["findings"][0].startswith("src/shop/store/store_adds.py:2:1")
     [fixed] = store.read(types_=("BranchFixesCommitted",))
     assert fixed.payload["fixups"][0].startswith("src/shop/store/store_adds.py → ")
-    r = review(reactor)
+    r = review(engine)
     assert [c.split(" ", 1)[1] for c in r.payload["args"]["commits"]] == [HEADS["cart"], HEADS["store"]]
     assert "TODO" not in (repo / "src/shop/store/store_adds.py").read_text()
 
 
 def test_a_correction_is_a_fixup_the_next_review_shows_and_the_close_folds(repo):
-    reactor, store, project, it = setup(repo, Reviewers(repo))
-    run(reactor)
-    reactor.answer(review(reactor).id, [Result("CorrectionsRequested", {"text": "store: write 2 - 1"}, actor="user")])
-    run(reactor)
-    second = review(reactor)
+    engine, store, project, it = setup(repo, Reviewers(repo))
+    run(engine)
+    engine.answer(review(engine).id, [Result("CorrectionsRequested", {"text": "store: write 2 - 1"}, actor="user")])
+    run(engine)
+    second = review(engine)
     assert second.payload["args"]["round"] == 2
     assert [c.split(" ", 1)[1] for c in second.payload["args"]["commits"]] == [
         f"fixup! {HEADS['store']}", HEADS["cart"], HEADS["store"]]
     assert "return 2 - 1" in (repo / "src/shop/store/store_adds.py").read_text()
-    reactor.answer(second.id, [Result("ReviewAccepted", {}, actor="user")])
-    run(reactor)
+    engine.answer(second.id, [Result("ReviewAccepted", {}, actor="user")])
+    run(engine)
     assert branch(repo) == [HEADS["cart"], HEADS["store"], "interfaces"]
     assert "return 2 - 1" in git(repo, "show", "HEAD~1:src/shop/store/store_adds.py")
 
 
 def test_a_failing_full_suite_reopens_the_component_of_the_failing_test(repo):
-    reactor, store, *_ = setup(repo, Reviewers(repo))
-    run(reactor)
-    first = review(reactor)
+    engine, store, *_ = setup(repo, Reviewers(repo))
+    run(engine)
+    first = review(engine)
     # the cart's code breaks on the feature branch: the next full suite finds it
     (repo / "src/shop/cart/cart_totals.py").write_text("def cart_totals():\n    return 2\n")
     git(repo, "commit", "-qam", "a breaking change")
-    reactor.answer(first.id, [Result("CorrectionsRequested", {"text": "store: write 2 - 1"}, actor="user")])
-    run(reactor)
+    engine.answer(first.id, [Result("CorrectionsRequested", {"text": "store: write 2 - 1"}, actor="user")])
+    run(engine)
     failed = list(store.read(types_=("SuiteFailed",)))
     assert failed and failed[0].payload["tests"] == ["tests/test_cart_totals.py::test_cart_totals"]
     reopened = [e.payload["component"] for e in store.read(types_=("ComponentReopened",))]
     assert sorted(set(reopened)) == ["cart", "store"]
     assert "return 1" in (repo / "src/shop/cart/cart_totals.py").read_text()
-    assert review(reactor).payload["args"]["round"] == 2
+    assert review(engine).payload["args"]["round"] == 2
 
 
 class Router(Reviewers):
@@ -128,23 +129,23 @@ class Router(Reviewers):
 
 def test_beck_s_own_question_is_routed_by_kent_to_an_action_of_its_menu(repo):
     from beck.machine import user
-    reactor, store, *_ = setup(repo, Router(repo))
-    run(reactor)
-    first = review(reactor)
+    engine, store, *_ = setup(repo, Router(repo))
+    run(engine)
+    first = review(engine)
     (repo / "tests/test_legacy.py").write_text("def test_legacy():\n    assert False\n")
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "a legacy test")
-    reactor.answer(first.id, [Result("CorrectionsRequested", {"text": "store: write 2 - 1"}, actor="user")])
-    run(reactor)
-    [ask] = [c for c in pending_of_user(reactor) if c.payload["command"] == "Ask"]
+    engine.answer(first.id, [Result("CorrectionsRequested", {"text": "store: write 2 - 1"}, actor="user")])
+    run(engine)
+    [ask] = [c for c in pending_of_user(engine) if c.payload["command"] == "Ask"]
     assert "outside the components' tests" in user.prompt(ask)
-    reactor.answer(ask.id, user.answer(ask, "It is a known failure, go on."))
-    run(reactor)
+    engine.answer(ask.id, user.answer(ask, "It is a known failure, go on."))
+    run(engine)
     assert [e.payload["action"] for e in store.read(types_=("DecisionRouted",))] == ["go-on"]
     assert len(list(store.read(types_=("RouteRejected",)))) == 1
     green = list(store.read(types_=("SuiteGreen",)))[-1]
     assert green.actor == "user"
-    assert review(reactor).payload["args"]["round"] == 2
+    assert review(engine).payload["args"]["round"] == 2
 
 
 def test_a_failing_test_of_a_dropped_requirement_reopens_no_component(repo):
@@ -170,9 +171,9 @@ def test_the_review_names_the_interfaces_no_cycle_implemented(repo):
                                            '    raise NotImplementedError("not implemented")\n')
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "the entry point's interface")
-    reactor, store, *_ = setup(repo, Reviewers(repo))
-    run(reactor)
-    assert "an unimplemented no cycle implemented: src/shop/main.py:3" in review(reactor).payload["args"]["notes"]
+    engine, store, *_ = setup(repo, Reviewers(repo))
+    run(engine)
+    assert "an unimplemented no cycle implemented: src/shop/main.py:3" in review(engine).payload["args"]["notes"]
 
 
 def test_the_review_names_the_scheduled_requirements_no_cycle_proved(repo):
@@ -199,15 +200,14 @@ def test_the_branch_autosquash_folds_a_fixup_of_the_model_s_commit(repo):
     from beck.machine.closing import handle_autosquash_branch
     model = git(repo, "rev-parse", "HEAD")
     subject = git(repo, "log", "-1", "--format=%s")
-    store = Project(repo).start_iteration()[1]
+    _, store, started = Project(repo).start_iteration()
     store.append("ModelCommitted", {"sha": model})
     store.append("ComponentStarted", {"component": "store", "worktree": str(repo), "branch": "b", "base": model},
                  stream="component:store")
     (repo / "src/shop/store/fixed.py").write_text("X = 1\n")
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", f"fixup! {subject}")
-    command = store.append("CommandIssued", {"command": "AutosquashBranch", "target": "beck",
-                                             "args": {"then": "review"}}, stream="branch")
+    command = Issued({"command": "AutosquashBranch", "target": "beck", "args": {"then": "review"}}, "branch", started)
     handle_autosquash_branch(command, Ctx(store, repo, "it", None))
     assert git(repo, "log", "-1", "--format=%s") == subject
     assert (repo / "src/shop/store/fixed.py").is_file()
@@ -223,12 +223,11 @@ def test_a_static_fix_of_a_line_older_than_the_branch_fixes_up_the_model_s_commi
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "feat: the interfaces")
     model = git(repo, "rev-parse", "HEAD")
-    store = Project(repo).start_iteration()[1]
+    _, store, started = Project(repo).start_iteration()
     store.append("ModelCommitted", {"sha": model})
     store.append("ComponentStarted", {"component": "store", "worktree": str(repo), "branch": "b", "base": model},
                  stream="component:store")
     (repo / "pyproject.toml").write_text((repo / "pyproject.toml").read_text().replace("# scaffold", "# fixed"))
-    command = store.append("CommandIssued", {"command": "CommitBranchFixes", "target": "beck", "args": {}},
-                           stream="branch")
+    command = Issued({"command": "CommitBranchFixes", "target": "beck", "args": {}}, "branch", started)
     handle_branch_fixes(command, Ctx(store, repo, "it", None))
     assert git(repo, "log", "-1", "--format=%s") == "fixup! feat: the interfaces"

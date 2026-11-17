@@ -8,7 +8,7 @@ from typing import Any
 
 from beck.events.store import Event, EventStore
 
-QUIET = {"CommandDone", "ToolCalled"}
+QUIET = {"ToolCalled", "AgentTurnStarted"}
 
 
 @dataclass(frozen=True)
@@ -39,10 +39,9 @@ def total_tokens(store: EventStore) -> int:
 
 
 def running(store: EventStore) -> list[Event]:
-    """The agents' commands issued and not done yet: who is working on what."""
-    done = {e.causation_id for e in store.read(types_=("CommandDone",))}
-    return [e for e in store.read(types_=("CommandIssued",))
-            if e.id not in done and e.payload["target"] not in ("beck", "user")]
+    """The agents' turns requested and not ended yet: who is working (or waiting for a slot) on what."""
+    ended = {e.causation_id for e in store.read(types_=("AgentTurnEnded", "AgentTurnFailed"))}
+    return [e for e in store.read(types_=("AgentTurnRequested",)) if e.id not in ended]
 
 
 def components(store: EventStore) -> list[tuple[str, str]]:
@@ -73,7 +72,7 @@ def phase(store: EventStore) -> str:
 
 def describe(e: Event) -> str:
     p: dict[str, Any] = e.payload
-    if e.type == "CommandIssued":
+    if e.type in ("AgentTurnRequested", "DecisionRequested"):
         args = p["args"]
         what = args.get("component") or args.get("requirement") or ""
         return f"{p['target']} ← {p['command']} {what}".rstrip()

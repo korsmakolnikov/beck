@@ -21,7 +21,7 @@ from typing import Any
 from beck.events.store import Event
 from beck.index.store import INTEGRATION
 from beck.machine import verify
-from beck.machine.core import Command, Ctx, Machine, Result
+from beck.machine.core import Command, Ctx, Issued, Machine, Result, request_of
 from beck.machine.signatures import blocked, signature
 
 cycle = Machine()
@@ -74,7 +74,7 @@ def _rejections(ctx: Ctx, component: str, requirement: str, kinds: tuple[str, ..
 
 def _red_turn(ctx: Ctx, component: str, requirement: str, unit: str, first: bool, retry: tuple[int, str] | None) -> Command:
     context: dict[str, Any] = {"requirement": requirement,
-                               "run": f"beck test <the test> --component {component} --requirement {requirement}"}
+                               "run": f"beck send test <the test> --component {component} --requirement {requirement}"}
     if first and retry is None:
         context["unit"] = ctx.workspace.unit_context(component, unit)
     args: dict[str, Any] = {"session": f"{component}/{unit}", "context": context, "component": component,
@@ -88,7 +88,7 @@ def _red_turn(ctx: Ctx, component: str, requirement: str, unit: str, first: bool
 def _green_turn(component: str, requirement: str, unit: str, test: str, failure: str | None,
                 retry: tuple[int, str] | None) -> Command:
     context: dict[str, Any] = {"requirement": requirement, "test": test,
-                               "run": f"beck test {test} --component {component} --requirement {requirement}"}
+                               "run": f"beck send test {test} --component {component} --requirement {requirement}"}
     if failure:
         context["failure"] = failure
     args: dict[str, Any] = {"session": f"{component}/{unit}", "context": context, "component": component,
@@ -100,9 +100,8 @@ def _green_turn(component: str, requirement: str, unit: str, test: str, failure:
 
 
 def _issued(ctx: Ctx, event: Event) -> Event:
-    """The CommandIssued an executor's result answers."""
-    assert event.causation_id is not None
-    return ctx.store.get(event.causation_id)
+    """The agent's turn (AgentTurnRequested) an event descends from."""
+    return request_of(ctx.store, event)
 
 
 # --- policies ----------------------------------------------------------------
@@ -150,7 +149,8 @@ def commit_red(event: Event, ctx: Ctx) -> list[Command]:
 @cycle.policy("RedCommitted")
 def open_green(event: Event, ctx: Ctx) -> list[Command]:
     p = event.payload
-    if parked(ctx, p["component"]) or _issued(ctx, event).payload["args"].get("already_green"):
+    verified = ctx.store.get(event.causation_id or "")                 # CommitRed ran on the RedVerified
+    if parked(ctx, p["component"]) or verified.payload.get("already_green"):
         return []
     test, unit = _declared_test(ctx, p["component"], p["requirement"])
     return [_green_turn(p["component"], p["requirement"], unit, test, None, None)]
@@ -232,19 +232,16 @@ def _retry(ctx: Ctx, event: Event, component: str, requirement: str, kinds: tupl
 def _agent_turn(ctx: Ctx, rejection: Event) -> tuple[str, dict[str, Any]]:
     """The command name and args of the agent's turn a rejection is about.
 
-    A SignalRejected answers the turn's CommandIssued directly; a verifier's
-    rejection answers the VerifyRed/VerifyGreen command, whose args name the turn.
+    A SignalRejected answers the turn directly; a verifier's rejection answers the declaration, which
+    answers the turn.
     """
     issued = _issued(ctx, rejection)
-    if rejection.type != "SignalRejected":
-        issued = ctx.store.get(issued.payload["args"]["turn"])
     return issued.payload["command"], issued.payload["args"]
 
 
 def _declared_test(ctx: Ctx, component: str, requirement: str) -> tuple[str, str]:
     declared = [e for e in ctx.events(stream=stream(component, requirement), types=("RedVerified",))][-1]
-    turn = ctx.store.get(declared.causation_id or "")           # VerifyRed
-    unit = ctx.store.get(turn.payload["args"]["turn"]).payload["args"]["unit"]
+    unit = _issued(ctx, declared).payload["args"]["unit"]       # RedVerified ← RedDeclared ← the red turn
     return declared.payload["test"], unit
 
 
@@ -292,7 +289,7 @@ def _runs(ctx: Ctx, turn: str) -> list[Event]:
 
 
 @cycle.handler("VerifyRed")
-def handle_verify_red(command: Event, ctx: Ctx) -> list[Result]:
+def handle_verify_red(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     # a test that passes proves the requirement when its code exists: the integration component's (over components already
     # implemented), or a requirement the index shows implemented by an earlier green
@@ -309,7 +306,7 @@ def handle_verify_red(command: Event, ctx: Ctx) -> list[Result]:
 
 
 @cycle.handler("VerifyGreen")
-def handle_verify_green(command: Event, ctx: Ctx) -> list[Result]:
+def handle_verify_green(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     verdict = verify.verify_green(ctx.workspace.worktree(a["component"]), _runs(ctx, a["turn"]), a["test"],
                                   ctx.workspace.scope(a["component"]), ctx.project)
@@ -345,7 +342,7 @@ def message(ctx: Ctx, component: str, own: str) -> str:
 
 
 @cycle.handler("CommitRed")
-def handle_commit_red(command: Event, ctx: Ctx) -> list[Result]:
+def handle_commit_red(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     tree = ctx.workspace.worktree(a["component"])
     sha = commit(tree, message(ctx, a["component"], f"test({a['component']}): {a['requirement']}"))
@@ -375,7 +372,7 @@ def undo_red(tree: Path, component: str, requirement: str) -> None:
 
 
 @cycle.handler("RewindRed")
-def handle_rewind_red(command: Event, ctx: Ctx) -> list[Result]:
+def handle_rewind_red(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     tree = ctx.workspace.worktree(a["component"])
     undo_red(tree, a["component"], a["requirement"])   # by its subject: a resume's rebase rewrote its sha
@@ -384,7 +381,7 @@ def handle_rewind_red(command: Event, ctx: Ctx) -> list[Result]:
 
 
 @cycle.handler("CommitGreen")
-def handle_commit_green(command: Event, ctx: Ctx) -> list[Result]:
+def handle_commit_green(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     sha = commit(ctx.workspace.worktree(a["component"]), message(ctx, a["component"],
                                                                  f"feat({a['component']}): {a['requirement']}"),
@@ -394,6 +391,6 @@ def handle_commit_green(command: Event, ctx: Ctx) -> list[Result]:
 
 
 @cycle.handler("BlockCycle")
-def handle_block(command: Event, ctx: Ctx) -> list[Result]:
+def handle_block(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     return [Result("CycleBlocked", {"component": a["component"], "requirement": a["requirement"], "reason": a["reason"]})]

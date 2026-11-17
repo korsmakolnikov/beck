@@ -1,4 +1,4 @@
-"""The TUI (Textual), in tmux-like areas, around the reactor (README, "TUI").
+"""The TUI (Textual), in tmux-like areas, around the engine (README, "TUI").
 
     ┌ status: phase · tokens · active agents ──────────────────────────────────┐
     │ activity (the event stream, summarised)   │ components (the graph, by state)  │
@@ -7,7 +7,7 @@
     │ > the answer                                                               │
     └────────────────────────────────────────────────────────────────────────────┘
 
-The reactor runs as a worker; every few hundred milliseconds the panels are
+The engine runs as a worker; every few hundred milliseconds the panels are
 folded again from the events. A decision of the user waits in the main
 panel; the answer is typed below it.
 """
@@ -25,7 +25,7 @@ from beck import views
 from beck.events.project import Project
 from beck.events.store import Event
 from beck.machine import user
-from beck.machine.core import Agents, Reactor
+from beck.machine.core import Agents, Engine
 
 
 class BeckApp(App[int]):
@@ -39,10 +39,10 @@ class BeckApp(App[int]):
     """
     BINDINGS = [("ctrl+c", "quit", "Quit (safe: beck attach resumes)")]
 
-    def __init__(self, reactor: Reactor):
+    def __init__(self, engine: Engine):
         super().__init__()
-        self.reactor = reactor
-        self.store = reactor.ctx.store
+        self.engine = engine
+        self.store = engine.ctx.store
         self.waiting: Event | None = None
         self.result = 2
 
@@ -58,23 +58,24 @@ class BeckApp(App[int]):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.title = f"beck · {self.reactor.ctx.iteration[:8]}"
+        self.title = f"beck · {self.engine.ctx.iteration[:8]}"
         self.set_interval(0.3, self.refresh_panels)
-        self.run_worker(self.run_machine(), exclusive=True)
+        from beck.app import serving  # the session's socket, open while the machine runs
+        self.run_worker(serving(self.engine, self.run_machine()), exclusive=True)
 
     async def run_machine(self) -> None:
         while True:
-            await self.reactor.run_until_idle()
-            if self.reactor.crashes:
+            await self.engine.run_until_idle()
+            if self.engine.crashes:
                 self.result = 1
-                self.query_one("#main", Static).update(crashed(self.reactor))
+                self.query_one("#main", Static).update(crashed(self.engine))
                 return
             end = next(iter(self.store.read(types_=("IterationClosed", "ConfigInvalid"))), None)
             if end is not None:
                 self.result = 0 if end.type == "IterationClosed" else 1
                 self.query_one("#main", Static).update(f"beck: {end.type}. Ctrl-C to quit.")
                 return
-            decisions = [c for c in self.reactor.pending() if c.payload["target"] == "user"]
+            decisions = [c for c in self.engine.pending() if c.payload["target"] == "user"]
             if not decisions:
                 self.query_one("#main", Static).update("Nothing to do and nothing to answer: see `beck events`.")
                 return
@@ -89,7 +90,7 @@ class BeckApp(App[int]):
         if self.waiting is None or not message.value.strip():
             return
         try:
-            self.reactor.answer(self.waiting.id, user.answer(self.waiting, message.value))
+            self.engine.answer(self.waiting.id, user.answer(self.waiting, message.value))
         except user.DecisionError as error:
             self.query_one("#main", Static).update(f"{user.prompt(self.waiting)}\n[red]{error}[/red]")
             return
@@ -108,16 +109,16 @@ class BeckApp(App[int]):
             "[b]tokens per turn[/b]\n" + ("\n".join(views.histogram(views.tokens(self.store), 18)) or "none yet"))
 
 
-def crashed(reactor: Reactor) -> str:
+def crashed(engine: Engine) -> str:
     """What the user reads when beck itself raised: where, and how to resume after the fix."""
     lines = [f"[b red]beck crashed[/b red] in the {c.payload['where']} {c.payload['name']}: {c.payload['error']}"
-             for c in reactor.crashes]
+             for c in engine.crashes]
     return "\n".join([*lines, f"The traceback is in `beck events`. Fix it, "
-                                f"then `beck tui {reactor.ctx.iteration[:8]}` resumes. Ctrl-C to quit."])
+                                f"then `beck tui {engine.ctx.iteration[:8]}` resumes. Ctrl-C to quit."])
 
 
 def run(project_root: Path, iteration: str | None, agents: Agents | None = None) -> int:
-    from beck.app import reactor_for
+    from beck.app import engine_for
     project = Project(project_root)
     if iteration is None:
         it, store, _ = project.start_iteration()
@@ -127,7 +128,7 @@ def run(project_root: Path, iteration: str | None, agents: Agents | None = None)
         last = store.last()
         store.append("SessionAttached", {"from_seq": last.seq if last else 0},
                      cause=next(iter(store.read(types_=("SessionStarted",))), None))
-    app = BeckApp(reactor_for(project, it.id, store, agents))
+    app = BeckApp(engine_for(project, it.id, store, agents))
     try:
         app.run()
         return app.result

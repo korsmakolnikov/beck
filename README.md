@@ -107,7 +107,7 @@ Everything beck needs lives in `.beck/`; minime's `.sources/`,
 * the DSLs: `domains/<domain>.yaml` (a spec per domain) and `architecture.yaml`; no
   components map (see [`docs/dsl.md`](docs/dsl.md))
 * `toolchain.yml`: how to run the tests (`src/beck/toolchain.py`)
-* `reports/`: the JUnit reports of `beck test` (never versioned)
+* `reports/`: the JUnit reports of the test runs (never versioned)
 * `index.db`: the DSL-to-code index (derived, never versioned)
 * the event stores (never versioned)
 
@@ -346,12 +346,12 @@ Implemented: `src/beck/events/`, with `beck sessions`, `beck events` and
   none, the file is missing or unreadable), beck falls back to the agent
   transparently and logs a warning in the log file.
 * **beck does nothing of its own accord**: it runs tests when an agent asks
-  (`beck test`) or a policy does. unclebob runs only the test of its cycle;
+  (`beck send test`) or a policy does. unclebob runs only the test of its cycle;
   when a component is implemented, a policy has beck run the component's tests and
   the fitness functions; the whole suite runs once, at the end of the
   integration component. smart_audit checks which tests each cycle ran.
 * **The agent never reads the console** (reading the runners' whole output
-  was one of the costs of the old workflow). `beck test` sends the output to
+  was one of the costs of the old workflow). `beck send test` sends the output to
   the run's log under `.beck/reports/` and prints only `ALL_OK (n passed)`
   or, from the JUnit XML, one entry per test that did not pass: its id, the
   kind of failure, the first lines of the message, the file and line inside
@@ -365,7 +365,7 @@ Implemented: `src/beck/events/`, with `beck sessions`, `beck events` and
   component's autosquash; the `project` checks (dialyzer) only with `--all`, at
   the end of the iteration.
 * **The report is beck's evidence**, never the agent's word. The agents run
-  the tests through `beck test` (implemented), which runs the command of
+  the tests through `beck send test` (implemented), which runs the command of
   `.beck/toolchain.yml`, writes the JUnit report under `.beck/reports/` and
   records a `TestsRun` event: the tests, the exit code, the report's hash,
   the git tree of the working tree after the run (outside `.beck/`), and as
@@ -517,20 +517,26 @@ costs less than TDD. The replays act as integration tests.
   (unclebob) and the blue phase of the component (martin, once per component, after
   the cycles; it may move into unclebob's cycle later); a scheduler of the
   slots.
-* **Policies**: functions of an event. A policy that needs an agent or the
-  user sends a message; a deterministic one may act directly (a commit, a
-  worktree). Every action records its outcome as an event caused by the
-  triggering one, so the causation id makes the policies idempotent: on a
-  replay or a `beck attach`, a policy whose effect is already in the store
-  does not run again.
-* **The reactor** (implemented, `src/beck/machine/core.py`): a policy turns
-  an event into a `CommandIssued` (with the policy's name: the anchor of
-  idempotence); an executor turns the command into result events and a
-  `CommandDone`, in one transaction: beck's handlers at once, an agent's
-  turn as an asyncio task (JSON in and out, `$BECK_CAUSE` = the command),
-  the user's answer when it comes. A command without its `CommandDone` is
-  pending and runs again on attach; a policy sees the events up to its own,
-  so a replay issues exactly what the first run did. Implemented: the
+* **Policies**: facades of handlers, by event type. A policy that needs an
+  agent or the user asks for it (a request, recorded as an event); a
+  deterministic one has beck act at once (a commit, a worktree, a test run).
+  Every outcome is an event caused by the triggering one.
+* **The engine** (implemented, `src/beck/machine/core.py`; the words in
+  `docs/glossary.md`, "The core"): commands are never stored, only events.
+  Each input (an agent's output, the user's answer, an agent's command on
+  the socket, the session's start) is processed in one transaction: its
+  facts, then the policies of every new event in order, beck's commands
+  executed at once, the commands for the outside recorded as requests
+  (`AgentTurnRequested`, `DecisionRequested`). A crash aborts the input's
+  transaction and records its facts with a `BeckCrashed`; after the fix
+  `beck attach` processes them again, without asking the agent again.
+  Recovery rebuilds the state from the events and runs no policy again: a
+  requested turn starts (`AgentTurnStarted`: its input and its folder's
+  snapshot), a turn beck died in starts again from its snapshot. The agents
+  run the tests and the checks through the session's socket (`beck send`,
+  `src/beck/socket.py`): beck runs them once and records the evidence.
+  A policy sees the events up to its own (the scheduler alone reads the
+  present). Implemented: the
   cycle's machine (`src/beck/machine/cycle.py`: the verifiers of red and
   green, the repetition rule) and the components' (`src/beck/machine/component.py`:
   the scheduler of the slots, worktrees, units, parking, restarts) and
@@ -681,7 +687,7 @@ P: ModelCommitted | ComponentClosed | ComponentParked → ScheduleComponents (B)
    [free slot, component not started]           → StartComponent (B)      → ComponentStarted (worktree from the feature branch)
 P: ComponentStarted | UnitClosed [units left] → OpenUnit (B: context from the index) → UnitOpened (new unclebob session)
 P: UnitOpened | CycleClosed [requirements of the unit without a test]
-   → WriteRedTest (A unclebob: writes the test, runs it with beck test) → RedDeclared {requirement id, test id}
+   → WriteRedTest (A unclebob: writes the test, runs it with beck send test) → RedDeclared {requirement id, test id}
 P: RedDeclared → VerifyRed (B: a fresh TestsRun holds the test, not passed;
                  no syntax or collection error; only test files changed)
                                                                 → RedVerified | RedRejected ⟲ WriteRedTest {reason}

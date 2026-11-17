@@ -7,13 +7,12 @@ import sys
 from pathlib import Path
 
 import pytest
+from agent_tools import send_test
 
 from beck.events.project import Project
 from beck.machine import user
-from beck.machine.core import Ctx, Reactor, Turn
+from beck.machine.core import Ctx, Engine, Turn
 from beck.machine.session import IndexWorkspace, beck_machine, classify_project
-from beck.testrun import run as run_tests
-from beck.toolchain import load
 
 PYTEST = f'[{sys.executable}, -m, pytest, -q, -p, no:cacheprovider, "--junitxml={{report}}", "{{tests}}"]'
 DOMAIN = """domain: 1
@@ -152,8 +151,7 @@ class Agents:
         return done("WriteGreenCode")
 
     def _test(self, cwd):
-        run_tests(cwd, load(self.project), ["tests/test_adder.py::test_add_sums"], actor="unclebob", component="adder",
-                  requirement="add-sums", store_root=self.project)
+        send_test(cwd, ["tests/test_adder.py::test_add_sums"], component="adder", requirement="add-sums")
 
     # martin
     def ReviewComponent(self, e, cwd):
@@ -164,12 +162,12 @@ ANSWERS = {"AskInterview": "Adding two numbers.", "ConfirmBranchName": "yes", "A
            "ApproveDomain": "yes", "ApproveArchitecture": "yes", "PresentForReview": "yes"}
 
 
-def drive(reactor, answers, limit=40):
+def drive(engine, answers, limit=40):
     """Runs the machine, answering the user's commands from the script, until nothing is left to answer."""
     asked = []
     for _ in range(limit):
-        asyncio.run(reactor.run_until_idle())
-        pending = [c for c in reactor.pending() if c.payload["target"] == "user"]
+        asyncio.run(engine.run_until_idle())
+        pending = [c for c in engine.pending() if c.payload["target"] == "user"]
         if not pending:
             return asked
         command = pending[0]
@@ -180,7 +178,7 @@ def drive(reactor, answers, limit=40):
         words = answers[name]
         if isinstance(words, list):  # one answer per time, the last one repeating
             words = words.pop(0) if len(words) > 1 else words[0]
-        reactor.answer(command.id, user.answer(command, words))
+        engine.answer(command.id, user.answer(command, words))
     raise AssertionError("the session does not end")
 
 
@@ -188,13 +186,13 @@ def start(project, agents):
     p = Project(project)
     it, store, _ = p.start_iteration()
     ctx = Ctx(store, project, it.id, IndexWorkspace(store, project))
-    return Reactor(ctx, beck_machine, agents), store, p, it
+    return Engine(ctx, beck_machine, agents), store, p, it
 
 
 def test_a_whole_iteration_from_the_interview_to_the_close(project):
     agents = Agents(project)
-    reactor, store, p, it = start(project, agents)
-    asked = drive(reactor, ANSWERS)
+    engine, store, p, it = start(project, agents)
+    asked = drive(engine, ANSWERS)
     assert [a for a, _ in asked] == ["AskInterview"] * 3 + ["ConfirmBranchName", "ApproveShoppingList",
                                                              "ApproveDomain", "ApproveArchitecture",
                                                              "PresentForReview"]
@@ -214,15 +212,15 @@ def test_a_whole_iteration_from_the_interview_to_the_close(project):
     # every event of the iteration descends from its SessionStarted
     started = list(store.read(types_=("SessionStarted",)))[0]
     assert all(e.correlation_id == started.id for e in store.read() if e.causation_id)
-    assert not [c for c in reactor.pending()]
+    assert not [c for c in engine.pending()]
 
 
 def test_a_shopping_list_written_after_the_questions_of_kent_is_approved(project):
     # the user's session of 2026-11-14 (events 75-91): two questions, then the list; beck died on the answer
     agents = Agents(project, shopping_questions=["Which library for the TUI: curses, blessed, rich?",
                                                  "By \"the 2\" do you mean blessed?"])
-    reactor, store, *_ = start(project, agents)
-    asked = drive(reactor, dict(ANSWERS, Ask=["Ok the 2", "yes blessed"]))
+    engine, store, *_ = start(project, agents)
+    asked = drive(engine, dict(ANSWERS, Ask=["Ok the 2", "yes blessed"]))
     assert [a for a, _ in asked][3:7] == ["ConfirmBranchName", "Ask", "Ask", "ApproveShoppingList"]
     [written] = store.read(types_=("ShoppingListWritten",))
     assert written.payload["file"] == ".beck/shopping_lists/calc-add.md"
@@ -231,8 +229,8 @@ def test_a_shopping_list_written_after_the_questions_of_kent_is_approved(project
 
 def test_an_invalid_domain_goes_back_to_kent_with_the_errors(project):
     agents = Agents(project, domain=(DOMAIN.replace("uses: [Number]", "uses: [Numbr]"), DOMAIN))
-    reactor, store, *_ = start(project, agents)
-    drive(reactor, ANSWERS)
+    engine, store, *_ = start(project, agents)
+    drive(engine, ANSWERS)
     [invalid] = store.read(types_=("DomainInvalid",))
     assert invalid.payload["errors"] == ["domains/arithmetic.yaml: morphisms[0].uses[0]: no entity named 'Numbr'"]
     second = [e for a, e in agents.calls if e["command"] == "WriteDomain"][1]
@@ -242,17 +240,17 @@ def test_an_invalid_domain_goes_back_to_kent_with_the_errors(project):
 
 def test_a_domain_that_stays_invalid_asks_the_user(project):
     agents = Agents(project, domain=(DOMAIN.replace("uses: [Number]", "uses: [Numbr]"),))
-    reactor, store, *_ = start(project, agents)
-    asked = drive(reactor, ANSWERS)
+    engine, store, *_ = start(project, agents)
+    asked = drive(engine, ANSWERS)
     assert asked[-1][0] == "Ask" and asked[-1][1].startswith("kent's domain is blocked: the same result 3 times")
     assert len(list(store.read(types_=("DomainInvalid",)))) == 3
 
 
 def test_a_revision_of_the_user_reaches_kent(project):
     agents = Agents(project)
-    reactor, store, *_ = start(project, agents)
+    engine, store, *_ = start(project, agents)
     answers = dict(ANSWERS, ApproveDomain=["Name the entity Integer.", "yes"])
-    drive(reactor, answers)
+    drive(engine, answers)
     revisions = [e["context"].get("revision") for a, e in agents.calls if e["command"] == "WriteDomain"]
     assert revisions == [None, "Name the entity Integer."]
     assert [e.type for e in store.read(types_=("DomainRevised", "IterationClosed"))] == ["DomainRevised",
@@ -274,8 +272,8 @@ def test_the_language_is_asked_open_and_one_beck_cannot_lay_is_asked_again(tmp_p
         monkeypatch.setenv(var, value)
     project = tmp_path / "app"
     project.mkdir()
-    reactor, store, *_ = start(project, Agents(project))
-    asked = drive(reactor, {"AskInterview": ["A game.", "Nothing.", "It runs.", "Rust", " Python ", "app"]})
+    engine, store, *_ = start(project, Agents(project))
+    asked = drive(engine, {"AskInterview": ["A game.", "Nothing.", "It runs.", "Rust", " Python ", "app"]})
     questions = [q for a, q in asked if a == "AskInterview"]
     assert questions[3] == "Which language?"
     assert questions[4].startswith("beck cannot lay a 'rust' project yet: it lays python, elixir.")
@@ -359,8 +357,8 @@ def test_an_unimplemented_no_id_references_sends_the_interfaces_back_to_kent(pro
     # the sessions of 2026-11-15 and 16: main(), and the clock's real implementation, referenced no id: no cycle
     # implemented them, the suite stayed green and the program did not start
     agents = Unreferenced(project)
-    reactor, store, *_ = start(project, agents)
-    drive(reactor, ANSWERS)
+    engine, store, *_ = start(project, agents)
+    drive(engine, ANSWERS)
     [broken] = store.read(types_=("InterfacesBroken",))
     assert broken.payload["errors"] == ["src/calc/arithmetic/adder/__init__.py:8: an unimplemented no id references"]
     second = [e for a, e in agents.calls if e["command"] == "WriteInterfaces"][1]

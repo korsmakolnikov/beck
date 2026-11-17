@@ -28,7 +28,7 @@ schemas, is in [`src/beck/agents/examples.yaml`](../src/beck/agents/examples.yam
   between the user and the agents (deterministic, with a small model as
   fallback) may decorate it later.
 * `cause` is the event the turn answers. beck puts its id in the agent's
-  environment too (`BECK_CAUSE`), so every `beck test` and `beck check` the
+  environment too (`BECK_CAUSE`), so every `beck send test` and `beck send check` the
   agent runs joins the same chain.
 * `outcome` is one of `done`, `question` (with `question`: only kent asks
   the user; beck relays the question and the answer) and `change_requested`
@@ -89,7 +89,7 @@ schemas, is in [`src/beck/agents/examples.yaml`](../src/beck/agents/examples.yam
 * **beck runs a step's tests itself when a policy asks for them** (the
   component's tests, the full suite): beck is deterministic and does nothing of
   its own accord, so a turn of martin only to run a command is waste.
-  unclebob still runs its cycle's test, through `beck test`.
+  unclebob still runs its cycle's test, through `beck send test`.
 * **A weak test is martin's to fix** (`RefactorComponent` with `weak_tests`,
   phase `strengthen`), under the three laws of TDD: the test first; if it
   turns red, then the code. No state machine for it; smart_audit checks the

@@ -6,13 +6,12 @@ import subprocess
 import sys
 
 import pytest
+from agent_tools import send_test
 
 from beck.events.project import Project
-from beck.machine.core import Ctx, Reactor, Turn
+from beck.machine.core import Ctx, Engine, Turn
 from beck.machine.cycle import Workspace, cycle
 from beck.machine.signatures import blocked, normalise, repeated, signature
-from beck.testrun import run as run_tests
-from beck.toolchain import load
 
 PYTEST = f'[{sys.executable}, -m, pytest, -q, -p, no:cacheprovider, "--junitxml={{report}}", "{{tests}}"]'
 TEST = "tests/test_mod.py::test_double"
@@ -71,7 +70,7 @@ class Agent:
         (self.root / path).write_text(text)
 
     def test(self, selector=TEST):
-        run_tests(self.root, load(self.root), [selector], actor="unclebob", component=self.component, requirement="doubles")
+        send_test(self.root, [selector], component=self.component, requirement="doubles")
 
 
 def red(test_text=RED_TEST, run=True, answer=TEST):
@@ -100,20 +99,21 @@ def machine(repo, agent, component="u", met=()):
         "component": {"id": component}, "unit": "morphism:double", "requirements": [], "entities": [], "dependencies": [],
         "files": {"source": [], "tests": []}}}, set(met))
     ctx = Ctx(store, repo, it.id, workspace)
-    opened = store.append("CycleOpened", {"component": component, "requirement": "doubles", "unit": "morphism:double",
-                                          "first": True}, stream=f"cycle:{component}/doubles")
-    return Reactor(ctx, cycle, agent), store, opened
+    engine = Engine(ctx, cycle, agent)
+    opened = engine.record("CycleOpened", {"component": component, "requirement": "doubles", "unit": "morphism:double",
+                                           "first": True}, stream=f"cycle:{component}/doubles")
+    return engine, store, opened
 
 
 def types(store):
-    return [e.type for e in store.read() if e.type not in ("CommandIssued", "CommandDone", "AgentTurnEnded", "TurnChanged",
-                                                            "TestsRun")]
+    return [e.type for e in store.read() if e.type not in ("AgentTurnRequested", "AgentTurnStarted", "AgentTurnEnded",
+                                                            "TurnChanged", "TestsRun")]
 
 
 def test_a_cycle_goes_red_then_green_and_commits_both(repo):
     agent = Agent(repo, {"WriteRedTest": [red()], "WriteGreenCode": [green()]})
-    reactor, store, opened = machine(repo, agent)
-    asyncio.run(reactor.run_until_idle())
+    engine, store, opened = machine(repo, agent)
+    asyncio.run(engine.run_until_idle())
     assert types(store) == ["SessionStarted", "CycleOpened", "RedDeclared", "RedVerified", "RedCommitted",
                             "GreenDeclared", "GreenVerified", "GreenCommitted", "CycleClosed"]
     assert git(repo, "log", "--format=%s").splitlines() == ["feat(u): doubles", "test(u): doubles", "start"]
@@ -127,8 +127,8 @@ def test_a_cycle_goes_red_then_green_and_commits_both(repo):
 
 def test_a_red_that_passes_is_sent_back_with_the_reason(repo):
     agent = Agent(repo, {"WriteRedTest": [red(PASSING_TEST), red()], "WriteGreenCode": [green()]})
-    reactor, store, _ = machine(repo, agent)
-    asyncio.run(reactor.run_until_idle())
+    engine, store, _ = machine(repo, agent)
+    asyncio.run(engine.run_until_idle())
     assert "RedRejected" in types(store) and types(store)[-1] == "CycleClosed"
     assert agent.calls[1]["retry"] == {"attempt": 2, "reason": "the test passes already: a red test must fail"}
 
@@ -139,10 +139,10 @@ def test_a_run_older_than_the_files_is_stale(repo):
         a.write("tests/test_mod.py", RED_TEST + "\n# changed after the run\n")
         return {"protocol": 1, "command": "WriteRedTest", "outcome": "done", "result": {"test": TEST}}
     agent = Agent(repo, {"WriteRedTest": [edit_after, red()], "WriteGreenCode": [green()]})
-    reactor, store, _ = machine(repo, agent)
-    asyncio.run(reactor.run_until_idle())
+    engine, store, _ = machine(repo, agent)
+    asyncio.run(engine.run_until_idle())
     rejected = [e for e in store.read(types_=("RedRejected",))]
-    assert rejected[0].payload["reason"] == "files changed after the last beck test run"
+    assert rejected[0].payload["reason"] == "files changed after the last beck send test run"
 
 
 def test_a_green_that_changes_a_test_or_leaves_its_scope_is_rejected(repo):
@@ -156,8 +156,8 @@ def test_a_green_that_changes_a_test_or_leaves_its_scope_is_rejected(repo):
                          "WriteGreenCode": [then("tests/test_other.py", "x = 1\n"),
                                             then("docs/notes.md", "x\n", remove="tests/test_other.py"),
                                             then(None, None, remove="docs/notes.md")]})
-    reactor, store, _ = machine(repo, agent)
-    asyncio.run(reactor.run_until_idle())
+    engine, store, _ = machine(repo, agent)
+    asyncio.run(engine.run_until_idle())
     reasons = [e.payload["reason"] for e in store.read(types_=("GreenRejected",))]
     assert reasons == ["a green changes no test; changed: tests/test_other.py",
                        "outside the component's scope: docs/notes.md"]
@@ -167,8 +167,8 @@ def test_a_green_that_changes_a_test_or_leaves_its_scope_is_rejected(repo):
 def test_a_failing_green_carries_the_summary_to_the_next_turn(repo):
     agent = Agent(repo, {"WriteRedTest": [red()],
                          "WriteGreenCode": [green("def double(x):\n    return x\n"), green()]})
-    reactor, store, _ = machine(repo, agent)
-    asyncio.run(reactor.run_until_idle())
+    engine, store, _ = machine(repo, agent)
+    asyncio.run(engine.run_until_idle())
     retry = agent.calls[2]
     assert retry["context"]["failure"].startswith("NOT_OK (1 of 1 not passed)")
     assert retry["retry"]["reason"] == "the test does not pass"
@@ -177,8 +177,8 @@ def test_a_failing_green_carries_the_summary_to_the_next_turn(repo):
 def test_a_malformed_answer_is_a_signal_rejected_and_retried(repo):
     bad = lambda a: {"protocol": 1, "command": "WriteRedTest", "outcome": "done"}  # noqa: E731
     agent = Agent(repo, {"WriteRedTest": [bad, red()], "WriteGreenCode": [green()]})
-    reactor, store, _ = machine(repo, agent)
-    asyncio.run(reactor.run_until_idle())
+    engine, store, _ = machine(repo, agent)
+    asyncio.run(engine.run_until_idle())
     rejected = list(store.read(types_=("SignalRejected",)))
     assert rejected and "'result' is a required property" in rejected[0].payload["errors"][0]
     assert types(store)[-1] == "CycleClosed"
@@ -192,8 +192,8 @@ def test_a_green_retried_for_its_format_alone_keeps_the_run_of_the_rejected_turn
         return {"protocol": 1, "command": "WriteGreenCode", "outcome": "done", "result": {"summary": "s"}}
     fixed = lambda a: {"protocol": 1, "command": "WriteGreenCode", "outcome": "done"}  # noqa: E731
     agent = Agent(repo, {"WriteRedTest": [red()], "WriteGreenCode": [run_then_malformed, fixed]})
-    reactor, store, _ = machine(repo, agent)
-    asyncio.run(reactor.run_until_idle())
+    engine, store, _ = machine(repo, agent)
+    asyncio.run(engine.run_until_idle())
     assert "GreenRejected" not in types(store) and types(store)[-1] == "CycleClosed"
 
 
@@ -206,10 +206,10 @@ def test_a_run_of_a_rejected_turn_is_stale_once_the_files_change(repo):
         return {"protocol": 1, "command": "WriteGreenCode", "outcome": "done"}
     agent = Agent(repo, {"WriteRedTest": [red()], "WriteGreenCode": [run_then_malformed, edit_without_running,
                                                                     green()]})
-    reactor, store, _ = machine(repo, agent)
-    asyncio.run(reactor.run_until_idle())
+    engine, store, _ = machine(repo, agent)
+    asyncio.run(engine.run_until_idle())
     [rejected] = store.read(types_=("GreenRejected",))
-    assert rejected.payload["reason"] == "files changed after the last beck test run"
+    assert rejected.payload["reason"] == "files changed after the last beck send test run"
     assert types(store)[-1] == "CycleClosed"
 
 
@@ -223,8 +223,8 @@ def test_a_green_that_finds_the_red_test_wrong_takes_the_cycle_back_to_red(repo)
     # the session of 2026-11-15: a committed red test became wrong after a restart; a green may not change a
     # test, kent found nothing to change in the model, and the component went round asking for a change
     agent = Agent(repo, {"WriteRedTest": [red(), red()], "WriteGreenCode": [wrong_test, green()]})
-    reactor, store, _ = machine(repo, agent)
-    asyncio.run(reactor.run_until_idle())
+    engine, store, _ = machine(repo, agent)
+    asyncio.run(engine.run_until_idle())
     assert types(store) == ["SessionStarted", "CycleOpened", "RedDeclared", "RedVerified", "RedCommitted",
                             "ChangeRequested", "RedRewound", "RedDeclared", "RedVerified", "RedCommitted",
                             "GreenDeclared", "GreenVerified", "GreenCommitted", "CycleClosed"]
@@ -235,15 +235,15 @@ def test_a_green_that_finds_the_red_test_wrong_takes_the_cycle_back_to_red(repo)
 
 def test_a_red_taken_back_too_often_blocks_the_cycle(repo):
     agent = Agent(repo, {"WriteRedTest": [red()], "WriteGreenCode": [wrong_test]})
-    reactor, store, _ = machine(repo, agent)
-    asyncio.run(reactor.run_until_idle())
+    engine, store, _ = machine(repo, agent)
+    asyncio.run(engine.run_until_idle())
     assert types(store).count("RedRewound") == 3 and types(store)[-1] == "CycleBlocked"
 
 
 def test_the_same_rejection_three_times_blocks_the_cycle(repo):
     agent = Agent(repo, {"WriteRedTest": [red(PASSING_TEST)], "WriteGreenCode": [green()]})
-    reactor, store, _ = machine(repo, agent)
-    asyncio.run(reactor.run_until_idle())
+    engine, store, _ = machine(repo, agent)
+    asyncio.run(engine.run_until_idle())
     assert types(store)[-1] == "CycleBlocked"
     assert types(store).count("RedRejected") == 3
     assert list(store.read(types_=("CycleBlocked",)))[0].payload["reason"] == "the same result 3 times in a row"
@@ -253,29 +253,44 @@ def test_a_change_request_ends_the_cycle_s_turns(repo):
     change = lambda a: {"protocol": 1, "command": "WriteRedTest", "outcome": "change_requested",  # noqa: E731
                         "change": {"kind": "interface", "target": "double", "problem": "p", "proposal": "q"}}
     agent = Agent(repo, {"WriteRedTest": [change]})
-    reactor, store, _ = machine(repo, agent)
-    asyncio.run(reactor.run_until_idle())
+    engine, store, _ = machine(repo, agent)
+    asyncio.run(engine.run_until_idle())
     assert types(store)[-1] == "ChangeRequested" and len(agent.calls) == 1
 
 
 def test_a_replay_issues_nothing_again(repo):
     agent = Agent(repo, {"WriteRedTest": [red()], "WriteGreenCode": [green()]})
-    reactor, store, _ = machine(repo, agent)
-    asyncio.run(reactor.run_until_idle())
+    engine, store, _ = machine(repo, agent)
+    asyncio.run(engine.run_until_idle())
     count = len(list(store.read()))
-    again = Reactor(reactor.ctx, cycle, agent)
+    again = Engine(engine.ctx, cycle, agent)
     asyncio.run(again.run_until_idle())
     assert len(list(store.read())) == count and len(agent.calls) == 2
 
 
 def test_an_interrupted_command_runs_once_on_attach(repo):
     agent = Agent(repo, {"WriteRedTest": [red()], "WriteGreenCode": [green()]})
-    reactor, store, _ = machine(repo, agent)
-    reactor.react()                                  # WriteRedTest issued, then "Ctrl-C"
-    assert [e.payload["command"] for e in reactor.pending()] == ["WriteRedTest"]
-    attached = Reactor(reactor.ctx, cycle, agent)
+    engine, store, _ = machine(repo, agent)        # WriteRedTest requested, then "Ctrl-C"
+    assert [e.payload["command"] for e in engine.pending()] == ["WriteRedTest"]
+    attached = Engine(engine.ctx, cycle, agent)
     asyncio.run(attached.run_until_idle())
     assert types(store)[-1] == "CycleClosed" and len(agent.calls) == 2
+
+
+def test_a_turn_beck_died_in_starts_again_from_its_snapshot(repo):
+    # beck died while unclebob worked: the turn started and never ended; on attach its folder goes back to the
+    # turn's snapshot (the half-written file is gone) and unclebob gets the same input again
+    agent = Agent(repo, {"WriteRedTest": [red()], "WriteGreenCode": [green()]})
+    engine, store, _ = machine(repo, agent)
+    [request] = engine.pending()
+    engine._start(request, again=False)
+    (repo / "half_written.py").write_text("def broken(:\n")
+    attached = Engine(engine.ctx, cycle, agent)
+    asyncio.run(attached.run_until_idle())
+    assert not (repo / "half_written.py").exists()
+    starts = [e for e in store.caused_by(request.id) if e.type == "AgentTurnStarted"]
+    assert len(starts) == 2 and starts[1].payload["again"] and starts[0].payload["envelope"] == starts[1].payload["envelope"]
+    assert types(store)[-1] == "CycleClosed"
 
 
 def test_signatures_ignore_lines_addresses_and_times():
@@ -322,8 +337,8 @@ def test_an_integration_test_that_passes_at_once_proves_the_requirement(repo):
     (repo / "src/pkg/mod.py").write_text(CODE)
     git(repo, "commit", "-qam", "the components landed")
     agent = Agent(repo, {"WriteRedTest": [red()], "WriteGreenCode": [green()]}, component="@integration")
-    reactor, store, _ = machine(repo, agent, component="@integration")
-    asyncio.run(reactor.run_until_idle())
+    engine, store, _ = machine(repo, agent, component="@integration")
+    asyncio.run(engine.run_until_idle())
     assert types(store) == ["SessionStarted", "CycleOpened", "RedDeclared", "RedVerified", "RedCommitted",
                             "GreenCommitted", "CycleClosed"]
     assert [c["command"] for c in agent.calls] == ["WriteRedTest"]
@@ -337,8 +352,8 @@ def test_a_red_that_passes_on_code_the_index_shows_implemented_closes_with_an_em
     (repo / "src/pkg/mod.py").write_text(CODE)
     git(repo, "commit", "-qam", "an earlier green")
     agent = Agent(repo, {"WriteRedTest": [red()]})
-    reactor, store, _ = machine(repo, agent, met=[("u", "doubles")])
-    asyncio.run(reactor.run_until_idle())
+    engine, store, _ = machine(repo, agent, met=[("u", "doubles")])
+    asyncio.run(engine.run_until_idle())
     assert types(store)[-3:] == ["RedCommitted", "GreenCommitted", "CycleClosed"]
     assert git(repo, "log", "-2", "--format=%s").splitlines() == ["feat(u): doubles", "test(u): doubles"]
     assert git(repo, "show", "--stat", "--format=", "HEAD") == ""        # the green is empty
@@ -348,8 +363,8 @@ def test_a_component_test_that_passes_at_once_is_still_refused(repo):
     (repo / "src/pkg/mod.py").write_text(CODE)
     git(repo, "commit", "-qam", "already there")
     agent = Agent(repo, {"WriteRedTest": [red()]})
-    reactor, store, _ = machine(repo, agent)
-    asyncio.run(reactor.run_until_idle())
+    engine, store, _ = machine(repo, agent)
+    asyncio.run(engine.run_until_idle())
     assert "RedRejected" in types(store) and "RedCommitted" not in types(store)
 
 

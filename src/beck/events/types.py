@@ -42,7 +42,8 @@ SCHEMAS: dict[str, dict[str, Any]] = {
     "TurnChanged": _object({"agent": _STRING, "patch": _STRING}),
     "AgentTurnFailed": _object({"agent": _STRING, "command": _STRING, "error": _STRING, "signature": _STRING}),
     "BeckCrashed": _object({"where": {"enum": ["policy", "handler", "translator", "turn"]}, "name": _STRING,
-                            "error": _STRING, "traceback": _STRING, "signature": _STRING}),
+                            "error": _STRING, "traceback": _STRING, "signature": _STRING},
+                           {"input": {"enum": ["turn", "answer", "command", "start", "input"]}}),
     "ToolCalled": _object({"agent": _STRING, "tool": _STRING, "input": {"type": "object"}}),
     "SignalRejected": _object({"agent": _STRING, "errors": {"type": "array", "items": _STRING}},
                               {"command": _STRING, "signature": _STRING}),
@@ -62,6 +63,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
         "report": _STRING,                       # the report's path; absent when the run wrote none
         "report_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "tree": {"type": "string", "pattern": "^[0-9a-f]{40,64}$"},   # the working tree after the run
+        "hunt": {"type": "boolean"},             # a run of the flakiness hunt: never itself evidence of flakiness
         "component": _STRING,
         "requirement": _STRING,
     }),
@@ -73,13 +75,23 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "findings": {"type": ["integer", "null"], "minimum": 0},   # null: the output could not be parsed
         })},
     }, {"tree": {"type": "string", "pattern": "^[0-9a-f]{40,64}$"}, "component": _STRING}),
-    # the machines' commands: every policy's decision, the anchor of idempotence
-    "CommandIssued": _object({
+    # beck asked an agent for a turn, or the user for a decision: the facts the commands for the outside leave
+    # (a command for beck is never stored); the request is the cause of what answers it
+    "AgentTurnRequested": _object({
         "command": {"type": "string", "pattern": "^[A-Z][A-Za-z]+$"},
-        "target": {"enum": ["beck", "kent", "unclebob", "martin", "reader", "user"]},
+        "target": {"enum": ["kent", "unclebob", "martin", "reader"]},
         "args": {"type": "object"},
     }),
-    "CommandDone": _object({"command": {"type": "string", "pattern": "^[A-Z][A-Za-z]+$"}}),
+    "DecisionRequested": _object({
+        "command": {"type": "string", "pattern": "^[A-Z][A-Za-z]+$"},
+        "target": {"const": "user"},
+        "args": {"type": "object"},
+    }),
+    # a requested turn started: the input the agent got, its folder and the folder's snapshot (a turn started
+    # again after a crash first gets its folder back to the snapshot)
+    "AgentTurnStarted": _object({"agent": _STRING, "command": _STRING, "envelope": {"type": "object"},
+                                 "folder": _STRING},
+                                {"snapshot": _STRING, "again": {"type": "boolean"}}),
     # the cycle (phase 4)
     "CycleOpened": _object({"component": _STRING, "requirement": _STRING, "unit": _STRING, "first": {"type": "boolean"}}),
     "RedDeclared": _object({"component": _STRING, "requirement": _STRING, "test": _STRING}),
@@ -123,9 +135,10 @@ SCHEMAS: dict[str, dict[str, Any]] = {
     "ComponentVerified": _object({"component": _STRING}),
     "RegressionFound": _object({"component": _STRING, "tests": {"type": "array", "items": _STRING}, "failure": _STRING}),
     # the flakiness detector (beck.machine.flaky)
-    "FlakyTestFound": _object({"test": _STRING, "stage": _STRING, "evidence": _STRING}, {"component": _STRING}),
-    "FlakinessUnsure": _object({"test": _STRING, "stage": _STRING, "evidence": _STRING}, {"component": _STRING}),
-    "FlakinessCleared": _object({"test": _STRING, "stage": _STRING, "evidence": _STRING}, {"component": _STRING}),
+    "FlakyTestFound": _object({"test": _STRING, "stage": _STRING, "evidence": _STRING, "tree": _STRING}, {"component": _STRING}),
+    "FlakinessUnsure": _object({"test": _STRING, "stage": _STRING, "evidence": _STRING, "tree": _STRING}, {"component": _STRING}),
+    "FlakinessCleared": _object({"test": _STRING, "stage": _STRING, "evidence": _STRING, "tree": _STRING},
+                                {"component": _STRING}),
     "FlakinessUnresolved": _object({"test": _STRING, "evidence": _STRING}),
     "SuiteRunsApproved": _object({}),
     "SuiteRunsRefused": _object({}, {"instructions": _STRING}),
@@ -177,7 +190,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
     "StaticChecksFailed": _object({"findings": {"type": "array", "items": _STRING}, "signature": _STRING}),
     "BranchFixesDeclared": _object({}),
     "BranchFixesCommitted": _object({"fixups": {"type": "array", "items": _STRING}}),
-    "BranchSquashed": _object({"sha": _STRING}),
+    "BranchSquashed": _object({"sha": _STRING, "then": {"enum": ["review", "close"]}}),
     "CorrectionsRequested": _object({"text": _STRING}),
     "ReviewAccepted": _object({}),
     "CorrectionsPlanned": _object({"plan": {"type": "array"}}),

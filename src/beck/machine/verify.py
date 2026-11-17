@@ -1,7 +1,7 @@
 """The verifiers of the TDD phases: deterministic, over the evidence of a TestsRun and of git.
 
 A verifier never runs a test: it reads the TestsRun the agent's turn caused
-(its cause is the turn's CommandIssued, through $BECK_CAUSE), checks that the
+(its cause is the turn's AgentTurnRequested: `beck send test` names it, $BECK_CAUSE), checks that the
 working tree is still the one the run saw, and checks what changed.
 """
 
@@ -38,10 +38,10 @@ def changed_files(root: Path, since: str = "HEAD") -> list[str]:
 
 def _the_run(root: Path, runs: list[Event], test: str) -> tuple[Event | None, Verdict | None]:
     if not runs:
-        return None, Verdict(False, "no beck test run of the turn", ("no-run",))
+        return None, Verdict(False, "no beck send test run of the turn", ("no-run",))
     run = runs[-1]
     if run.payload.get("tree") != worktree_tree(root):
-        return run, Verdict(False, "files changed after the last beck test run", ("stale-run",), run=run.id)
+        return run, Verdict(False, "files changed after the last beck send test run", ("stale-run",), run=run.id)
     if run.payload.get("tests") != [test]:
         return run, Verdict(False, f"the last run is not the run of the cycle's test alone ({test})",
                             ("wrong-tests",), run=run.id)

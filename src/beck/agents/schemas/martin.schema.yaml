@@ -4,7 +4,7 @@ title: martin's commands
 description: >-
   One session per component, from ReviewComponent to the component's landing. beck runs the
   component's tests and the full suite when the policies ask for them; martin
-  runs `beck test` and `beck check` for its own steps, writes files, never
+  runs `beck send test` and `beck send check` for its own steps, writes files, never
   commits: beck commits its changes as fixups of the component's commit.
 
 $defs:

@@ -6,7 +6,7 @@ from test_component import Agents, component_events, execution, fn, git, pending
 
 from beck.events.project import Project
 from beck.machine.component import Workspace
-from beck.machine.core import Ctx, Reactor, Result
+from beck.machine.core import Ctx, Engine, Result
 from beck.machine.refactor import components_machine
 
 HEADS = {"store": "feat(store): implement store", "cart": "feat(cart): implement cart"}
@@ -69,8 +69,9 @@ def setup(repo, agents, scope=None, toolchain_extra=""):
                                                "dependencies": [], "files": {"source": [], "tests": []}},
                           lambda requirement: f"The sentence of {requirement}.")
     ctx = Ctx(store, repo, it.id, workspace, components_in_parallel=2)
-    store.append("ExecutionDerived", execution())
-    return Reactor(ctx, components_machine, agents), store
+    engine = Engine(ctx, components_machine, agents)
+    engine.record("ExecutionDerived", execution())
+    return engine, store
 
 
 def feature_log(repo):
@@ -79,8 +80,8 @@ def feature_log(repo):
 
 def test_components_land_squashed_in_dependency_order_and_close(repo):
     team = Team(repo)
-    reactor, store = setup(repo, team)
-    run(reactor)
+    engine, store = setup(repo, team)
+    run(engine)
     assert feature_log(repo) == [HEADS["cart"], HEADS["store"], "interfaces"]
     for component in ("store", "cart"):
         assert component_events(store, component)[-6:] == ["ComponentMeasured", "ComponentReviewed", "ChecksPassed",
@@ -98,8 +99,8 @@ def test_components_land_squashed_in_dependency_order_and_close(repo):
 def test_a_refactor_is_a_fixup_the_autosquash_folds_in(repo):
     team = Team(repo, {("ReviewComponent", "store"): [
         lambda t, e, c: out("ReviewComponent", result={"findings": [finding("store", "store-adds")], "weak_tests": []})]})
-    reactor, store = setup(repo, team)
-    run(reactor)
+    engine, store = setup(repo, team)
+    run(engine)
     assert [e.type for e in store.read(types_=("RefactorCommitted",))] == ["RefactorCommitted"]
     assert feature_log(repo) == [HEADS["cart"], HEADS["store"], "interfaces"]   # no fixup reaches the branch
     assert "return 2 - 1" in (repo / "src/shop/store/store_adds.py").read_text()
@@ -112,8 +113,8 @@ def test_a_refactor_that_breaks_its_phase_is_reverted_and_sent_back(repo):
     team = Team(repo, {("ReviewComponent", "store"): [
         lambda t, e, c: out("ReviewComponent", result={"findings": [finding("store", "store-adds")], "weak_tests": []})],
         ("RefactorComponent", "store"): [touches_a_test, None]})
-    reactor, store = setup(repo, team)
-    run(reactor)
+    engine, store = setup(repo, team)
+    run(engine)
     [rejected] = store.read(types_=("RefactorRejected",))
     assert rejected.payload["reason"] == "a refactor of the code changes no test; changed: tests/test_store_adds.py"
     retry = [e for a, e in team.calls if e["command"] == "RefactorComponent"][-1]
@@ -127,8 +128,8 @@ def test_a_finding_already_met_closes_with_no_commit(repo):
         lambda t, e, c: out("ReviewComponent", result={"findings": [finding("store", "store-adds")], "weak_tests": []})],
         ("RefactorComponent", "store"): [lambda t, e, c: out("RefactorComponent", result={
             "phase": "none", "addressed": ["F1"], "why": "HEAD already names the number."})]})
-    reactor, store = setup(repo, team)
-    run(reactor)
+    engine, store = setup(repo, team)
+    run(engine)
     assert not list(store.read(types_=("RefactorRejected",)))
     [committed] = store.read(types_=("RefactorCommitted",))
     assert committed.payload["addressed"] == ["F1"]
@@ -140,8 +141,8 @@ def test_a_malformed_refactor_is_asked_again_once(repo):
     team = Team(repo, {("ReviewComponent", "store"): [
         lambda t, e, c: out("ReviewComponent", result={"findings": [finding("store", "store-adds")], "weak_tests": []})],
         ("RefactorComponent", "store"): [lambda t, e, c: out("RefactorComponent", result={"phase": "blue"}), None]})
-    reactor, store = setup(repo, team)
-    run(reactor)
+    engine, store = setup(repo, team)
+    run(engine)
     assert len([e for a, e in team.calls if e["command"] == "RefactorComponent"]) == 2
     assert component_events(store, "store")[-1] == "ComponentClosed"
 
@@ -154,14 +155,14 @@ def test_a_worsened_measure_waits_for_the_user(repo):
     team = Team(repo, {("ReviewComponent", "store"): [
         lambda t, e, c: out("ReviewComponent", result={"findings": [finding("store", "store-adds")], "weak_tests": []})],
         ("RefactorComponent", "store"): [branches]})
-    reactor, store = setup(repo, team)
-    run(reactor)
+    engine, store = setup(repo, team)
+    run(engine)
     [worse] = store.read(types_=("MeasureWorsened",))
     assert worse.payload["worsened"][0].startswith("ccn_max 1 → 3")
-    [ask] = [c for c in pending_of_user(reactor) if c.payload["command"] == "ApproveTradeoff"]
+    [ask] = [c for c in pending_of_user(engine) if c.payload["command"] == "ApproveTradeoff"]
     assert component_events(store, "store")[-1] != "ComponentLanded"
-    reactor.answer(ask.id, [Result("TradeoffAccepted", {}, actor="user")])
-    run(reactor)
+    engine.answer(ask.id, [Result("TradeoffAccepted", {}, actor="user")])
+    run(engine)
     assert component_events(store, "store")[-1] == "ComponentClosed"
     assert "if x is None" in (repo / "src/shop/store/store_adds.py").read_text()
 
@@ -171,8 +172,8 @@ def test_a_regression_reopens_the_cycle_of_the_failing_test(repo):
         (cwd / "src/shop/cart/cart_totals.py").write_text("def cart_totals():\n    return 2\n")
         return team.WriteGreenCode(envelope, cwd)
     team = Team(repo, {("WriteGreenCode", "cart-empties"): [breaks_totals]})
-    reactor, store = setup(repo, team)
-    run(reactor)
+    engine, store = setup(repo, team)
+    run(engine)
     [regression] = store.read(types_=("RegressionFound",))
     assert regression.payload["tests"] == ["tests/test_cart_totals.py::test_cart_totals"]
     reopened = [e for e in store.read(types_=("CycleReopened",))]
@@ -185,15 +186,15 @@ def test_a_failing_test_of_no_cycle_asks_for_a_restart_instead_of_stalling(repo)
     # the session of 2026-11-15: a failing test that references no scheduled requirement parked the component with no way out,
     # and the session stopped with nothing to do and nothing to answer
     team = Team(repo)
-    reactor, store = setup(repo, team)
-    run(reactor)
-    store.append("RegressionFound", {"component": "cart", "tests": ["tests/fitness/test_stray.py::test_stray"],
+    engine, store = setup(repo, team)
+    run(engine)
+    engine.record("RegressionFound", {"component": "cart", "tests": ["tests/fitness/test_stray.py::test_stray"],
                                      "failure": "NOT_OK (1 of 3 not passed)"}, stream="component:cart")
-    run(reactor)
+    run(engine)
     assert [e.payload["component"] for e in store.read(types_=("RegressionUnassigned",))] == ["cart"]
     proposals = [e for a, e in team.calls if e["command"] == "ProposeRestart"]
     assert proposals and proposals[-1]["context"]["kind"] == "blocked_cycle"
-    assert [c.payload["command"] for c in reactor.pending() if c.payload["target"] == "user"] == ["ApproveRestart"]
+    assert [c.payload["command"] for c in engine.pending() if c.payload["target"] == "user"] == ["ApproveRestart"]
 
 
 CHECKER = """import sys
@@ -218,9 +219,9 @@ def test_the_static_checks_go_to_martin_before_the_autosquash(repo):
         team.test(cwd, "store", "store-adds")
         return result
     team = Team(repo, {("WriteGreenCode", "store-adds"): [with_todo]})
-    reactor, store = setup(repo, team, toolchain_extra=f"check:\n  - {{name: todo, command: [{sys.executable}, "
+    engine, store = setup(repo, team, toolchain_extra=f"check:\n  - {{name: todo, command: [{sys.executable}, "
                                                        f"checker.py, '{{paths}}'], format: text}}\n")
-    run(reactor)
+    run(engine)
     [failed] = store.read(types_=("ChecksFailed",))
     assert failed.payload["findings"][0].startswith("src/shop/store/store_adds.py:2:1")
     assert [e["command"] for a, e in team.calls if a == "martin" and e["command"] == "FixStaticFindings"]
@@ -247,8 +248,8 @@ def test_a_landing_conflict_goes_to_martin(repo):
     team = Team(repo, {("WriteGreenCode", "store-adds"): [and_shared("store")],
                        ("WriteGreenCode", "cart-totals"): [and_shared("cart")],
                        ("ResolveConflict", "cart"): [merge]})
-    reactor, store = setup(repo, team, scope=lambda component, tree: [f"src/shop/{component}", shared])
-    run(reactor)
+    engine, store = setup(repo, team, scope=lambda component, tree: [f"src/shop/{component}", shared])
+    run(engine)
     [conflict] = store.read(types_=("LandingConflicted",))
     assert conflict.payload == {"component": "cart", "files": [shared], "signature": conflict.payload["signature"]}
     assert feature_log(repo) == [HEADS["cart"], HEADS["store"], "shared", "interfaces"]
@@ -265,8 +266,8 @@ def test_a_line_no_requirement_names_never_stops_the_component_and_goes_to_marti
         team.test(cwd, "store", "store-adds")
         return result
     team = Team(repo, {("WriteGreenCode", "store-adds"): [extra]})
-    reactor, store = setup(repo, team, toolchain_extra=COVERAGE)
-    run(reactor)
+    engine, store = setup(repo, team, toolchain_extra=COVERAGE)
+    run(engine)
     measured = [e for e in store.read(types_=("CoverageMeasured",)) if e.payload["component"] == "store"]
     # the doctest collection imports the module: its def line runs, its body does not
     assert measured[-1].payload["gaps"] == {"src/shop/store/unused.py": [2]}
@@ -297,8 +298,8 @@ def covers(team, envelope, cwd):
 
 def test_a_line_a_requirement_names_is_covered_by_unclebob_once(repo):
     team = Team(repo, {("WriteGreenCode", "store-adds"): [branchy], ("CoverLines", "answer"): [covers]})
-    reactor, store = setup(repo, team, toolchain_extra=COVERAGE)
-    run(reactor)
+    engine, store = setup(repo, team, toolchain_extra=COVERAGE)
+    run(engine)
     [found] = store.read(types_=("CoverageGapsFound",))
     assert found.payload["requirements"] == {"store-adds": {"src/shop/store/store_adds.py": [4]}}
     measured = [e for e in store.read(types_=("CoverageMeasured",)) if e.payload["component"] == "store"]
@@ -314,8 +315,8 @@ def test_covering_that_fails_twice_gives_up_and_goes_on(repo):
         return out("CoverLines", result={"tests": [{"test": "tests/test_store_adds.py::test_store_adds",
                                                      "requirement": "store-adds"}]})
     team = Team(repo, {("WriteGreenCode", "store-adds"): [branchy], ("CoverLines", "answer"): [touches_the_code]})
-    reactor, store = setup(repo, team, toolchain_extra=COVERAGE)
-    run(reactor)
+    engine, store = setup(repo, team, toolchain_extra=COVERAGE)
+    run(engine)
     assert [e.payload["reason"][:30] for e in store.read(types_=("CoverageRejected",))] == \
         ["covering changes no source; ch"] * 2
     assert len(list(store.read(types_=("CoverageGivenUp",)))) == 1
@@ -336,16 +337,16 @@ def test_a_lower_coverage_asks_the_user_after_the_one_try(repo):
     asks_a_change = [lambda t, e, c: out("CoverLines", "change_requested", change={
         "kind": "interface", "target": "store-adds", "problem": "no", "proposal": "no"})]
     team = Decider(repo, {("WriteGreenCode", "store-adds"): [branchy], ("CoverLines", "answer"): asks_a_change})
-    reactor, store = setup(repo, team, toolchain_extra=COVERAGE)
-    store.append("CoverageMeasured", {"files": {"src/shop/store/store_adds.py": [2, 2]}, "gaps": {}})
-    run(reactor)
+    engine, store = setup(repo, team, toolchain_extra=COVERAGE)
+    engine.record("CoverageMeasured", {"files": {"src/shop/store/store_adds.py": [2, 2]}, "gaps": {}})
+    run(engine)
     [decreased] = store.read(types_=("CoverageDecreased",))
     assert decreased.payload["before"] == 100.0 and decreased.payload["after"] < 100.0
-    [ask] = [c for c in pending_of_user(reactor) if c.payload["command"] == "Ask"]
+    [ask] = [c for c in pending_of_user(engine) if c.payload["command"] == "Ask"]
     assert "lowers the project's coverage from 100.0 %" in user.prompt(ask)
     assert component_events(store, "store")[-1] == "CoverageDecreased"     # it waits for the user
-    reactor.answer(ask.id, user.answer(ask, "Go on, I will cover it later."))
-    run(reactor)
+    engine.answer(ask.id, user.answer(ask, "Go on, I will cover it later."))
+    run(engine)
     assert component_events(store, "store")[-1] == "ComponentClosed"
 
 
@@ -354,15 +355,15 @@ def test_a_component_with_no_commit_of_its_own_squashes_into_an_empty_one(repo):
     # SquashComponent crashed on an empty commit
     from beck.events.project import Project
     from beck.machine.component import Workspace
-    from beck.machine.core import Ctx
+    from beck.machine.core import Ctx, Issued
     from beck.machine.refactor import handle_squash
-    store = Project(repo).start_iteration()[1]
+    _, store, started = Project(repo).start_iteration()
     base = git(repo, "rev-parse", "HEAD")
     store.append("ComponentStarted", {"component": "clock", "worktree": str(repo), "branch": "b", "base": base},
                  stream="component:clock")
     workspace = Workspace(store, repo, lambda u, t: [], lambda u, g: {})
-    command = store.append("CommandIssued", {"command": "SquashComponent", "target": "beck", "args": {"component": "clock"}},
-                           stream="component:clock")
+    command = Issued({"command": "SquashComponent", "target": "beck", "args": {"component": "clock"}},
+                     "component:clock", started)
     [squashed] = handle_squash(command, Ctx(store, repo, "it", workspace))
     assert git(repo, "log", "-1", "--format=%s") == "feat(clock): implement clock"
     assert git(repo, "rev-parse", "HEAD~1") == base and squashed.payload["sha"] == git(repo, "rev-parse", "HEAD")
@@ -382,8 +383,8 @@ def test_a_doctest_on_a_unimplemented_reopens_the_cycle_of_the_requirement_that_
         (cwd / "src/shop/store/total.py").write_text(TOTAL.replace("raise NotImplementedError", "return sum(prices)"))
         return team.WriteGreenCode(envelope, cwd)
     team = Team(repo, {("WriteGreenCode", "store-adds"): [None, implements_total]})
-    reactor, store = setup(repo, team)
-    run(reactor)
+    engine, store = setup(repo, team)
+    run(engine)
     [reopened] = [e for e in store.read(types_=("CycleReopened",)) if e.payload["component"] == "store"]
     assert reopened.payload["requirement"] == "store-adds" and reopened.payload["phase"] == "green"
     assert "src/shop/store/total.py::shop.store.total.total" in reopened.payload["reason"]
@@ -403,8 +404,8 @@ def test_an_unimplemented_left_when_the_cycles_end_reopens_the_cycle_of_the_requ
                                                      '    """\n    return sum(prices)\n')
         return team.WriteGreenCode(envelope, cwd)
     team = Team(repo, {("WriteGreenCode", "store-adds"): [None, implements_total]})
-    reactor, store = setup(repo, team)
-    run(reactor)
+    engine, store = setup(repo, team)
+    run(engine)
     [reopened] = [e for e in store.read(types_=("CycleReopened",)) if e.payload["component"] == "store"]
     assert reopened.payload["requirement"] == "store-adds"
     assert "an unimplemented left: src/shop/store/total.py:6" in reopened.payload["reason"]

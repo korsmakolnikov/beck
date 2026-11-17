@@ -26,7 +26,7 @@ import subprocess
 from typing import Any
 
 from beck.events.store import Event
-from beck.machine.core import Command, Ctx, Machine, Result
+from beck.machine.core import Command, Ctx, Issued, Machine, Result
 from beck.testrun import run as run_tests
 from beck.toolchain import load
 
@@ -47,8 +47,7 @@ def _outcome(run: Event, test: str) -> str | None:
 
 
 def _hunting(ctx: Ctx, run: Event) -> bool:
-    cause = ctx.store.get(run.causation_id) if run.causation_id else None
-    return cause is not None and cause.type == "CommandIssued" and cause.payload["command"] == "HuntFlakiness"
+    return bool(run.payload.get("hunt"))
 
 
 @flaky.policy("TestsRun")
@@ -58,8 +57,8 @@ def detect(event: Event, ctx: Ctx) -> list[Command]:
         return []
     window = ctx.flakiness[0]
     same_tree = [e for e in ctx.events(types=("TestsRun",)) if e.payload.get("tree") == tree and not _hunting(ctx, e)]
-    hunted = {e.payload["args"]["test"] for e in ctx.events(types=("CommandIssued",))
-              if e.payload["command"] == "HuntFlakiness"}
+    hunted = {e.payload["test"] for e in ctx.events(types=("FlakyTestFound", "FlakinessUnsure", "FlakinessCleared",
+                                                            "FlakinessUnresolved"))}
     commands = []
     for test in [*event.payload.get("not_passed", []), *event.payload.get("passed", [])]:
         if test in hunted:
@@ -86,7 +85,7 @@ def _component_tests(ctx: Ctx, component: str) -> list[str]:
 
 
 @flaky.handler("HuntFlakiness")
-def handle_hunt(command: Event, ctx: Ctx) -> list[Result]:
+def handle_hunt(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     test, stage, runs = a["test"], a["stage"], ctx.flakiness[1]
     selection = {"alone": [test], "component": _component_tests(ctx, a.get("component") or ""), "suite": []}[stage]
@@ -99,15 +98,15 @@ def handle_hunt(command: Event, ctx: Ctx) -> list[Result]:
     try:
         toolchain = load(ctx.project)
         for _ in range(runs):
-            result = run_tests(path, toolchain, selection, actor="beck", store_root=ctx.project, cause_id=command.id,
-                               iteration=ctx.iteration)
-            outcomes.append(_outcome(result.event, test))
+            result = run_tests(path, toolchain, selection, actor="beck", store_root=ctx.project, store=ctx.store,
+                               cause=command.cause, hunt=True)
+            outcomes.append(_outcome(result.recorded, test))
     finally:
         subprocess.run(["git", "worktree", "remove", "--force", str(path)], cwd=ctx.project, capture_output=True)
         shutil.rmtree(path, ignore_errors=True)
     seen = [o for o in outcomes if o is not None]
     evidence = f"{stage}: {seen.count('passed')} of {len(seen)} runs passed, on one tree"
-    base: dict[str, Any] = {"test": test, "stage": stage, "evidence": evidence}
+    base: dict[str, Any] = {"test": test, "stage": stage, "evidence": evidence, "tree": a["tree"]}
     if a.get("component"):
         base["component"] = a["component"]
     if len(set(seen)) > 1:
@@ -120,7 +119,7 @@ def handle_hunt(command: Event, ctx: Ctx) -> list[Result]:
 @flaky.policy("FlakinessUnsure")
 def escalate(event: Event, ctx: Ctx) -> list[Command]:
     p = event.payload
-    hunt = ctx.store.get(event.causation_id or "").payload["args"]
+    hunt = {"test": p["test"], "tree": p["tree"], "component": p.get("component"), "stage": p["stage"]}
     if p["stage"] == "alone" and p.get("component") and _component_tests(ctx, p["component"]):
         return [Command("HuntFlakiness", "beck", {**hunt, "stage": "component"}, event.stream)]
     return [Command("ApproveSuiteRuns", "user", {"test": p["test"], "runs": ctx.flakiness[1], "evidence": p["evidence"],
@@ -136,7 +135,7 @@ def after_permission(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @flaky.handler("LeaveFlakiness")
-def handle_leave(command: Event, ctx: Ctx) -> list[Result]:
+def handle_leave(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     return [Result("FlakinessUnresolved", {"test": a["test"], "evidence": a["evidence"]})]
 

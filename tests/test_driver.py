@@ -96,7 +96,7 @@ def test_the_agents_file_holds_the_prompts_with_the_commands_examples(driver, tm
     assert "### WriteRedTest" in unclebob["prompt"] and "### WriteGreenCode" in unclebob["prompt"]
     assert "Answer with **one JSON document and nothing else**" in unclebob["prompt"]
     assert unclebob["tools"] == ["Bash", "Edit", "Glob", "Grep", "Read", "Write"]
-    assert "Bash(beck test:*)" in allowed_tools("unclebob") and "Bash(beck check:*)" not in allowed_tools("unclebob")
+    assert "Bash(beck send:*)" in allowed_tools("unclebob") and "Bash(beck test:*)" not in allowed_tools("unclebob")
     assert agents["reader"]["model"] == "haiku" and definition("reader")["tools"] == ["Read"]
 
 

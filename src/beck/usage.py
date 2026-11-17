@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS usage_event (
   event_id       TEXT NOT NULL UNIQUE,
   seq            INTEGER NOT NULL,
   correlation_id TEXT NOT NULL,
-  command_id     TEXT,                                -- the CommandIssued of the turn
+  command_id     TEXT,                                -- the AgentTurnRequested of the turn
   kind           TEXT NOT NULL,                       -- the event's type
   at             TEXT NOT NULL,
   win            TEXT NOT NULL,                       -- the window's start
@@ -147,9 +147,9 @@ class Usage:
     def _row(self, store: EventStore, iteration: str, event: Event) -> Row:
         p = event.payload
         command = store.get(event.causation_id) if event.causation_id else None
-        name = (command.payload.get("command") if command and command.type == "CommandIssued" else None)
-        name = name or p.get("command") or "-"
-        component = (command.payload.get("args") or {}).get("component") if command and command.type == "CommandIssued" else None
+        turn = command if command is not None and command.type == "AgentTurnRequested" else None
+        name = (turn.payload.get("command") if turn else None) or p.get("command") or "-"
+        component = (turn.payload.get("args") or {}).get("component") if turn else None
         numbers: dict[str, int] = {n: 0 for n in NUMBERS}
         if event.type == "AgentTurnEnded":
             tokens = p.get("tokens") or {}
@@ -237,5 +237,5 @@ def tokens(r: dict[str, Any]) -> int:
 
 
 def projector(usage: Usage, store: EventStore, iteration: str) -> Any:
-    """The Reactor's hook: catch up after each round of policies."""
-    return lambda: usage.catch_up(store, iteration)
+    """The engine's after-commit hook: the read models catch up with what each transaction committed."""
+    return lambda _new: usage.catch_up(store, iteration)

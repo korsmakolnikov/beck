@@ -22,9 +22,8 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from beck.events.project import Project
 from beck.events.store import Event, EventStore
-from beck.testrun import _cause, git, open_iteration, worktree_tree
+from beck.testrun import git, worktree_tree
 from beck.toolchain import Check, Toolchain
 
 
@@ -149,7 +148,7 @@ def summary(results: list[Result]) -> str:
 
 @dataclass(frozen=True)
 class ChecksRun:
-    event: Event
+    event: Event | None   # None when no store recorded it
     results: list[Result]
     summary: str
 
@@ -157,17 +156,21 @@ class ChecksRun:
     def exit_code(self) -> int:
         return 0 if all(r.ok for r in self.results) else 1
 
+    @property
+    def recorded(self) -> Event:
+        """The run's event: beck's own runs are always recorded."""
+        assert self.event is not None, "a run with no store"
+        return self.event
+
 
 def run(root: Path, toolchain: Toolchain, paths: list[str], *, whole_project: bool, actor: str,
-        component: str | None = None, store_root: Path | None = None, cause_id: str | None = None,
-        iteration: str | None = None) -> ChecksRun:
-    """Runs in root (a component's worktree); the logs and the event go to store_root's .beck/ (default: root)."""
+        component: str | None = None, store_root: Path | None = None, store: EventStore | None = None,
+        cause: Event | None = None) -> ChecksRun:
+    """Runs in root (a component's worktree); the logs go to store_root's .beck/ (default: root), the
+    ChecksRun, caused by `cause`, to `store` (the engine's), if given."""
     store_root = store_root or root
     checks = [c for c in toolchain.check if whole_project or c.scope == "paths"]
-    project = Project(store_root)
-    store = EventStore(project.store_path(iteration or open_iteration(project)))
-    try:
-        cause = store.get(cause_id) if cause_id else _cause(store)
+    if True:   # the body as it was
         reports = store_root / ".beck" / "reports"
         reports.mkdir(parents=True, exist_ok=True)
         name = str(uuid.uuid4())
@@ -183,9 +186,8 @@ def run(root: Path, toolchain: Toolchain, paths: list[str], *, whole_project: bo
             payload["tree"] = tree
         if component:
             payload["component"] = component
-        event = store.append("ChecksRun", payload, stream=f"component:{component}" if component else "session", actor=actor,
-                             cause=cause, sha=git(root, "rev-parse", "HEAD"))
+        event = None
+        if store is not None:
+            event = store.append("ChecksRun", payload, stream=f"component:{component}" if component else "session",
+                                 actor=actor, cause=cause, sha=git(root, "rev-parse", "HEAD"))
         return ChecksRun(event, results, summary(results))
-    finally:
-        store.close()
-        project.close()

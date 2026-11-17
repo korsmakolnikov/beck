@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS event (
   actor          TEXT NOT NULL,   -- beck | user | <agent>
   causation_id   TEXT REFERENCES event(id),
   correlation_id TEXT NOT NULL,
-  policy         TEXT,            -- the policy that issued it (CommandIssued): the anchor of idempotence
+  policy         TEXT,            -- the policy whose command made it
   sha            TEXT,            -- the repository's commit when the event happened
   tokens         TEXT,            -- JSON, for an agent's turn
   payload        TEXT NOT NULL,   -- JSON, checked against the type's schema
@@ -78,7 +78,7 @@ class EventStore:
         self._conn = sqlite3.connect(self.path, isolation_level=None)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode = WAL")
-        self._conn.execute("PRAGMA busy_timeout = 10000")  # `beck test` appends from the agents' processes
+        self._conn.execute("PRAGMA busy_timeout = 10000")  # readers (the dashboard, `beck events`) beside the engine
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._conn.executescript(SCHEMA)
 

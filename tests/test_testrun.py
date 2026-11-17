@@ -1,4 +1,5 @@
-"""beck test makes a test run into evidence: what it records is what the verifiers judge."""
+"""An agent's `beck send test` makes a test run into evidence, through the session: what the engine records is
+what the verifiers judge. `beck test` by hand runs the tests and records nothing."""
 
 import hashlib
 import shutil
@@ -37,6 +38,18 @@ def project(tmp_path, monkeypatch):
     return tmp_path
 
 
+def session(project, monkeypatch, actor="unclebob"):
+    """A session running in the project, and the agent's turn the runs come from."""
+    from beck.machine.core import Ctx, Engine, Machine
+    p = Project(project)
+    it, store, started = p.start_iteration()
+    Engine(Ctx(store, project, it.id, None), Machine(), None)   # what the socket sends reaches it
+    monkeypatch.setenv("BECK_CAUSE", started.id)
+    monkeypatch.setenv("BECK_ACTOR", actor)
+    monkeypatch.setenv("BECK_PROJECT", str(project))
+    return p, it, started
+
+
 def test_the_toolchain_defaults_to_the_language(tmp_path):
     (tmp_path / "mix.exs").touch()
     assert load(tmp_path) == Toolchain("elixir", DEFAULTS["elixir"], check=DEFAULT_CHECKS["elixir"],
@@ -70,12 +83,8 @@ def test_selectors():
 
 
 def test_a_run_is_recorded_with_its_evidence(project, capsys, monkeypatch):
-    p = Project(project)
-    it, store, started = p.start_iteration()
-    store.close()
-    monkeypatch.setenv("BECK_CAUSE", started.id)
-    monkeypatch.setenv("BECK_ACTOR", "unclebob")
-    code = main(["test", "tests/test_a.py::test_red", "--component", "u", "--requirement", "some-requirement",
+    p, it, started = session(project, monkeypatch)
+    code = main(["send", "test", "tests/test_a.py::test_red", "--component", "u", "--requirement", "some-requirement",
                  "--project", str(project)])
     assert code == 1
     out = capsys.readouterr().out
@@ -102,42 +111,45 @@ def test_the_tree_changes_with_the_files_but_not_with_beck_dir(project):
     assert worktree_tree(project) != before
 
 
-def test_a_run_without_report_is_still_recorded(project):
-    (project / ".beck" / "toolchain.yml").write_text("toolchain: 1\nlanguage: python\ntest: [\"true\"]\n")
+def test_a_run_by_hand_records_nothing(project, capsys):
     p = Project(project)
     it, store, _ = p.start_iteration()
-    store.close()
-    assert main(["test", "--project", str(project)]) == 0
+    assert main(["test", "tests/test_a.py::test_green", "--project", str(project)]) == 0
+    assert capsys.readouterr().out.startswith("ALL_OK") and p.open(it.id).last().type == "SessionStarted"
+
+
+def test_a_run_without_report_is_still_recorded(project, monkeypatch):
+    (project / ".beck" / "toolchain.yml").write_text("toolchain: 1\nlanguage: python\ntest: [\"true\"]\n")
+    p, it, _ = session(project, monkeypatch)
+    assert main(["send", "test", "--project", str(project)]) == 0
     e = p.open(it.id).last()
     assert e.payload["exit_code"] == 0 and "report" not in e.payload and e.stream == "session"
 
 
-def test_the_index_selects_the_tests_of_a_requirement(project, capsys):
-    Project(project).start_iteration()[1].close()
+def test_the_index_selects_the_tests_of_a_requirement(project, capsys, monkeypatch):
+    session(project, monkeypatch)
     examples = Path(__file__).parents[1] / "docs" / "examples" / "bookmarks"
     shutil.copytree(examples / "domains", project / ".beck" / "domains")
     (project / ".beck" / "architecture.yaml").write_text((examples / "architecture.yaml").read_text())
     (project / "tests" / "test_a.py").write_text(
         "def test_name_length():\n    # spec: tag-name-is-1-to-40-characters\n    assert True\n")
     assert main(["index", "build", "--project", str(project)]) == 0
-    assert main(["test", "--requirement", "tag-name-is-1-to-40-characters", "--project", str(project)]) == 0
+    assert main(["send", "test", "--requirement", "tag-name-is-1-to-40-characters", "--project", str(project)]) == 0
     assert "ALL_OK (1 passed)" in capsys.readouterr().out
     assert Project(project).open(Project(project).iterations()[0].id).last().payload["tests"] == [
         "tests/test_a.py::test_name_length"]
 
 
-def test_no_open_iteration_is_an_error(project):
-    p = Project(project)
-    it, store, _ = p.start_iteration()
-    store.close()
-    p.end_iteration(it.id)
-    with pytest.raises(SystemExit, match="no open iteration"):
-        main(["test", "--project", str(project)])
+def test_beck_send_needs_a_session_and_a_turn(project, monkeypatch):
+    with pytest.raises(SystemExit, match="inside an agent's turn"):
+        main(["send", "test", "--project", str(project)])
+    monkeypatch.setenv("BECK_CAUSE", "x")
+    with pytest.raises(SystemExit, match="no beck session runs"):
+        main(["send", "test", "--project", str(project / "elsewhere")])
 
 
 def test_a_run_without_report_tells_the_agent_where_the_log_is(project, capsys):
     (project / ".beck" / "toolchain.yml").write_text("toolchain: 1\nlanguage: python\ntest: [\"true\"]\n")
-    Project(project).start_iteration()[1].close()
     main(["test", "--project", str(project)])
     assert capsys.readouterr().out.startswith("NO_REPORT (exit 0): the runner wrote no JUnit report; "
                                               "its output is in .beck/reports/")
@@ -155,16 +167,14 @@ def test_a_python_component_is_its_package_or_its_module(tmp_path):
     assert toolchain.component_paths(tmp_path, ["pong", "tui", "renderer"]) == ["src/pong/tui/renderer.py"]
 
 
-def test_a_test_that_hangs_is_stopped_at_the_timeout(project, capsys):
+def test_a_test_that_hangs_is_stopped_at_the_timeout(project, capsys, monkeypatch):
     # the session of 2026-11-15: a test of the game loop waited for CTRL+C forever, and unclebob's turn with it
     (project / ".beck" / "toolchain.yml").write_text(
         (project / ".beck" / "toolchain.yml").read_text() + "timeout: 2\n")
     (project / "tests" / "test_hang.py").write_text("import time\n\n\ndef test_hang():\n    time.sleep(60)\n")
-    p = Project(project)
-    it, store, _ = p.start_iteration()
-    store.close()
+    p, it, _ = session(project, monkeypatch)
     started = time.monotonic()
-    assert main(["test", "tests/test_hang.py::test_hang", "--project", str(project)]) != 0
+    assert main(["send", "test", "tests/test_hang.py::test_hang", "--project", str(project)]) != 0
     assert time.monotonic() - started < 20
     assert capsys.readouterr().out.startswith("TIMEOUT after 2 s: a test does not end")
     e = p.open(it.id).last()
@@ -189,7 +199,7 @@ def test_the_doctests_of_the_sources_run_with_the_tests(tmp_path):
     git(tmp_path, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "start")
     Project(tmp_path).start_iteration()[1].close()
     result = run(tmp_path, toolchain, toolchain.suite_paths(tmp_path), actor="beck")
-    assert result.event.payload["counts"]["tests"] == 2
-    assert result.event.payload["not_passed"] == ["src/pkg/mod.py::pkg.mod.double"]
+    assert result.payload["counts"]["tests"] == 2
+    assert result.payload["not_passed"] == ["src/pkg/mod.py::pkg.mod.double"]
     assert Toolchain("python", PYTEST, doctests=False).suite_paths(tmp_path) == []
     assert Toolchain("elixir", ["mix", "test"]).doctest_paths(tmp_path, ["lib/a"]) == []   # in ExUnit's test files

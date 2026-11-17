@@ -31,7 +31,7 @@ from beck.events.store import Event
 from beck.index.anchor import ids_at, is_test_file
 from beck.junit import UnreadableReport, parse, summary
 from beck.machine.component import _park_and_propose, execution, implementation, stream
-from beck.machine.core import Command, Ctx, Machine, Result, action, ask_routed
+from beck.machine.core import Command, Ctx, Issued, Machine, Result, action, ask_routed, request_of
 from beck.machine.cycle import commit, parked
 from beck.machine.cycle import stream as cycle_stream
 from beck.machine.signatures import blocked, signature
@@ -82,7 +82,7 @@ def _fitness(tree: Path) -> list[str]:
     return [d for d in ("tests/fitness", "test/fitness") if (tree / d).is_dir()]
 
 
-def _run_component(ctx: Ctx, component: str, command: Event, extra: list[str] | None = None) -> tuple[Event, Any]:
+def _run_component(ctx: Ctx, component: str, command: Issued, extra: list[str] | None = None) -> tuple[Event, Any]:
     """beck runs the component's tests and the fitness functions, asked by a policy; returns the run and its report."""
     tree = ctx.workspace.worktree(component)
     scheduled = {c for g in execution(ctx)[component]["units"] for c in g["requirements"]}
@@ -91,14 +91,14 @@ def _run_component(ctx: Ctx, component: str, command: Event, extra: list[str] | 
     selectors = (list(dict.fromkeys([*declared, *(extra or [])])) + _fitness(tree)
                  + toolchain.doctest_paths(tree, ctx.workspace.scope(component)))
     result = run_tests(tree, toolchain, selectors, actor="beck", component=component, store_root=ctx.project,
-                       cause_id=command.id, iteration=ctx.iteration, coverage_of=ctx.workspace.scope(component))
+                       store=ctx.store, cause=command.cause, coverage_of=ctx.workspace.scope(component))
     report = None
-    if "report" in result.event.payload:
+    if "report" in result.recorded.payload:
         try:
-            report = parse(ctx.project / result.event.payload["report"], tree)
+            report = parse(ctx.project / result.recorded.payload["report"], tree)
         except UnreadableReport:
             report = None
-    return result.event, report
+    return result.recorded, report
 
 
 def _failure(run: Event, report: Any) -> str:
@@ -116,7 +116,7 @@ def run_component_tests(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @refactor.handler("RunComponentTests")
-def handle_run_component_tests(command: Event, ctx: Ctx) -> list[Result]:
+def handle_run_component_tests(command: Issued, ctx: Ctx) -> list[Result]:
     component = command.payload["args"]["component"]
     run, report = _run_component(ctx, component, command)
     if report is None or report.not_passed:
@@ -188,7 +188,7 @@ def _unimplemented_left(ctx: Ctx, component: str) -> list[Result]:
 
 
 @refactor.handler("ReopenRegressions")
-def handle_reopen(command: Event, ctx: Ctx) -> list[Result]:
+def handle_reopen(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     component, tests = a["component"], _declared_tests(ctx, a["component"])
     units = {e.payload["requirement"]: e.payload["unit"] for e in ctx.store.read(types_=("CycleOpened",))
@@ -247,7 +247,8 @@ def _judge_coverage(ctx: Ctx, component: str, coverage: dict[str, FileCoverage])
     before, after = ratchet(_baseline(ctx), measured, sources)
     results = [Result("CoverageMeasured", {"component": component, "files": measured, "gaps": gaps, "before": before,
                                            "after": after})]
-    tried = any(e.payload["command"] == "CoverLines" for e in ctx.events(stream=stream(component), types=("CommandIssued",)))
+    tried = any(e.payload["command"] == "CoverLines"
+                for e in ctx.events(stream=stream(component), types=("AgentTurnRequested",)))
     requirements = _requirements_of_gaps(ctx, component, tree, gaps) if gaps else {}
     if requirements and not tried:
         return results + [Result("CoverageGapsFound", {"component": component, "requirements": requirements})]
@@ -287,7 +288,7 @@ def after_the_coverage_question(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @refactor.handler("AcceptCoverage")
-def handle_accept_coverage(command: Event, ctx: Ctx) -> list[Result]:
+def handle_accept_coverage(command: Issued, ctx: Ctx) -> list[Result]:
     return [Result("ComponentVerified", {"component": command.payload["args"]["component"]}, actor="user")]
 
 
@@ -316,7 +317,7 @@ def _cover_turn(ctx: Ctx, component: str, requirements: dict[str, dict[str, list
         tests.setdefault(requirement, []).append(test)
     context = {"requirements": [{"id": c, "text": ctx.workspace.requirement_text(c), "tests": tests.get(c, []), "lines": lines}
                            for c, lines in requirements.items()],
-               "run": f"beck test <the tests> --component {component}"}
+               "run": f"beck send test <the tests> --component {component}"}
     args: dict[str, Any] = {"session": f"{component}/coverage", "context": context, "component": component,
                             "requirements": requirements}
     if retry:
@@ -345,7 +346,7 @@ def verify_cover(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @refactor.handler("VerifyCover")
-def handle_verify_cover(command: Event, ctx: Ctx) -> list[Result]:
+def handle_verify_cover(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     component, declared = a["component"], a["tests"]
     tree = ctx.workspace.worktree(component)
@@ -392,7 +393,7 @@ def commit_cover(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @refactor.handler("CommitCoverage")
-def handle_commit_cover(command: Event, ctx: Ctx) -> list[Result]:
+def handle_commit_cover(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     sha = commit(ctx.workspace.worktree(a["component"]), f"test({a['component']}): cover {', '.join(a['requirements'])}")
     return [Result("CoverageTestsCommitted", {"component": a["component"], "sha": sha})]
@@ -405,16 +406,11 @@ def run_again_after_cover(event: Event, ctx: Ctx) -> list[Command]:
 
 @refactor.policy("CoverageRejected", "SignalRejected")
 def retry_cover(event: Event, ctx: Ctx) -> list[Command]:
-    if event.type == "SignalRejected":
-        turn = ctx.store.get(event.causation_id or "")
-        if turn.payload["command"] != "CoverLines":
-            return []
-    else:
-        verifier = ctx.store.get(event.causation_id or "")
-        turn = ctx.store.get(verifier.payload["args"]["turn"]) if verifier.payload["command"] == "VerifyCover" \
-            else verifier
+    turn = request_of(ctx.store, event)   # the CoverLines turn: rejected itself, or its verification
+    if turn.payload["command"] != "CoverLines":
+        return []
     component = turn.payload["args"]["component"]
-    attempts = [e for e in ctx.events(stream=stream(component), types=("CommandIssued",))
+    attempts = [e for e in ctx.events(stream=stream(component), types=("AgentTurnRequested",))
                 if e.payload["command"] == "CoverLines"]
     revert = Command("RevertRefactor", "beck", {"component": component}, stream(component))
     reason = event.payload.get("reason") or "; ".join(event.payload.get("errors", []))
@@ -426,7 +422,7 @@ def retry_cover(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @refactor.handler("GiveUpCoverage")
-def handle_give_up_coverage(command: Event, ctx: Ctx) -> list[Result]:
+def handle_give_up_coverage(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     return [Result("CoverageGivenUp", {"component": a["component"], "reason": a["reason"]})]
 
@@ -449,7 +445,7 @@ def _squashed_as_of(ctx: Ctx, component: str) -> bool:
 
 
 @refactor.handler("SquashComponent")
-def handle_squash(command: Event, ctx: Ctx) -> list[Result]:
+def handle_squash(command: Issued, ctx: Ctx) -> list[Result]:
     component = command.payload["args"]["component"]
     tree = ctx.workspace.worktree(component)
     requirements = list(dict.fromkeys(_declared_tests(ctx, component).values()))
@@ -474,7 +470,7 @@ def _measures(ctx: Ctx, component: str) -> dict[str, Any]:
 
 
 @refactor.handler("MeasureComponent")
-def handle_measure(command: Event, ctx: Ctx) -> list[Result]:
+def handle_measure(command: Issued, ctx: Ctx) -> list[Result]:
     component = command.payload["args"]["component"]
     return [Result("ComponentMeasured", {"component": component, "measures": _measures(ctx, component)})]
 
@@ -524,7 +520,7 @@ def _items_left(ctx: Ctx, component: str) -> list[dict[str, Any]]:
 
 
 def _refactor_turn(component: str, item: dict[str, Any], retry: tuple[int, str] | None) -> Command:
-    context = {**item, "run": f"beck test --component {component}", "check": f"beck check --component {component}"}
+    context = {**item, "run": f"beck send test --component {component}", "check": f"beck send check --component {component}"}
     args: dict[str, Any] = {"session": f"martin/{component}", "context": context, "component": component}
     if retry:
         args["retry"] = list(retry)
@@ -572,7 +568,7 @@ def _last_measures(ctx: Ctx, component: str) -> dict[str, Any]:
 
 
 @refactor.handler("VerifyRefactor")
-def handle_verify_refactor(command: Event, ctx: Ctx) -> list[Result]:
+def handle_verify_refactor(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     component, phase = a["component"], a["phase"]
     tree = ctx.workspace.worktree(component)
@@ -610,18 +606,14 @@ def handle_verify_refactor(command: Event, ctx: Ctx) -> list[Result]:
 
 
 def _martin_turn(ctx: Ctx, rejection: Event) -> Event:
-    verifier = ctx.store.get(rejection.causation_id or "")
-    return ctx.store.get(verifier.payload["args"]["turn"])
+    return request_of(ctx.store, rejection)
 
 
 @refactor.policy("RefactorRejected", "SignalRejected")
 def retry_refactor(event: Event, ctx: Ctx) -> list[Command]:
-    if event.type == "SignalRejected":
-        turn = ctx.store.get(event.causation_id or "")
-        if turn.payload["command"] not in ("RefactorComponent", "FixStaticFindings", "ReviewComponent", "ResolveConflict"):
-            return []
-    else:
-        turn = _martin_turn(ctx, event)
+    turn = _martin_turn(ctx, event)
+    if turn.payload["command"] not in ("RefactorComponent", "FixStaticFindings", "ReviewComponent", "ResolveConflict"):
+        return []
     if turn.payload["args"].get("branch"):
         return []  # the feature branch's static fixes: beck.machine.closing retries them
     component = turn.payload["args"]["component"]
@@ -644,7 +636,7 @@ def retry_refactor(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @refactor.handler("RevertRefactor")
-def handle_revert(command: Event, ctx: Ctx) -> list[Result]:
+def handle_revert(command: Issued, ctx: Ctx) -> list[Result]:
     tree = ctx.workspace.worktree(command.payload["args"]["component"])
     _git(tree, "reset", "-q", "--hard")
     _git(tree, "clean", "-fdq", "--", ".", ":!.beck")
@@ -652,7 +644,7 @@ def handle_revert(command: Event, ctx: Ctx) -> list[Result]:
 
 
 @refactor.handler("BlockRefactor")
-def handle_block_refactor(command: Event, ctx: Ctx) -> list[Result]:
+def handle_block_refactor(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     return [Result("RefactorBlocked", {"component": a["component"], "reason": a["reason"]})]
 
@@ -699,7 +691,7 @@ def after_tradeoff(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @refactor.handler("ResumeAfterTradeoff")
-def handle_resume_after_tradeoff(command: Event, ctx: Ctx) -> list[Result]:
+def handle_resume_after_tradeoff(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     results = [Result("ComponentResumed", {"component": a["component"], "base": _base(ctx, a["component"])})]
     if a["commit"]:
@@ -714,7 +706,7 @@ def commit_refactor(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @refactor.handler("CommitRefactor")
-def handle_commit_refactor(command: Event, ctx: Ctx) -> list[Result]:
+def handle_commit_refactor(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
     tree = ctx.workspace.worktree(a["component"])
     sha = commit(tree, f"fixup! {_subject(ctx, a['component'])}")
@@ -725,7 +717,7 @@ def handle_commit_refactor(command: Event, ctx: Ctx) -> list[Result]:
 
 
 @refactor.handler("CheckComponent")
-def handle_check_component(command: Event, ctx: Ctx) -> list[Result]:
+def handle_check_component(command: Issued, ctx: Ctx) -> list[Result]:
     component = command.payload["args"]["component"]
     tree = ctx.workspace.worktree(component)
     toolchain = load(ctx.project)
@@ -733,7 +725,7 @@ def handle_check_component(command: Event, ctx: Ctx) -> list[Result]:
     if not toolchain.check or not paths:
         return [Result("ChecksPassed", {"component": component})]
     result = static_checks.run(tree, toolchain, paths, whole_project=False, actor="beck", component=component,
-                               store_root=ctx.project, cause_id=command.id, iteration=ctx.iteration)
+                               store_root=ctx.project, store=ctx.store, cause=command.cause)
     if result.exit_code == 0:
         return [Result("ChecksPassed", {"component": component})]
     findings = [str(f) for r in result.results if r.findings for f in r.findings] or [result.summary]
@@ -747,7 +739,7 @@ def fix_static(event: Event, ctx: Ctx) -> list[Command]:
     why = blocked(sequence, *ctx.limits)
     if why:
         return [Command("BlockRefactor", "beck", {"component": component, "reason": f"static checks: {why}"}, stream(component))]
-    context = {"findings": event.payload["findings"], "check": f"beck check --component {component}"}
+    context = {"findings": event.payload["findings"], "check": f"beck send check --component {component}"}
     return [Command("FixStaticFindings", "martin", {"session": f"martin/{component}", "context": context, "component": component},
                     event.stream)]
 
@@ -766,7 +758,7 @@ def autosquash_onto(tree: Path, base: str) -> None:
 
 
 @refactor.handler("AutosquashComponent")
-def handle_autosquash(command: Event, ctx: Ctx) -> list[Result]:
+def handle_autosquash(command: Issued, ctx: Ctx) -> list[Result]:
     component = command.payload["args"]["component"]
     tree = ctx.workspace.worktree(component)
     autosquash_onto(tree, _base(ctx, component))
@@ -783,23 +775,14 @@ def _landed(ctx: Ctx) -> set[str]:
 def _ready(ctx: Ctx) -> list[str]:
     """The components ready to land and not landing yet, in the execution's order."""
     ready: dict[str, int] = {}
-    landing: set[str] = set()
-    for e in ctx.events(types=("ComponentReady", "ComponentLanded", "LandingConflicted", "LandingDeferred", "CommandIssued",
-                               "CommandDone")):
+    for e in ctx.events(types=("ComponentReady", "ComponentLanded", "LandingConflicted")):
         p = e.payload
         if e.type == "ComponentReady":
             ready[p["component"]] = e.seq
-            landing.discard(p["component"])
-        elif e.type == "ComponentLanded":
-            ready.pop(p["component"], None)
-        elif e.type == "CommandIssued" and p["command"] == "LandComponent":
-            landing.add(p["args"]["component"])
-        elif e.type in ("LandingDeferred",):
-            landing.discard(p["component"])
-        elif e.type == "LandingConflicted":
+        else:   # landed, or landing through its conflict's resolution
             ready.pop(p["component"], None)
     order = list(execution(ctx))
-    return [u for u in order if u in ready and u not in landing]
+    return [u for u in order if u in ready]
 
 
 @refactor.policy("ComponentReady", "ComponentLanded", "RestartApplied")
@@ -812,7 +795,7 @@ def land(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @refactor.handler("LandComponent")
-def handle_land(command: Event, ctx: Ctx) -> list[Result]:
+def handle_land(command: Issued, ctx: Ctx) -> list[Result]:
     component = command.payload["args"]["component"]
     tree = ctx.workspace.worktree(component)
     if _git(ctx.project, "status", "--porcelain", "--", ".", ":!.beck").stdout.strip():
@@ -830,7 +813,7 @@ def handle_land(command: Event, ctx: Ctx) -> list[Result]:
 @refactor.policy("LandingConflicted")
 def resolve_conflict(event: Event, ctx: Ctx) -> list[Command]:
     component = event.payload["component"]
-    context = {"files": event.payload["files"], "landed": sorted(_landed(ctx)), "run": f"beck test --component {component}"}
+    context = {"files": event.payload["files"], "landed": sorted(_landed(ctx)), "run": f"beck send test --component {component}"}
     return [Command("ResolveConflict", "martin", {"session": f"martin/{component}", "context": context, "component": component},
                     event.stream)]
 
@@ -850,7 +833,7 @@ def continue_landing(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @refactor.handler("ContinueLanding")
-def handle_continue(command: Event, ctx: Ctx) -> list[Result]:
+def handle_continue(command: Issued, ctx: Ctx) -> list[Result]:
     component = command.payload["args"]["component"]
     tree = ctx.workspace.worktree(component)
     rebase_dir = Path(_git(tree, "rev-parse", "--path-format=absolute", "--git-path", "rebase-merge").stdout.strip())
@@ -879,7 +862,7 @@ def retry_conflict(event: Event, ctx: Ctx) -> list[Command]:
     why = blocked(sequence, *ctx.limits)
     if why:
         return [Command("BlockRefactor", "beck", {"component": component, "reason": f"landing: {why}"}, stream(component))]
-    turn = ctx.store.get(ctx.store.get(event.causation_id or "").payload["args"]["turn"])
+    turn = request_of(ctx.store, event)   # ConflictRejected ← ConflictResolved ← martin's ResolveConflict
     args = {**turn.payload["args"],
             "retry": [len(sequence) + 1, f"{event.payload['reason']}\n{event.payload.get('failure', '')}"[:2000]]}
     return [Command("ResolveConflict", "martin", args, stream(component))]
@@ -891,7 +874,7 @@ def close_component(event: Event, ctx: Ctx) -> list[Command]:
 
 
 @refactor.handler("CloseComponent")
-def handle_close(command: Event, ctx: Ctx) -> list[Result]:
+def handle_close(command: Issued, ctx: Ctx) -> list[Result]:
     component = command.payload["args"]["component"]
     tree = ctx.workspace.worktree(component)
     if tree.exists():

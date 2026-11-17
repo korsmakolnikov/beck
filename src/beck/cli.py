@@ -207,7 +207,8 @@ def _test(args: argparse.Namespace) -> int:
     except TestRunError as error:
         sys.exit(str(error))
     print(result.summary)
-    print(f"(TestsRun {result.event.id})")
+    if result.event is not None:
+        print(f"(TestsRun {result.event.id})")
     return result.exit_code
 
 
@@ -237,8 +238,39 @@ def _check(args: argparse.Namespace) -> int:
     except TestRunError as error:
         sys.exit(str(error))
     print(result.summary)
-    print(f"(ChecksRun {result.event.id})")
+    if result.event is not None:
+        print(f"(ChecksRun {result.event.id})")
     return result.exit_code
+
+
+def _send(args: argparse.Namespace) -> int:
+    """An agent's command to the session running in its project (the socket): the tests or the checks run once,
+    inside beck, recorded as the evidence of the agent's turn; the agent reads the summary."""
+    from beck import socket
+    root = Path(args.project)
+    project = _toolchain_root(root)
+    cause = os.environ.get("BECK_CAUSE")
+    if not cause:
+        sys.exit("beck send runs inside an agent's turn ($BECK_CAUSE): to run the tests by hand, `beck test`")
+    message: dict[str, object] = {"command": args.what, "cause": cause, "actor": os.environ.get("BECK_ACTOR", "user")}
+    if args.what == "test":
+        tests = list(args.items)
+        if not tests and (args.requirement or args.component):
+            tests = _indexed_tests(root, load_toolchain(project), args.component, args.requirement)
+        message["args"] = {"tests": tests, "component": args.component, "requirement": args.requirement,
+                           "cwd": str(Path.cwd() if args.project == "." else root.resolve())}
+    else:
+        message["args"] = {"paths": list(args.items) or (["."] if args.all else []), "component": args.component,
+                           "all": args.all, "cwd": str(Path.cwd() if args.project == "." else root.resolve())}
+    try:
+        answer = socket.send(project, message)
+    except socket.NoSession as error:
+        sys.exit(f"beck: {error}")
+    if not answer.get("ok"):
+        sys.exit(f"beck: {answer.get('error')}")
+    print(answer["summary"])
+    print(f"({'TestsRun' if args.what == 'test' else 'ChecksRun'} {answer['event']})")
+    return int(answer["exit_code"])
 
 
 def _indexed_tests(root: Path, toolchain, component: str | None, requirement: str | None) -> list[str]:
@@ -384,7 +416,18 @@ def main(argv: list[str] | None = None) -> int:
     trace.add_argument("--project", default=".", help="the project's root (default: .)")
     trace.set_defaults(run=_trace)
 
-    test = sub.add_parser("test", help="run tests and record the run (TestsRun) as evidence")
+    send = sub.add_parser("send", help="an agent's command to the session running here: the tests or the checks, "
+                                       "run once inside beck as the evidence of its turn")
+    send.add_argument("what", choices=["test", "check"])
+    send.add_argument("items", nargs="*", help="test: the runner's selectors (default: the index's tests of "
+                                               "--requirement or --component); check: the paths")
+    send.add_argument("--requirement")
+    send.add_argument("--component")
+    send.add_argument("--all", action="store_true", help="check: also the checks of the whole project")
+    send.add_argument("--project", default=".", help="the project's root (default: .)")
+    send.set_defaults(run=_send)
+
+    test = sub.add_parser("test", help="run tests by hand (not recorded: an agent's runs go through beck send)")
     test.add_argument("tests", nargs="*",
                       help="the runner's selectors; default: the index's tests of --requirement or --component")
     test.add_argument("--requirement")
@@ -392,7 +435,7 @@ def main(argv: list[str] | None = None) -> int:
     test.add_argument("--project", default=".", help="the project's root (default: .)")
     test.set_defaults(run=_test)
 
-    check = sub.add_parser("check", help="run the static checks and record the run (ChecksRun)")
+    check = sub.add_parser("check", help="run the static checks by hand (not recorded: an agent's go through beck send)")
     check.add_argument("paths", nargs="*", help="default: the files of --component; with --all, the project")
     check.add_argument("--component")
     check.add_argument("--all", action="store_true", help="also the checks of the whole project (dialyzer)")

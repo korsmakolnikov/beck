@@ -4,7 +4,7 @@ title: unclebob's commands
 description: >-
   One session per unit; its first turn carries the unit's context (the
   output of beck index context), the later turns only the requirement of the
-  cycle. unclebob writes files and runs `beck test`; beck commits.
+  cycle. unclebob writes files and runs `beck send test`; beck commits.
 
 $defs:
   unit:
