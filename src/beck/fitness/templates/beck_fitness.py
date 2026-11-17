@@ -69,13 +69,19 @@ def assert_defined(source_root: Path | str, package: str, namespace: str) -> Non
     )
 
 
+def defines_classes(module: Module) -> bool:
+    """Whether the module defines a class: an entry point (``__main__``) or a re-export defines none."""
+    tree = ast.parse(module.path.read_text(), filename=str(module.path))
+    return any(isinstance(node, ast.ClassDef) for node in ast.walk(tree))
+
+
 def assert_only_within(source_root: Path | str, package: str, namespaces: Iterable[str],
                        allow: Iterable[str] = ()) -> None:
-    """contained_in: every module lives within one of ``namespaces``, or is in ``allow``."""
+    """contained_in: every module that defines a class lives within one of ``namespaces``, or is in ``allow``."""
     namespaces, allowed = list(namespaces), set(allow)
     strays = [m.name for m in modules(source_root, package)
-              if m.name not in allowed and not any(within(m.name, ns) for ns in namespaces)]
-    assert not strays, f"Modules outside {namespaces}: {strays}"
+              if m.name not in allowed and not any(within(m.name, ns) for ns in namespaces) and defines_classes(m)]
+    assert not strays, f"Modules with classes outside {namespaces}: {strays}"
 
 
 def assert_no_dependency(source_root: Path | str, package: str, origin: str, targets: Iterable[str]) -> None:

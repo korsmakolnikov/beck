@@ -212,3 +212,23 @@ def test_an_external_library_lives_outside_the_system(arch):
     assert "json-codec-is-defined" not in cases
     assert "json-codec" not in cases["classes-only-in-components"].targets
     assert x.elements["json-codec"].namespace == ("json_codec",)
+
+
+def test_an_entry_point_with_no_class_may_live_outside_the_components(tmp_path):
+    # the ping/pong pilot, 2026-11-17: classes-only-in-components refused pingpong/__main__.py, which defines no class
+    import importlib.util
+    import sys
+    spec = importlib.util.spec_from_file_location(
+        "beck_fitness", Path(__file__).parents[1] / "src/beck/fitness/templates/beck_fitness.py")
+    helper = importlib.util.module_from_spec(spec)
+    sys.modules["beck_fitness"] = helper   # its dataclasses look their module up
+    spec.loader.exec_module(helper)
+    pkg = tmp_path / "pkg"
+    (pkg / "comp").mkdir(parents=True)
+    (pkg / "__init__.py").write_text("")
+    (pkg / "comp" / "__init__.py").write_text("class Inside:\n    pass\n")
+    (pkg / "__main__.py").write_text("from pkg.comp import Inside\n\nraise SystemExit(0)\n")
+    helper.assert_only_within(tmp_path, "pkg", ["pkg.comp"], ["pkg"])
+    (pkg / "stray.py").write_text("class Outside:\n    pass\n")
+    with pytest.raises(AssertionError, match="classes outside.*pkg.stray"):
+        helper.assert_only_within(tmp_path, "pkg", ["pkg.comp"], ["pkg"])
