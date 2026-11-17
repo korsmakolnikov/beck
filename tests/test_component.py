@@ -462,3 +462,26 @@ def test_a_requirement_a_restart_adds_to_a_closed_unit_gets_its_cycle(repo):
     assert [e.payload["requirement"] for e in store.read(types_=("CycleClosed",)) if e.payload["component"] == "cart"] == \
         ["cart-totals", "cart-empties"]
     assert component_events(store, "cart")[-1] == "ComponentImplemented"
+
+
+def test_a_restart_regenerates_the_fitness_functions_of_the_architecture(tmp_path):
+    # the ping/pong pilot, 2026-11-17: a restart added messages to the game runner's depends_on, the generated
+    # table kept the old dependencies, and the component stayed stuck on a fitness function
+    import shutil
+
+    import yaml
+
+    from beck.machine.component import _regenerate_fitness
+    example = Path(__file__).parents[1] / "docs" / "examples" / "bookmarks"
+    (tmp_path / ".beck").mkdir()
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = 'bookmarks'\n")
+    shutil.copytree(example / "domains", tmp_path / ".beck" / "domains")
+    arch = yaml.safe_load((example / "architecture.yaml").read_text())
+    (tmp_path / ".beck" / "architecture.yaml").write_text(yaml.safe_dump(arch))
+    _regenerate_fitness(tmp_path)
+    table = tmp_path / "tests" / "fitness" / "test_architecture.py"
+    assert "archiver-declared-dependencies" in table.read_text() and "json_codec" not in table.read_text()
+    arch["elements"][1]["elements"][0]["depends_on"].append("json-codec")
+    (tmp_path / ".beck" / "architecture.yaml").write_text(yaml.safe_dump(arch))
+    _regenerate_fitness(tmp_path)
+    assert "json_codec" in table.read_text()

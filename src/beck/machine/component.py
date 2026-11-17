@@ -26,6 +26,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from beck.events.store import Event, EventStore
 from beck.machine.core import Command, Ctx, Issued, Machine, Result
 from beck.machine.cycle import cycle, green_stuck, undo_red
@@ -388,6 +390,7 @@ def apply_restart(event: Event, ctx: Ctx) -> list[Command]:
 @components.handler("ApplyRestart")
 def handle_apply(command: Issued, ctx: Ctx) -> list[Result]:
     a = command.payload["args"]
+    _regenerate_fitness(ctx.project)
     _git(ctx.project, "add", "-A", "--", ".", ":!.beck")
     if subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=ctx.project).returncode != 0:
         # the subject alone, one sentence; the summary is the body
@@ -401,6 +404,19 @@ def handle_apply(command: Issued, ctx: Ctx) -> list[Result]:
         results.append(Result("ExecutionDerived", scheduled))
     return [*results, Result("RestartApplied", {"base": _git(ctx.project, "rev-parse", "HEAD"), "components": parked,
                                                    "summary": a["summary"]})]
+
+
+def _regenerate_fitness(project: Path) -> None:
+    """The generated fitness functions follow the architecture a restart changed (the ping/pong pilot: a new
+    depends_on stayed out of the generated table, and the component stayed stuck on it). The free-text rules
+    kent translated are kept."""
+    path = project / ".beck" / "architecture.yaml"
+    if not path.is_file():
+        return
+    from beck.fitness.generate import write
+    arch = yaml.safe_load(path.read_text())
+    if isinstance(arch, dict):
+        write(project, arch)
 
 
 @components.handler("ResumeComponent")
