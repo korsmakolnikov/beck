@@ -47,8 +47,9 @@ def _resolve_relative(module: Module, level: int, target: str | None) -> str:
     return ".".join([*base, target] if target else base)
 
 
-def dependencies(module: Module) -> set[str]:
-    """The distinct absolute module names ``module`` imports."""
+def dependencies(module: Module, known: set[str] | None = None) -> set[str]:
+    """The distinct absolute module names ``module`` imports. ``from pkg import mod``, when ``pkg.mod`` is one
+    of the ``known`` modules, imports ``pkg.mod`` only, not the package around it."""
     tree = ast.parse(module.path.read_text(), filename=str(module.path))
     found: set[str] = set()
     for node in ast.walk(tree):
@@ -56,8 +57,11 @@ def dependencies(module: Module) -> set[str]:
             found.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             base = _resolve_relative(module, node.level, node.module) if node.level else node.module or ""
-            found.add(base)
-            found.update(f"{base}.{alias.name}" for alias in node.names if alias.name != "*")
+            names = [f"{base}.{alias.name}" for alias in node.names if alias.name != "*"]
+            submodules = [n for n in names if known is not None and n in known]
+            if len(submodules) < len(node.names):   # a name of the package itself, not only its modules
+                found.add(base)
+            found.update(names)
     found.discard(module.name)
     return found
 
@@ -87,8 +91,10 @@ def assert_only_within(source_root: Path | str, package: str, namespaces: Iterab
 def assert_no_dependency(source_root: Path | str, package: str, origin: str, targets: Iterable[str]) -> None:
     """no_dependency: no module within ``origin`` imports a module within ``targets``."""
     targets = list(targets)
-    violations = [(m.name, d) for m in modules(source_root, package) if within(m.name, origin)
-                  for d in sorted(dependencies(m)) if any(within(d, t) for t in targets)]
+    found = modules(source_root, package)
+    known = {m.name for m in found}
+    violations = [(m.name, d) for m in found if within(m.name, origin)
+                  for d in sorted(dependencies(m, known)) if any(within(d, t) for t in targets)]
     assert not violations, f"{origin} depends on {targets}: {violations}"
 
 
@@ -99,8 +105,10 @@ def assert_only_depends_on(source_root: Path | str, package: str, origin: str, t
     root module ``package`` itself are not judged.
     """
     allowed = [origin, *targets]
-    violations = [(m.name, d) for m in modules(source_root, package) if within(m.name, origin)
-                  for d in sorted(dependencies(m))
+    found = modules(source_root, package)
+    known = {m.name for m in found}
+    violations = [(m.name, d) for m in found if within(m.name, origin)
+                  for d in sorted(dependencies(m, known))
                   if within(d, package) and d != package and not any(within(d, a) for a in allowed)]
     assert not violations, f"{origin} depends outside {list(targets)}: {violations}"
 

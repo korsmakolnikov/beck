@@ -232,3 +232,24 @@ def test_an_entry_point_with_no_class_may_live_outside_the_components(tmp_path):
     (pkg / "stray.py").write_text("class Outside:\n    pass\n")
     with pytest.raises(AssertionError, match="classes outside.*pkg.stray"):
         helper.assert_only_within(tmp_path, "pkg", ["pkg.comp"], ["pkg"])
+
+
+def test_importing_a_module_from_its_package_depends_on_the_module_only(tmp_path):
+    # the ping/pong pilot, 2026-11-17: `from pingpong.game import ping` counted a dependency on the package
+    # pingpong.game, a container no component declares, and the game runner broke its declared dependencies
+    import importlib.util
+    import sys
+    spec = importlib.util.spec_from_file_location(
+        "beck_fitness", Path(__file__).parents[1] / "src/beck/fitness/templates/beck_fitness.py")
+    helper = importlib.util.module_from_spec(spec)
+    sys.modules["beck_fitness"] = helper
+    spec.loader.exec_module(helper)
+    game = tmp_path / "pkg" / "game"
+    game.mkdir(parents=True)
+    for f, text in (("pkg/__init__.py", ""), ("pkg/game/__init__.py", "VERSION = 1\n"), ("pkg/game/ping.py", ""),
+                    ("pkg/game/runner.py", "from pkg.game import ping\n")):
+        (tmp_path / f).write_text(text)
+    helper.assert_only_depends_on(tmp_path, "pkg", "pkg.game.runner", ["pkg.game.ping"])
+    (tmp_path / "pkg/game/runner.py").write_text("from pkg.game import ping, VERSION\n")
+    with pytest.raises(AssertionError, match="'pkg.game'"):
+        helper.assert_only_depends_on(tmp_path, "pkg", "pkg.game.runner", ["pkg.game.ping"])
