@@ -1,0 +1,28 @@
+domain: 1
+id: greeting
+subtype: core
+system: hello
+
+entities:
+  - name: Greeting
+    kind: value_object
+    description: The fixed message the program greets the world with.
+    fields:
+      - {name: text, type: string, required: true}
+    invariants:
+      - id: greeting-text-is-hello-world
+        rule: The greeting's text is exactly "Hello, world!".
+
+morphisms:
+  - id: greet-the-world
+    description: A user runs the program and it greets the world.
+    uses: [Greeting]
+    pre:
+      - The program is started with no arguments.
+    post:
+      - id: greeting-is-written-on-stdout
+        rule: The standard output holds exactly the greeting's text followed by one newline.
+      - id: greeting-exits-with-status-zero
+        rule: The program exits with status 0.
+      - id: greeting-writes-nothing-on-stderr
+        rule: The standard error stays empty.

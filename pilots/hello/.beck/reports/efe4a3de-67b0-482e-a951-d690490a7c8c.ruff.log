@@ -1,0 +1,2 @@
+$ uv run ruff check --output-format json src/hello/greeting/greeter.py
+[]

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="4" time="0.030" timestamp="2026-11-17T11:00:28.267756+01:00" hostname="blacksheep-tmp20"><testcase classname="tests.test_greeter" name="test_greeting_exits_with_status_zero" time="0.000" /><testcase classname="tests.test_greeter" name="test_greeting_is_written_on_stdout_followed_by_one_newline" time="0.001"><failure message="AssertionError: assert '' == 'Hello, world!\n'&#10;  &#10;  - Hello, world!">capsys = &lt;_pytest.capture.CaptureFixture object at 0x7fd2effe2d50&gt;
+
+    def test_greeting_is_written_on_stdout_followed_by_one_newline(capsys: pytest.CaptureFixture[str]) -&gt; None:
+        # spec: greeting-is-written-on-stdout
+        main()
+&gt;       assert capsys.readouterr().out == "Hello, world!\n"
+E       AssertionError: assert '' == 'Hello, world!\n'
+E         
+E         - Hello, world!
+
+tests/test_greeter.py:22: AssertionError</failure></testcase><testcase classname="tests.test_greeter" name="test_greeting_text_is_hello_world" time="0.000" /><testcase classname="tests.test_greeter" name="test_greeting_writes_nothing_on_stderr" time="0.000" /></testsuite></testsuites>

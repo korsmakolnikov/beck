@@ -1,0 +1,25 @@
+$ uv run pytest --junitxml=/tmp/pilots/hello/.beck/reports/09b70f92-3d63-432f-bac3-082987f20ae4.xml --cov=src --cov-report=json:/tmp/pilots/hello/.beck/reports/09b70f92-3d63-432f-bac3-082987f20ae4.coverage
+Using CPython 3.12.15
+Creating virtual environment at: .venv
+   Building hello @ file:///tmp/pilots/hello
+      Built hello @ file:///tmp/pilots/hello
+warning: Failed to hardlink files; falling back to full copy. This may lead to degraded performance.
+         If the cache and target directories are on different filesystems, hardlinking may not be supported.
+         If this is intentional, set `export UV_LINK_MODE=copy` or use `--link-mode=copy` to suppress this warning.
+Installed 17 packages in 63ms
+============================= test session starts ==============================
+platform linux -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0
+rootdir: /tmp/pilots/hello
+configfile: pyproject.toml
+testpaths: tests
+plugins: hypothesis-6.170.15, cov-7.1.0
+collected 1 item
+
+tests/test_import.py .                                                   [100%]
+
+- generated xml file: /tmp/pilots/hello/.beck/reports/09b70f92-3d63-432f-bac3-082987f20ae4.xml -
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.12.15-final-0 _______________
+
+Coverage JSON written to file /tmp/pilots/hello/.beck/reports/09b70f92-3d63-432f-bac3-082987f20ae4.coverage
+============================== 1 passed in 0.42s ===============================

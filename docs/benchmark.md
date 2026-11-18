@@ -188,8 +188,9 @@ components `messages`, `mailbox`, `rounds`, `actor`, `ping`, `pong`,
 
 ## Where the material is
 
-* The hello world pilot: `~/code/pilots/hello` on the machine that ran it,
-  with its event store (`.beck/events/5ca546dd-….db`); it is not in this
-  repository, so copy it when changing machine.
-* The ping/pong transcripts: `~/.claude/projects/-tmp-pilots-pingpong*`, on
-  the same machine.
+In `pilots/` (see its README, which says how to restore them):
+
+* the hello world pilot, with its event store
+  (`.beck/events/5ca546dd-….db`) and its git history as a bundle;
+* the transcripts of the hello world and ping/pong runs, stripped of the
+  private context.

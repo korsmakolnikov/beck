@@ -1,0 +1,12 @@
+$ uv run pytest --junitxml=/tmp/pilots/hello/.beck/reports/b7ab1628-da02-48be-a654-cef8f50b2f47.xml tests/fitness
+============================= test session starts ==============================
+platform linux -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0
+rootdir: /tmp/pilots/hello
+configfile: pyproject.toml
+plugins: hypothesis-6.170.15, cov-7.1.0
+collected 4 items
+
+tests/fitness/test_architecture.py ....                                  [100%]
+
+- generated xml file: /tmp/pilots/hello/.beck/reports/b7ab1628-da02-48be-a654-cef8f50b2f47.xml -
+============================== 4 passed in 0.40s ===============================

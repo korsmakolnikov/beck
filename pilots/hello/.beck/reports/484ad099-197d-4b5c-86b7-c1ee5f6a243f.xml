@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.026" timestamp="2026-11-17T10:59:29.273642+01:00" hostname="blacksheep-tmp20"><testcase classname="tests.test_greeter" name="test_greeting_is_written_on_stdout_followed_by_one_newline" time="0.000"><failure message="NotImplementedError: not implemented">def test_greeting_is_written_on_stdout_followed_by_one_newline() -&gt; None:
+        # spec: greeting-is-written-on-stdout
+        out = io.StringIO()
+&gt;       main(out)
+
+tests/test_greeter.py:9: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+out = &lt;_io.StringIO object at 0x7f3e2dd29180&gt;
+
+    def main(out: TextIO = sys.stdout) -&gt; int:
+        """Write the greeting and a newline on ``out``; return the exit status.
+    
+        spec: greet-the-world (the program run with no arguments greets the world).
+        ``out`` is injected so a test captures the output without a subprocess.
+    
+        Example: ``status = main(io.StringIO())`` leaves ``"Hello, world!\\n"`` and 0.
+        """
+&gt;       raise NotImplementedError("not implemented")
+E       NotImplementedError: not implemented
+
+src/hello/greeting/greeter.py:42: NotImplementedError</failure></testcase></testsuite></testsuites>

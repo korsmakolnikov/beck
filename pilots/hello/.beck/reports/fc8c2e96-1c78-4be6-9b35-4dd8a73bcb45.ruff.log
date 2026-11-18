@@ -1,0 +1,73 @@
+$ uv run ruff check --output-format json
+[
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 54,
+      "row": 10
+    },
+    "filename": "/tmp/pilots/hello/.beck/worktrees/greeter/tests/test_greeter.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import io\nimport subprocess\nimport sys\nfrom pathlib import Path\n\nimport pytest\n\nfrom hello.greeting.greeter import main, the_greeting\n\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 13
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "F811",
+    "end_location": {
+      "column": 14,
+      "row": 8
+    },
+    "filename": "/tmp/pilots/hello/.beck/worktrees/greeter/tests/test_greeter.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 9
+          },
+          "location": {
+            "column": 1,
+            "row": 8
+          }
+        }
+      ],
+      "message": "Remove definition: `pytest`"
+    },
+    "location": {
+      "column": 8,
+      "row": 8
+    },
+    "message": "Redefinition of unused `pytest` from line 6: `pytest` redefined here",
+    "name": "redefined-while-unused",
+    "noqa_row": 8,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/redefined-while-unused"
+  }
+]

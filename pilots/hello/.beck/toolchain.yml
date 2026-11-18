@@ -1,0 +1,5 @@
+toolchain: 1
+language: python
+coverage:
+  format: coverage.py
+  args: ["--cov={path}", "--cov-report=json:{coverage}"]

@@ -1,0 +1,30 @@
+$ uv run pytest --junitxml=/tmp/pilots/hello/.beck/reports/bdbe0672-fc79-4da2-b4ae-4f4770f693de.xml tests/test_greeter.py::test_greeting_text_is_hello_world tests/test_greeter.py::test_greeting_is_written_on_stdout_followed_by_one_newline tests/test_greeter.py::test_greeting_exits_with_status_zero tests/test_greeter.py::test_greeting_writes_nothing_on_stderr tests/fitness --doctest-modules src/hello/greeting/greeter.py --cov=src/hello/greeting/greeter --cov=src/hello/greeting/greeter.py --cov=hello/greeting/greeter --cov=hello/greeting/greeter.py --cov-report=json:/tmp/pilots/hello/.beck/reports/bdbe0672-fc79-4da2-b4ae-4f4770f693de.coverage
+============================= test session starts ==============================
+platform linux -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0
+rootdir: /tmp/pilots/hello/.beck/worktrees/greeter
+configfile: pyproject.toml
+plugins: hypothesis-6.170.15, cov-7.1.0
+collected 9 items
+
+tests/test_greeter.py ....                                               [ 44%]
+tests/fitness/test_architecture.py ....                                  [ 88%]
+src/hello/greeting/greeter.py ./tmp/pilots/hello/.beck/worktrees/greeter/.venv/lib/python3.12/site-packages/coverage/inorout.py:560: CoverageWarning: Module src/hello/greeting/greeter was never imported. (module-not-imported); see https://coverage.readthedocs.io/en/7.17.3/messages.html#warning-module-not-imported
+  self.warn(f"Module {pkg} was never imported.", slug="module-not-imported")
+/tmp/pilots/hello/.beck/worktrees/greeter/.venv/lib/python3.12/site-packages/coverage/inorout.py:560: CoverageWarning: Module src/hello/greeting/greeter.py was never imported. (module-not-imported); see https://coverage.readthedocs.io/en/7.17.3/messages.html#warning-module-not-imported
+  self.warn(f"Module {pkg} was never imported.", slug="module-not-imported")
+/tmp/pilots/hello/.beck/worktrees/greeter/.venv/lib/python3.12/site-packages/coverage/inorout.py:560: CoverageWarning: Module hello/greeting/greeter was never imported. (module-not-imported); see https://coverage.readthedocs.io/en/7.17.3/messages.html#warning-module-not-imported
+  self.warn(f"Module {pkg} was never imported.", slug="module-not-imported")
+/tmp/pilots/hello/.beck/worktrees/greeter/.venv/lib/python3.12/site-packages/coverage/inorout.py:560: CoverageWarning: Module hello/greeting/greeter.py was never imported. (module-not-imported); see https://coverage.readthedocs.io/en/7.17.3/messages.html#warning-module-not-imported
+  self.warn(f"Module {pkg} was never imported.", slug="module-not-imported")
+/tmp/pilots/hello/.beck/worktrees/greeter/.venv/lib/python3.12/site-packages/coverage/control.py:967: CoverageWarning: No data was collected. (no-data-collected); see https://coverage.readthedocs.io/en/7.17.3/messages.html#warning-no-data-collected
+  self._warn("No data was collected.", slug="no-data-collected")
+/tmp/pilots/hello/.beck/worktrees/greeter/.venv/lib/python3.12/site-packages/pytest_cov/plugin.py:366: CovReportWarning: Failed to generate report: No data to report.
+
+  warnings.warn(CovReportWarning(message), stacklevel=1)
+
+WARNING: Failed to generate report: No data to report.
+
+                                                                         [100%]
+
+- generated xml file: /tmp/pilots/hello/.beck/reports/bdbe0672-fc79-4da2-b4ae-4f4770f693de.xml -
+============================== 9 passed in 0.47s ===============================

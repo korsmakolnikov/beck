@@ -1,0 +1,39 @@
+$ uv run pytest --junitxml=/tmp/pilots/hello/.beck/reports/484ad099-197d-4b5c-86b7-c1ee5f6a243f.xml tests/test_greeter.py::test_greeting_is_written_on_stdout_followed_by_one_newline
+============================= test session starts ==============================
+platform linux -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0
+rootdir: /tmp/pilots/hello/.beck/worktrees/greeter
+configfile: pyproject.toml
+plugins: hypothesis-6.170.15, cov-7.1.0
+collected 1 item
+
+tests/test_greeter.py F                                                  [100%]
+
+=================================== FAILURES ===================================
+__________ test_greeting_is_written_on_stdout_followed_by_one_newline __________
+
+    def test_greeting_is_written_on_stdout_followed_by_one_newline() -> None:
+        # spec: greeting-is-written-on-stdout
+        out = io.StringIO()
+>       main(out)
+
+tests/test_greeter.py:9: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+out = <_io.StringIO object at 0x7f3e2dd29180>
+
+    def main(out: TextIO = sys.stdout) -> int:
+        """Write the greeting and a newline on ``out``; return the exit status.
+    
+        spec: greet-the-world (the program run with no arguments greets the world).
+        ``out`` is injected so a test captures the output without a subprocess.
+    
+        Example: ``status = main(io.StringIO())`` leaves ``"Hello, world!\\n"`` and 0.
+        """
+>       raise NotImplementedError("not implemented")
+E       NotImplementedError: not implemented
+
+src/hello/greeting/greeter.py:42: NotImplementedError
+- generated xml file: /tmp/pilots/hello/.beck/reports/484ad099-197d-4b5c-86b7-c1ee5f6a243f.xml -
+=========================== short test summary info ============================
+FAILED tests/test_greeter.py::test_greeting_is_written_on_stdout_followed_by_one_newline
+============================== 1 failed in 0.40s ===============================

@@ -1,0 +1,45 @@
+$ uv run pytest --junitxml=/tmp/pilots/hello/.beck/reports/0b7bb1d5-de45-4621-865f-cebbde74ebc7.xml tests/test_greeter.py::test_greeting_text_is_hello_world
+Using CPython 3.12.15
+Creating virtual environment at: .venv
+   Building hello @ file:///tmp/pilots/hello/.beck/worktrees/greeter
+      Built hello @ file:///tmp/pilots/hello/.beck/worktrees/greeter
+warning: Failed to hardlink files; falling back to full copy. This may lead to degraded performance.
+         If the cache and target directories are on different filesystems, hardlinking may not be supported.
+         If this is intentional, set `export UV_LINK_MODE=copy` or use `--link-mode=copy` to suppress this warning.
+Installed 17 packages in 77ms
+============================= test session starts ==============================
+platform linux -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0
+rootdir: /tmp/pilots/hello/.beck/worktrees/greeter
+configfile: pyproject.toml
+plugins: hypothesis-6.170.15, cov-7.1.0
+collected 1 item
+
+tests/test_greeter.py F                                                  [100%]
+
+=================================== FAILURES ===================================
+______________________ test_greeting_text_is_hello_world _______________________
+
+    def test_greeting_text_is_hello_world() -> None:
+        # spec: greeting-text-is-hello-world
+>       assert the_greeting().text == "Hello, world!"
+               ^^^^^^^^^^^^^^
+
+tests/test_greeter.py:6: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def the_greeting() -> Greeting:
+        """Return the greeting of the world.
+    
+        spec: greeting-text-is-hello-world (the greeting's text is fixed).
+    
+        >>> the_greeting().text
+        'Hello, world!'
+        """
+>       raise NotImplementedError("not implemented")
+E       NotImplementedError: not implemented
+
+src/hello/greeting/greeter.py:31: NotImplementedError
+- generated xml file: /tmp/pilots/hello/.beck/reports/0b7bb1d5-de45-4621-865f-cebbde74ebc7.xml -
+=========================== short test summary info ============================
+FAILED tests/test_greeter.py::test_greeting_text_is_hello_world - NotImplemen...
+============================== 1 failed in 0.39s ===============================

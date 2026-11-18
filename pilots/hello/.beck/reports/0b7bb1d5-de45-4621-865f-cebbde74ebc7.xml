@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.025" timestamp="2026-11-17T10:59:14.089402+01:00" hostname="blacksheep-tmp20"><testcase classname="tests.test_greeter" name="test_greeting_text_is_hello_world" time="0.000"><failure message="NotImplementedError: not implemented">def test_greeting_text_is_hello_world() -&gt; None:
+        # spec: greeting-text-is-hello-world
+&gt;       assert the_greeting().text == "Hello, world!"
+               ^^^^^^^^^^^^^^
+
+tests/test_greeter.py:6: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def the_greeting() -&gt; Greeting:
+        """Return the greeting of the world.
+    
+        spec: greeting-text-is-hello-world (the greeting's text is fixed).
+    
+        &gt;&gt;&gt; the_greeting().text
+        'Hello, world!'
+        """
+&gt;       raise NotImplementedError("not implemented")
+E       NotImplementedError: not implemented
+
+src/hello/greeting/greeter.py:31: NotImplementedError</failure></testcase></testsuite></testsuites>

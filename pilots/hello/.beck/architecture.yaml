@@ -1,0 +1,20 @@
+architecture: 1
+system: {id: hello, name: Hello, physical: hello}
+description: A command-line program that greets the world.
+
+elements:
+  - kind: domain
+    id: greeting
+    name: Greeting
+    physical: greeting
+    elements:
+      - kind: component
+        id: greeter
+        name: Greeter
+        physical: greeter
+        boundary: concrete
+        implements: [greet-the-world, greeting-text-is-hello-world]
+
+assertions:
+  - id: greeter-depends-on-no-system-module
+    only_depends_on: {from: greeter, to: []}

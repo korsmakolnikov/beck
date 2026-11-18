@@ -1,0 +1,30 @@
+$ uv run pytest --junitxml=/tmp/pilots/hello/.beck/reports/3087f630-e802-4538-87bd-18e9bdc17536.xml tests/test_greeter.py::test_greeting_exits_with_status_zero tests/test_greeter.py::test_greeting_is_written_on_stdout_followed_by_one_newline tests/test_greeter.py::test_greeting_text_is_hello_world tests/test_greeter.py::test_greeting_writes_nothing_on_stderr
+============================= test session starts ==============================
+platform linux -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0
+rootdir: /tmp/pilots/hello/.beck/worktrees/greeter
+configfile: pyproject.toml
+plugins: hypothesis-6.170.15, cov-7.1.0
+collected 4 items
+
+tests/test_greeter.py .F..                                               [100%]
+
+=================================== FAILURES ===================================
+__________ test_greeting_is_written_on_stdout_followed_by_one_newline __________
+
+capsys = <_pytest.capture.CaptureFixture object at 0x7fd2effe2d50>
+
+    def test_greeting_is_written_on_stdout_followed_by_one_newline(capsys: pytest.CaptureFixture[str]) -> None:
+        # spec: greeting-is-written-on-stdout
+        main()
+>       assert capsys.readouterr().out == "Hello, world!\n"
+E       AssertionError: assert '' == 'Hello, world!\n'
+E         
+E         - Hello, world!
+
+tests/test_greeter.py:22: AssertionError
+----------------------------- Captured stdout call -----------------------------
+Hello, world!
+- generated xml file: /tmp/pilots/hello/.beck/reports/3087f630-e802-4538-87bd-18e9bdc17536.xml -
+=========================== short test summary info ============================
+FAILED tests/test_greeter.py::test_greeting_is_written_on_stdout_followed_by_one_newline
+========================= 1 failed, 3 passed in 0.40s ==========================

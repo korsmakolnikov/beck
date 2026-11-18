@@ -1,0 +1,133 @@
+$ uv run ruff check --output-format json
+[
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 107,
+      "row": 58
+    },
+    "filename": "/tmp/pilots/hello/.beck/worktrees/greeter/tests/fitness/beck_fitness.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 58
+    },
+    "message": "Line too long (106 > 100)",
+    "name": "line-too-long",
+    "noqa_row": 58,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 110,
+      "row": 81
+    },
+    "filename": "/tmp/pilots/hello/.beck/worktrees/greeter/tests/fitness/beck_fitness.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 81
+    },
+    "message": "Line too long (109 > 100)",
+    "name": "line-too-long",
+    "noqa_row": 81,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 112,
+      "row": 89
+    },
+    "filename": "/tmp/pilots/hello/.beck/worktrees/greeter/tests/fitness/beck_fitness.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 89
+    },
+    "message": "Line too long (111 > 100)",
+    "name": "line-too-long",
+    "noqa_row": 89,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 20,
+      "row": 11
+    },
+    "filename": "/tmp/pilots/hello/.beck/worktrees/greeter/tests/fitness/test_architecture.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from pathlib import Path\n\nimport beck_fitness\nimport pytest\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 13
+          },
+          "location": {
+            "column": 1,
+            "row": 7
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 7
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 7,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 108,
+      "row": 25
+    },
+    "filename": "/tmp/pilots/hello/.beck/worktrees/greeter/tests/fitness/test_architecture.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 25
+    },
+    "message": "Line too long (107 > 100)",
+    "name": "line-too-long",
+    "noqa_row": 25,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 108,
+      "row": 19
+    },
+    "filename": "/tmp/pilots/hello/.beck/worktrees/greeter/tests/test_greeter.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 19
+    },
+    "message": "Line too long (107 > 100)",
+    "name": "line-too-long",
+    "noqa_row": 19,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  }
+]

@@ -1,0 +1,2 @@
+$ uv run mypy --output json src/hello/greeting/greeter.py
+

@@ -1,0 +1,20 @@
+$ uv run pytest --junitxml=/tmp/pilots/hello/.beck/reports/2b12faea-fa78-43bb-9bdd-26d16c2b0c25.xml tests/test_greeter.py::test_program_run_as_a_process_greets_and_exits_with_status_zero
+Using CPython 3.12.15
+Creating virtual environment at: .venv
+   Building hello @ file:///tmp/pilots/hello/.beck/worktrees/greeter
+      Built hello @ file:///tmp/pilots/hello/.beck/worktrees/greeter
+warning: Failed to hardlink files; falling back to full copy. This may lead to degraded performance.
+         If the cache and target directories are on different filesystems, hardlinking may not be supported.
+         If this is intentional, set `export UV_LINK_MODE=copy` or use `--link-mode=copy` to suppress this warning.
+Installed 17 packages in 98ms
+============================= test session starts ==============================
+platform linux -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0
+rootdir: /tmp/pilots/hello/.beck/worktrees/greeter
+configfile: pyproject.toml
+plugins: hypothesis-6.170.15, cov-7.1.0
+collected 2 items
+
+tests/test_greeter.py ..                                                 [100%]
+
+- generated xml file: /tmp/pilots/hello/.beck/reports/2b12faea-fa78-43bb-9bdd-26d16c2b0c25.xml -
+============================== 2 passed in 0.64s ===============================
