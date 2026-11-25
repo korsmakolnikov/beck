@@ -421,17 +421,23 @@ tocca e riapre i cicli.
 
 ## Come si misura
 
-- Due percentuali: i token e il tempo di beck rispetto a minime
+- Due percentuali: i token e i minuti degli agenti di beck rispetto a minime
+- Minuti: il modello che genera, senza comandi, test e attese
 - Token pesati: input 1, scrittura in cache 1,25, lettura 0,1, output 5
-- beck: gli eventi `AgentTurnEnded` dell'iterazione
-- minime: i transcript di Claude Code, ogni messaggio contato una volta
+- Le fonti: gli eventi di beck e i transcript di Claude Code
 - Pesi uguali per tutti i modelli: si confronta il lavoro, non il prezzo
 
 ::: notes
-100 % vuol dire quanto minime; sotto, beck consuma meno. I token vengono da
-`beck benchmark`: niente è stimato, niente viene da una bolletta. I pesi sono
-quelli dell'analisi dei costi di minime. Le due fonti concordano (+0,7 % su
-paddles, i turni falliti). Il tempo è ancora da misurare. Cosa i numeri non
+100 % vuol dire quanto minime; sotto, beck consuma meno. I token di beck sono
+negli eventi `AgentTurnEnded` dell'iterazione, quelli di minime nei transcript
+di Claude Code, ogni messaggio contato una volta. Li somma `beck benchmark`:
+niente è stimato, niente viene da una bolletta. I pesi sono quelli dell'analisi dei costi di minime. Le due fonti concordano (+0,7 % su
+paddles, i turni falliti). Il tempo è quello degli agenti: i minuti in cui il
+modello genera, dai transcript di Claude Code, con lo stesso calcolo per beck e
+per minime. Restano fuori i comandi e i test, le attese dell'utente, i fermi, i
+limiti d'uso e la rete; i minuti degli agenti in parallelo si sommano, come i
+token. Modelli: minime tutto su Opus 5.5 (su hello joshua e simon su Sonnet
+5.5; negli altri pilot joshua, simon e marvin erano spenti). Cosa i numeri non
 dicono: come si guida un workflow pesa (su paddles il kent di minime faceva
 polling sui suoi agenti); i token di chi guida il benchmark non sono in nessuno
 dei due conti.
@@ -441,28 +447,39 @@ dei due conti.
 
 :::: {.columns}
 ::: {.column width="50%"}
-**Primo giro (beck su sonnet)**
+**Primo giro: kent su opus, unclebob e martin su sonnet**
 
-- Token (% di minime): hello 6 %, pingpong 21 %, paddles 6 %, alien-attack 18 %
-- Tempo (% di minime): da misurare
+- Token (% di minime): hello 6 %, pingpong 21 % e 17 %, paddles 6 %, alien-attack 34 %
+- Minuti degli agenti (% di minime): hello 8 %, pingpong 22 % e 19 %, paddles 16 %, alien-attack 34 %
 :::
 ::: {.column width="50%"}
-**Rerun sui modelli di minime (opus)**
+**Rerun: tutti gli agenti su opus, come minime**
 
 - Token (% di minime): hello 11 %, pingpong 36 %, paddles 14 %, alien-attack 70 %
-- Tempo (% di minime): da misurare
+- Minuti degli agenti (% di minime): hello 19 %, pingpong 54 %, paddles 49 %, alien-attack 84 %
 :::
 ::::
 
 ::: notes
-Percentuale dei token pesati di minime che beck ha speso: 6 % vuol dire che ne
-ha spesi 6 ogni 100 di minime. Paddles è gonfiato dal polling del kent di
-minime: senza quel kent beck è al 25 %; con i tentativi bloccati del rerun, al
-19 %. Alien-attack nel primo giro è al 18 %, ma il
-gioco di beck era ingiocabile (prossima slide). Nel rerun alien-attack ha
-chiuso al 70 %; con il round fermato dai bug arriva al 110 %, cioè più di
-minime. La condizione di merge del branch: beck funziona e spende
-meno di minime.
+Percentuale di minime: 6 % di token vuol dire che beck ne ha spesi 6 ogni 100
+di minime. Solo iterazioni complete. Pingpong nel primo giro ha due run
+completi, il secondo e il terzo.
+
+Token pesati, in milioni: hello minime 3,53, beck 0,20 e nel rerun 0,40;
+pingpong 5,66, 1,17 e 0,95, rerun 2,03; paddles 57,10, 3,49, rerun 7,92;
+alien-attack 26,80, 9,20, rerun 18,63.
+
+Minuti degli agenti: hello minime 27,5, beck 2,2 e nel rerun 5,1; pingpong
+46,9, 10,3 e 9,1, rerun 25,3; paddles 158,7, 25,7, rerun 77,9; alien-attack
+152,9, 52,6, rerun 128,4.
+
+Paddles è gonfiato dal polling del kent di minime. Togliendo kent da entrambi,
+beck è al 25 % dei token e al 24 % dei minuti nel primo giro, al 59 % e
+all'83 % nel rerun.
+
+Alien-attack nel primo giro era al 18 % dei token alla prima review, con un
+gioco ingiocabile (prossima slide); il 34 % comprende le correzioni. La
+condizione di merge del branch: beck funziona e spende meno di minime.
 :::
 
 ## Cosa ha insegnato alien-attack
@@ -488,14 +505,14 @@ correzione in review (schermo alternativo, cursore).
 
 - La regola: un run con un errore si archivia, si corregge, si riparte
 - hello world: pulito all'ottavo run, dopo 11 fix
-- Il run pulito: 15 % dei token di minime, tempo da misurare
+- Il run pulito: 15 % dei token e 31 % dei minuti degli agenti di minime
 - I bug trovati: coverage, formatter, unimplemented nascosti, grafo vecchio
 - Gli agenti ora chiedono le parole ambigue e i testi che l'utente legge
 
 ::: notes
-Hello world r2: il run pulito spende il 15 % dei token di minime. Con i sette
-tentativi fermati arriva al 116 %, ma quei tentativi misurano i bug di beck, non il
-workflow. Esempi di fix: coverage.py leggeva i path come nomi di moduli; i
+Hello world r2: il run pulito spende il 15 % dei token e il 31 % dei minuti
+degli agenti di minime (8,4 contro 27,5), con tutti gli agenti su opus: kent,
+hughes, ford, unclebob e martin. Esempi di fix: coverage.py leggeva i path come nomi di moduli; i
 file generati non passavano il formatter del progetto; un acceptance test che
 confronta prima stdout nascondeva il NotImplementedError del programma
 (ora un sitecustomize nel plugin lo annota); "touches no file" letto come
