@@ -5,23 +5,312 @@ date: "24 novembre 2026"
 lang: it-IT
 ---
 
-# Il problema
+# minime
+
+## L'architettura di minime
+
+:::: {.columns}
+::: {.column width="50%"}
+**Il flusso**
+
+- kent orchestra e inoltra le domande
+- hughes scrive il dominio
+- ford l'architettura e le interfacce
+- unclebob i componenti, in TDD
+- martin misura e rifattorizza
+:::
+::: {.column width="50%"}
+**Intorno**
+
+- joshua controlla ogni turno
+- argyris corregge gli agenti
+- simon documenta l'architettura
+- marvin scrive AGENTS.md
+- linus custodisce i commit
+:::
+::::
+
+::: notes
+minime è un workflow architecture-first fatto solo di agenti. kent è il thread
+principale: inquadra il lavoro, scrive la shopping list, lancia gli altri e
+riporta all'utente le loro domande, alla lettera. Prima il dominio (hughes),
+poi l'architettura (ford), poi un componente alla volta, dall'interno verso
+l'esterno (unclebob), e il refactor di ogni unità (martin); l'utente rivede il
+commit di ogni unità. joshua e simon girano in background; argyris gira in una
+sessione sua. I nomi: Kent Beck (TDD), John Hughes (QuickCheck), Neal Ford
+(fitness function), Robert C. Martin (le tre leggi del TDD), Martin Fowler
+(Refactoring), Chris Argyris (double loop learning), Simon Brown (C4), Marvin Minsky,
+Linus Torvalds, e Joshua, il WOPR di WarGames.
+:::
+
+## Perché ha funzionato: i DSL
+
+- hughes e ford, agnostici rispetto al codice, costruiscono i DSL
+- Domain spec (hughes): entità, operazioni, invarianti, proprietà
+- ADL (ford): sistema, domini, componenti, asserzioni
+- Ogni regola della spec ha un id, e i test lo citano
+- I DSL sono l'input strutturato degli altri agenti
+
+::: notes
+DSL: domain-specific language. Struttura: file di testo con una sintassi fissa.
+La domain spec è YAML, validato da `spec-check`; l'ADL è lo pseudo-codice di
+Richards e Ford.
+
+Contenuto: la domain spec dice che cos'è il dominio e che cosa deve garantire,
+senza nominare componenti; l'ADL dice com'è fatto il sistema e quali dipendenze
+sono vietate. Una components map lega ogni id della spec al componente che lo
+realizza.
+
+hughes non legge codice: parte dalla shopping list e dalle risposte
+dell'utente. ford si ferma alle interfacce e non scrive logica. Ragionano sul
+problema, non sull'implementazione, e il loro contesto non si sporca con test,
+log e tentativi falliti. Gli altri agenti non ricevono prosa: unclebob ricava
+i test dalla spec, e l'ADL diventa fitness function.
+:::
+
+## Perché ha funzionato: il workflow TDD
+
+- Le tre leggi di unclebob limitano la libertà dell'agente
+- Ogni test lega l'output dell'agente all'intenzione
+- L'intenzione è nei DSL: le invarianti, la struttura
+- Passi precisi dove inserire controlli, in un contesto limitato
+- Per esempio, la verifica della time complexity
+
+::: notes
+Le tre leggi: niente codice di produzione se non per far passare un test che
+fallisce; niente test più grande di quanto basta a fallire; niente codice di
+produzione oltre quello che fa passare il test. L'agente non può allargarsi:
+validazioni, default e gestione degli errori che nessun test chiede sono
+vietati.
+
+Il test cita l'id della regola (spec: round-count-is-positive): dal codice si
+risale all'intenzione, e una regola senza test si vede.
+
+Ogni passo ha un inizio e una fine, quindi un punto dove controllare, e il
+controllo guarda poche righe. In minime martin misura la complessità in tempo e
+in spazio di ogni unità prima e dopo il refactor, e non la peggiora senza il
+consenso dell'utente.
+:::
+
+## Perché ha funzionato: double loop learning
+
+- Chris Argyris (1977): correggi la regola, non solo l'errore
+- Il termostato: accendi, o ti chiedi se 20 gradi sono giusti?
+- joshua controlla ogni turno e registra le violazioni
+- argyris ne ricava le modifiche ai file degli agenti
+- L'utente approva, e il prossimo run parte dalla regola nuova
+
+::: notes
+Nota storica. Chris Argyris (1923-2013), Harvard, studiava perché le
+organizzazioni non imparano. Con Donald Schön distingue due cicli: nel single
+loop learning correggi l'azione e lasci intatta la regola che l'ha prodotta;
+nel double loop learning metti in discussione la regola. Il suo esempio è il
+termostato: accendere il riscaldamento sotto i 20 gradi è single loop learning;
+chiedersi se 20 gradi sia la temperatura giusta è double loop learning
+(Double Loop Learning in Organizations, Harvard Business Review, 1977).
+
+In minime: correggere il codice che un agente ha sbagliato è single loop
+learning. joshua confronta ogni turno con il file dell'agente e registra le
+violazioni senza fermare nessuno; argyris, in una sessione sua, propone per
+ciascuna una modifica ai file degli agenti e delle skill e applica quelle
+approvate. Cambia la regola: è double loop learning.
+:::
+
+## La domain spec di hughes: pingpong
+
+```yaml
+spec: 2
+system: pingpong
+entities:
+  - name: RoundCount
+    kind: value_object
+    description: The number of rounds a game plays.
+    fields: [{name: value, type: integer, required: true}]
+    invariants:
+      - id: round-count-is-positive
+        rule: A round count is an integer of at least one.
+operations:
+  - id: play-pingpong
+    description: A game runs ping and pong to the end.
+    post: [The transcript holds exactly 2N lines.]
+properties:
+  - id: any-round-count-gives-the-alternating-transcript
+    kind: oracle
+    forall: [{name: rounds, generator: a count from 1 to 200}]
+    holds: The transcript equals the list built from the count.
+```
+
+::: footer
+Che cosa il dominio è e deve garantire: nessun componente, nessun codice
+:::
+
+::: notes
+Pingpong: due attori, ping e pong, ciascuno con il suo thread e la sua mailbox,
+si scambiano N round di messaggi. Un estratto, nel formato di minime: il
+dominio è quello del pilot.
+
+Le sezioni: entities (entità e value object, con le loro invarianti), events,
+relations, constraints (regole che attraversano più entità), operations (pre,
+post, errori, eventi emessi), properties (per i test property-based: invariant,
+roundtrip, idempotence, metamorphic, model, oracle). hughes la scrive prima di
+ogni architettura, e `spec-check` la valida. Ogni voce diventa almeno un test
+rosso: qui la proprietà oracle diventa un test con Hypothesis su 1-200 round.
+:::
+
+## L'ADL di Ford e Richards: pingpong
+
+```
+ADL:PINGPONG SYSTEM
+
+DESCRIPTION Two threaded actors exchange messages for N rounds
+REQUIRES AdlFitness pytest helper
+DEFINE SYSTEM Ping Pong AS pingpong
+  DEFINE DOMAIN Actors AS actors
+    DEFINE COMPONENT Mailbox AS mailbox
+    DEFINE COMPONENT Actor AS actor
+  DEFINE DOMAIN Ping Pong AS game
+    DEFINE COMPONENT Ping AS ping
+    DEFINE COMPONENT Pong AS pong
+    DEFINE COMPONENT Game Runner AS runner
+  DEFINE DOMAIN Command Line AS cli
+    DEFINE COMPONENT Command AS command
+ASSERT(CLASSES are only CONTAINED within COMPONENTS)
+ASSERT(actors has NO DEPENDENCY on {game, cli})
+ASSERT(ping has NO DEPENDENCY on pong)
+ASSERT(pong has NO DEPENDENCY on ping)
+```
+
+::: footer
+Ogni DEFINE diventa un namespace, ogni ASSERT almeno una fitness function
+:::
+
+::: notes
+ADL, Architecture Definition Language, di Mark Richards e Neal Ford: uno
+pseudo-codice che descrive e governa la struttura di un sistema, pensato perché
+un LLM lo trasformi in codice e fitness function. Un estratto del pingpong, nel
+formato di minime (nel pilot ci sono anche rounds e messages).
+
+DEFINE dà a ogni elemento un nome leggibile e un nome fisico: il percorso dei
+nomi fisici è il namespace, per esempio pingpong.game.ping. ASSERT vieta: ping
+e pong si parlano solo attraverso le mailbox, quindi nessuno dei due può
+dipendere dall'altro. In minime ogni ASSERT diventa un test pytest o ExUnit, e
+una dipendenza vietata fa fallire la suite.
+:::
+
+## I limiti di minime
+
+- I token finiscono prima di chiudere un solo componente
+- È lento: ore per un singolo componente
+- Copilot CLI: le policy di sicurezza fermano il flusso
+- Comandi sempre diversi: pipeline bash spesso indecifrabili
+- Ogni richiesta interrompe anche il lavoro parallelo dell'utente
+
+::: notes
+Sulla mia macchina i token finiscono prima che un componente sia chiuso.
+Perché costa tanto: un orchestratore LLM rilegge tutta la sessione a ogni
+passo. Su hello world il kent di minime ha letto 9,3 M token dalla cache:
+tiene l'intera sessione in un solo contesto, e ogni ritorno di un sub-agente
+in background è un nuovo turno che la rilegge. Come si dividono i token fra
+gli agenti, nelle misure di minime: unclebob 70,8 %, joshua 10,7 %, kent 6,4 %.
+Da sole queste percentuali dicono chi consuma, non se il costo è sostenibile.
+
+Copilot CLI: gli agenti provano di continuo comandi nuovi, e ogni comando non
+previsto dalle policy chiede un'approvazione. Il flusso si ferma, l'utente
+viene distolto da quello che sta facendo, e per rispondere deve capire una
+pipeline bash spesso illeggibile.
+:::
+
+# beck
 
 ## Perché beck
 
-- minime: un workflow architecture-first fatto solo di agenti
-- Costa troppi token: unclebob 70,8 %, joshua 10,7 %, kent 6,4 %
-- È lento, e chiede l'utente a ogni componente
-- Un orchestratore LLM rilegge tutta la sessione a ogni passo
-- beck sostituisce l'orchestratore con codice deterministico
+- La promessa: ridurre i costi e i tempi
+- Prima il deterministico, l'agente solo come fallback
+- L'orchestratore è codice: verifica, committa, non rilegge la sessione
+- Contesti piccoli: a ogni agente solo la sua fetta, in JSON
+- Punti saldi: il TDD e il double loop learning di Argyris
 
 ::: notes
-Su hello world il kent di minime ha letto 9,3 M token dalla cache: tiene
-l'intera sessione in un solo contesto, e ogni ritorno di un sub-agente in
-background è un nuovo turno che la rilegge. joshua (l'audit di ogni turno) da
-solo è il 24 % dei token di quel run. beck non dipende da nulla di minime:
-ne riscrive le idee buone nei suoi termini (docs/minime-agents.md).
+Tutto ciò che si può risolvere senza un LLM si risolve senza un LLM. Chain of
+responsibility: un handler deterministico risponde quando può, altrimenti
+l'evento passa a un agente. Il vecchio orchestratore diventa una state
+machine, che non consuma token. Gli agenti non committano: committa beck, dopo
+aver verificato.
+
+Il grafo è il punto di sincronizzazione: ogni agente riceve solo il nodo su
+cui lavora. Input e output in JSON, ciascuno con il suo schema: un output
+fuori schema è SignalRejected e il turno si ripete. Ogni agente scrive solo nel
+suo scope (src/beck/agents/scopes.py): un turno che tocca un file fuori scope
+viene annullato e rifiutato. I test si lanciano con `beck send test`: niente
+pipeline bash improvvisate.
+
+Cosa resta di minime: il TDD, che beck verifica a ogni fase invece di fidarsi
+dell'agente, e il double loop learning di Argyris: un errore che si ripete corregge la
+regola. beck non dipende da nulla di minime: ne riscrive le idee buone nei suoi
+termini (docs/minime-agents.md).
 :::
+
+## Gli agenti di beck
+
+- kent: lo scope, la shopping list, le decisioni
+- hughes: il dominio
+- ford: l'architettura e le interfacce
+- unclebob: il TDD, una sessione per ciclo
+- martin: il refactor e la review
+- argyris: double loop learning; per ora un log
+
+::: footer
+Eliminati: joshua, marvin, linus, unclebob-pair · simon diventa una modalità operativa
+:::
+
+::: notes
+Ogni comando è un turno nuovo con un contesto piccolo: unclebob ha una
+sessione per ciclo (una sessione per unità era arrivata a 832k token per
+turno). hughes e ford, fusi in kent il 13 novembre, sono tornati il 23
+novembre: l'architettura ad agenti di minime era giusta. Di kent resta il
+nome: non orchestra più. Le parole dell'utente diventano azioni attraverso
+kent, scelte da un menu chiuso (RouteDecision).
+
+Eliminati: joshua, sostituito dai controlli deterministici; marvin, perché gli
+aggiornamenti di AGENTS.md si sono rivelati dannosi; linus, perché committa
+beck; unclebob-pair, la versione interattiva di unclebob. simon merita una
+menzione: torna come modalità operativa, in programma. Invece di implementare
+codice, distilla la documentazione dal codice che c'è già, per capire un
+sistema sconosciuto. argyris, l'agente che migliora gli agenti, per ora è un
+log (.beck/argyris.log): il double loop learning lo chiude ancora l'utente.
+:::
+
+## L'architettura di beck
+
+:::: {.columns}
+::: {.column width="50%"}
+**Il motore, deterministico**
+
+- State machine, policy, scheduler
+- Eventi: unica fonte di verità (CQRS ed event sourcing)
+- Test, check, commit, squash, atterraggi
+:::
+::: {.column width="50%"}
+**Intorno al motore**
+
+- DSL: dominio e architettura
+- Il grafo: dal requisito al test
+- Un worktree per componente
+- Agenti: comandi e risposte in JSON
+:::
+::::
+
+::: notes
+Il motore riceve un input (l'output di un agente, la risposta dell'utente),
+registra i fatti come eventi e lancia le policy di ogni nuovo evento; le policy
+comandano gli agenti o un'azione deterministica. Le DSL descrivono dominio e
+architettura; il grafo lega ogni spec id al componente, ai simboli e ai test, e
+da lì beck taglia la fetta per ciascun agente. I componenti avanzano in
+parallelo, ognuno nel suo worktree, e atterrano sul branch verificati. Le
+prossime slide entrano in ciascun pezzo.
+:::
+
+# Come funziona
 
 ## L'obiettivo
 
@@ -37,52 +326,6 @@ per un dettaglio che un controllore non guarderebbe (una riga che nessun test
 esegue) è una regola sbagliata. Un finding che il controllore deve vedere va
 nella review, senza fermare il lavoro. L'obiettivo di lungo periodo: beck
 riscrive beck, come un compilatore che fa il bootstrap di se stesso.
-:::
-
-# Come funziona
-
-## I principi
-
-- Prima il deterministico, l'agente solo come fallback
-- Input e output degli agenti in JSON, ciascuno con il suo schema
-- Gli eventi sono l'unica fonte di verità (CQRS ed event sourcing)
-- Gli agenti non committano: committa beck, dopo aver verificato
-- Il grafo è il punto di sincronizzazione: ogni agente riceve solo la sua fetta
-
-::: notes
-Chain of responsibility: un handler deterministico risponde quando può,
-altrimenti l'evento passa a un agente. Un output fuori schema è
-SignalRejected e il turno si ripete. Ogni agente scrive solo nel suo scope
-(src/beck/agents/scopes.py): un turno che tocca un file fuori scope viene
-annullato e rifiutato. Le parole dell'utente diventano azioni attraverso kent,
-scelte da un menu chiuso (RouteDecision).
-:::
-
-## Chi fa cosa
-
-:::: {.columns}
-::: {.column width="50%"}
-**beck, deterministico**
-
-- State machine, policy, scheduler
-- Test, check, commit, squash, atterraggi
-:::
-::: {.column width="50%"}
-**Gli agenti**
-
-- kent: lo scope, la shopping list, le decisioni
-- hughes e ford: il dominio, l'architettura e le interfacce
-- unclebob (TDD) e martin (refactor e review)
-:::
-::::
-
-::: notes
-Ogni comando è un turno nuovo con un contesto piccolo: unclebob ha una
-sessione per ciclo (una sessione per unità era arrivata a 832k token per
-turno). hughes e ford, fusi in kent il 13 novembre, sono tornati il 23
-novembre: l'architettura ad agenti di minime era giusta. Tolti: joshua
-(sostituito dai controlli deterministici), simon, marvin. argyris, l'agente
-che migliora gli agenti, per ora è un log (.beck/argyris.log).
 :::
 
 ## Le DSL e il grafo
@@ -178,18 +421,20 @@ tocca e riapre i cicli.
 
 ## Come si misura
 
+- Due percentuali: i token e il tempo di beck rispetto a minime
 - Token pesati: input 1, scrittura in cache 1,25, lettura 0,1, output 5
 - beck: gli eventi `AgentTurnEnded` dell'iterazione
 - minime: i transcript di Claude Code, ogni messaggio contato una volta
-- Le due fonti concordano: +0,7 % su paddles (i turni falliti)
 - Pesi uguali per tutti i modelli: si confronta il lavoro, non il prezzo
 
 ::: notes
-Tutto viene da `beck benchmark`: niente è stimato, niente viene da una
-bolletta. I pesi sono quelli dell'analisi dei costi di minime. Cosa i numeri
-non dicono: come si guida un workflow pesa (su paddles il kent di minime
-faceva polling sui suoi agenti: 1.501 turni, 420 M token letti); i token di
-chi guida il benchmark non sono in nessuno dei due conti.
+100 % vuol dire quanto minime; sotto, beck consuma meno. I token vengono da
+`beck benchmark`: niente è stimato, niente viene da una bolletta. I pesi sono
+quelli dell'analisi dei costi di minime. Le due fonti concordano (+0,7 % su
+paddles, i turni falliti). Il tempo è ancora da misurare. Cosa i numeri non
+dicono: come si guida un workflow pesa (su paddles il kent di minime faceva
+polling sui suoi agenti); i token di chi guida il benchmark non sono in nessuno
+dei due conti.
 :::
 
 ## beck contro minime
@@ -198,25 +443,25 @@ chi guida il benchmark non sono in nessuno dei due conti.
 ::: {.column width="50%"}
 **Primo giro (beck su sonnet)**
 
-- hello 0,06 · pingpong 0,21
-- paddles 0,06 · alien-attack 0,18
+- Token (% di minime): hello 6 %, pingpong 21 %, paddles 6 %, alien-attack 18 %
+- Tempo (% di minime): da misurare
 :::
 ::: {.column width="50%"}
 **Rerun sui modelli di minime (opus)**
 
-- hello 0,11 · pingpong 0,36
-- paddles 0,14 · alien-attack 0,70
+- Token (% di minime): hello 11 %, pingpong 36 %, paddles 14 %, alien-attack 70 %
+- Tempo (% di minime): da misurare
 :::
 ::::
 
 ::: notes
-Rapporto fra token pesati, beck diviso minime: 0,06 vuol dire che beck ha
-speso il 6 %. Paddles senza il kent di minime: 0,25; con i tentativi
-bloccati del rerun: 0,19. Hello world: 199.101 contro 3.530.104. Paddles: 3,5 M contro
-57,1 M, gonfiati dal polling di kent. Alien-attack nel primo giro: 4,8 M
-contro 26,8 M, ma il gioco di beck era ingiocabile (prossima slide). Nel
-rerun alien-attack ha chiuso a 18,6 M; con il round fermato dai bug arriva a
-29,6 M, cioè 1,10. La condizione di merge del branch: beck funziona e spende
+Percentuale dei token pesati di minime che beck ha speso: 6 % vuol dire che ne
+ha spesi 6 ogni 100 di minime. Paddles è gonfiato dal polling del kent di
+minime: senza quel kent beck è al 25 %; con i tentativi bloccati del rerun, al
+19 %. Alien-attack nel primo giro è al 18 %, ma il
+gioco di beck era ingiocabile (prossima slide). Nel rerun alien-attack ha
+chiuso al 70 %; con il round fermato dai bug arriva al 110 %, cioè più di
+minime. La condizione di merge del branch: beck funziona e spende
 meno di minime.
 :::
 
@@ -243,13 +488,13 @@ correzione in review (schermo alternativo, cursore).
 
 - La regola: un run con un errore si archivia, si corregge, si riparte
 - hello world: pulito all'ottavo run, dopo 11 fix
-- Costo del run pulito: 0,15 di minime
+- Il run pulito: 15 % dei token di minime, tempo da misurare
 - I bug trovati: coverage, formatter, unimplemented nascosti, grafo vecchio
 - Gli agenti ora chiedono le parole ambigue e i testi che l'utente legge
 
 ::: notes
-Hello world r2: 519.416 token pesati contro 3.530.104. Con i sette tentativi
-fermati arriva a 1,16, ma quei tentativi misurano i bug di beck, non il
+Hello world r2: il run pulito spende il 15 % dei token di minime. Con i sette
+tentativi fermati arriva al 116 %, ma quei tentativi misurano i bug di beck, non il
 workflow. Esempi di fix: coverage.py leggeva i path come nomi di moduli; i
 file generati non passavano il formatter del progetto; un acceptance test che
 confronta prima stdout nascondeva il NotImplementedError del programma
