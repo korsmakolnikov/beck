@@ -7,84 +7,51 @@ Delete this file once everything here is done, if the user agrees.
 
 State as of 2026-11-25, branch `docs/beck-presentation`.
 
-## The task: the time percentages
+## Done: tokens and time, as percentages of minime's
 
-The user wants only two figures from the beck vs minime comparison: **the
-tokens and the time of beck, as percentages of minime's** (minime = 100 %).
-The tokens are done. The time was never measured on the first PC (it had
-neither minime's runs nor beck's later ones), so the slides say "da
-misurare". Do not invent or estimate a figure: one you cannot compute stays
-"da misurare".
+The slides give beck's **tokens and agents' minutes** as percentages of
+minime's (minime = 100 %). The user settled the definition: only the agents
+count, so the minutes are what the models took to generate, read from the
+Claude Code transcripts of both, the same way. The commands, the tests, the
+waits and whatever beck itself runs are left out; agents in parallel are
+summed, like their tokens. Only complete runs are compared; the sums with
+the stopped runs were removed.
 
-1. **Agree on the definition with the user first.** Proposed, not yet
-   approved: *active time*, from a run's first event to its last, minus the
-   waits for the user and for usage limits. Ask whether to report this, the
-   plain wall-clock time, or both. beck runs components in parallel, so the
-   sum of the turns is a third measure: do not confuse it with elapsed time.
-2. **Find the runs**: for each pilot (hello, pingpong, paddles,
-   alien-attack), minime's run, beck's first round (sonnet) and the rerun on
-   minime's models (opus), and the clean r2 run of hello world. They must be
-   the ones behind the token percentages below: check by recomputing the
-   tokens. If one is missing, say which.
-3. **Compute, with a script, not by hand.** If the checkout has `beck
-   benchmark` (the slides name it; the branches on the first PC did not have
-   it), see whether it reports time already, and extend it there with its
-   test rather than writing a throwaway script; ask before changing beck.
-4. **Write the percentages** in `slides.md`, replacing every "da misurare"
-   (`grep -n 'da misurare' slides.md`), and the sentence "Il tempo è ancora da
-   misurare." in the notes of "Come si misura", where the definition goes.
-5. `make check`, then `make open`, and let the user look.
+`beck benchmark <iteration> --minime <transcripts>` computes both figures
+(branch `feat/benchmark-time`, on `event_sourced_core`; its time needs the
+transcripts of beck's agents in `~/.claude/projects`). Open copies of the event
+stores: the command opens them read-write. It gives exactly these:
 
-### Where the times are
+| Pilot | First round, tokens | First round, minutes | Rerun, tokens | Rerun, minutes |
+|---|---|---|---|---|
+| hello | 6 % | 8 % | 11 % | 19 % |
+| pingpong, run 2 | 21 % | 22 % | 36 % | 54 % |
+| pingpong, run 3 | 17 % | 19 % | - | - |
+| paddles | 6 % | 16 % | 14 % | 49 % |
+| alien-attack | 34 % | 34 % | 70 % | 84 % |
 
-* **beck**: the event store `.beck/events/<iteration>.db`, table `event`,
-  column `at` (ISO 8601, UTC). `AgentTurnEnded` has `duration_ms` in its JSON
-  payload; `AgentTurnStarted` marks the start. The waits for the user lie
-  between `DecisionRequested` (and the questions) and the events whose
-  `actor` is `user`; the usage limits show as `AgentTurnFailed` followed by a
-  gap. Checked on the hello world store of 2026-11-17 (`5ca546dd`); later
-  stores may have changed. That run is **not** a benchmark: it took 09:55 to
-  22:44 UTC, mostly waiting for usage limits, and held a runaway refactor
-  loop (about 1,230 martin turns), since fixed.
-* **minime**: the Claude Code transcripts,
-  `~/.claude/projects/<project>/**/*.jsonl`: each line has a `timestamp`.
-  Count each message once, by its id. The sub-agents have transcripts of
-  their own. `kent-events.jsonl` may also help, under
-  `~/.local/state/minime/<repository>/` or `/tmp`.
-* Open the stores read-only; copy nothing private into the repository.
+hello world r2, the clean run: 15 % of the tokens, 31 % of the minutes.
+Paddles with kent left out of both (by a throwaway script, not by `beck
+benchmark`): 25 % and 24 % in the first round, 59 % and 83 % in the rerun.
 
-### Token percentages on the slides
+The first round had kent on opus, unclebob and martin on sonnet; the rerun had
+all of them on opus. minime ran on Opus 5.5 (hello: joshua and simon on Sonnet
+5.5), and was never rerun. New runs of beck (r2) change nothing on the slides
+until one closes: then run the command and add its figures.
 
-| Pilot | First round (beck on sonnet) | Rerun (opus) |
-|---|---|---|
-| hello | 6 % | 11 % |
-| pingpong | 21 % | 36 % |
-| paddles | 6 % | 14 % |
-| alien-attack | 18 % | 70 % |
+## To verify, then report
 
-hello world r2, the clean run: 15 %. They were converted from the ratios of
-the first version of the slides (`git log -p slides.md`), not recomputed.
-Uncomfortable figures kept in the notes: paddles 25 % without minime's kent,
-19 % with the rerun's blocked attempts; alien-attack 110 % with the round its
-bugs stopped; hello r2 116 % with the failed attempts. The user has not said
-whether to keep them: ask.
-
-## To verify here, then report
-
-The first PC could not check these:
-
-1. "hughes e ford … sono tornati il 23 novembre", `src/beck/agents/scopes.py`
-   and `docs/minime-agents.md` (notes of "Perché beck" and "Gli agenti di
-   beck"). The newest commit of `event_sourced_core` it saw is `fd2334d`
-   (2026-11-18); the later work may exist only on this PC.
-2. "argyris … per ora un log" (`.beck/argyris.log`), and the note "il double
-   loop learning lo chiude ancora l'utente", which is a deduction.
-3. Pingpong examples: rebuilt in minime's formats from beck's pilot (the
-   domain and the architecture in its transcripts). The spec passes minime's
-   `spec-check --stage domain`; the ADL has been checked only by eye. If
-   minime's own `spec.yaml` and `.adl` for pingpong are here, use them.
+1. "hughes e ford … sono tornati il 23 novembre": confirmed on
+   `event_sourced_core` (`docs/minime-agents.md`, dated 2026-11-23;
+   `src/beck/agents/scopes.py` exists).
+2. "argyris … per ora un log", and the user closing the double loop:
+   confirmed by `src/beck/argyris.py` on `event_sourced_core`.
+3. Pingpong examples: the slides show reconstructed ones. minime's own
+   `spec.yaml` and `system.adl` exist in its pingpong pilot (`.sources/`). They
+   differ: the ADL has only the cli and actors components, and the properties
+   are of kind `model`. To decide: replace the examples, or keep them.
 4. Eliminated agents: "joshua, marvin, linus, unclebob-pair" is a reading of
-   the docs; simon as a mode of work is a TODO in the README.
+   the docs; simon as a mode of work is a TODO in the README. Not verified.
 5. Argyris: 1923-2013, HBR 1977 and the thermostat come from memory (20
    degrees is an adaptation). Verify them before they are presented.
 6. A likely objection: "I limiti di minime" says the tokens end before one
